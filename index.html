@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Pocket SAM</title>
+<meta name="theme-color" content="#3F51B5">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Pocket SAM">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+  :root {
+    --bg: #f4f5fa; --card: #ffffff; --text: #1b1c22; --muted: #6a6d7c;
+    --line: #d9dbe6; --brand: #3F51B5; --brand-ink: #ffffff; --accent: #e8ebfa;
+    --danger: #c62828; --ok: #2e7d32; --input: #fbfbfe;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121318; --card: #1d1e25; --text: #e9e9ef; --muted: #9a9cab;
+      --line: #33353f; --brand: #7986CB; --brand-ink: #10121c; --accent: #262a40;
+      --danger: #ef5350; --ok: #66bb6a; --input: #16171d;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { background: var(--brand); color: var(--brand-ink);
+    padding: calc(env(safe-area-inset-top) + 12px) 16px 12px; position: sticky; top: 0; z-index: 5; }
+  header h1 { margin: 0; font-size: 22px; }
+  header .status { font-size: 14px; opacity: .9; margin-top: 2px; min-height: 1.2em; }
+  main { max-width: 640px; margin: 0 auto; padding: 12px 16px calc(env(safe-area-inset-bottom) + 32px); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 12px 14px; margin: 12px 0; }
+  .card h2 { font-size: 17px; margin: 0 0 8px; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: center; padding: 5px 0; }
+  .row label { font-weight: 600; font-size: 15px; }
+  input, textarea { width: 100%; font: inherit; color: var(--text); background: var(--input);
+    border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; }
+  textarea { resize: vertical; min-height: 42px; }
+  input:focus, textarea:focus { outline: 2px solid var(--brand); outline-offset: 0; border-color: transparent; }
+  .result { font-weight: 700; margin: 8px 0 4px; padding: 10px 12px; background: var(--accent);
+    border-radius: 8px; white-space: pre-line; }
+  .btns { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); margin: 10px 0; }
+  button { font: inherit; font-weight: 600; padding: 11px 10px; border-radius: 10px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--card); color: var(--text); }
+  button.primary { background: var(--brand); color: var(--brand-ink); border-color: var(--brand); }
+  button.danger { color: var(--danger); }
+  button:disabled { opacity: .45; cursor: default; }
+  .pickers { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .pickers button { text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pickers small { display: block; font-weight: 400; color: var(--muted); font-size: 12px; }
+  .hint { color: var(--muted); font-size: 13px; }
+  .latest { color: var(--muted); font-size: 14px; margin-top: 6px; }
+  /* dialog */
+  dialog { border: none; border-radius: 14px; padding: 0; width: min(92vw, 460px);
+    background: var(--card); color: var(--text); }
+  dialog::backdrop { background: rgba(0,0,0,.45); }
+  .dlg-head { padding: 14px 16px 6px; font-weight: 700; font-size: 17px; }
+  .dlg-body { padding: 4px 16px 8px; max-height: 60vh; overflow: auto; }
+  .dlg-foot { display: flex; gap: 8px; justify-content: flex-end; padding: 8px 16px 14px; flex-wrap: wrap; }
+  .list button { display: block; width: 100%; text-align: left; margin: 6px 0; font-weight: 500; }
+  .list button.add { color: var(--brand); font-weight: 700; }
+  .kv { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; font-size: 15px; }
+  .kv div:nth-child(odd) { color: var(--muted); }
+  .toast { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 24px);
+    transform: translateX(-50%); background: #222; color: #fff; padding: 10px 16px; border-radius: 20px;
+    font-size: 15px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 50; max-width: 90vw; }
+  .toast.show { opacity: .95; }
+  @media (max-width: 380px) { .row { grid-template-columns: 1fr; gap: 4px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Pocket SAM</h1>
+  <div class="status" id="status"></div>
+</header>
+
+<main>
+  <div class="pickers">
+    <button id="countyBtn"><small>County / City</small><span>1. Select County</span></button>
+    <button id="siteBtn"><small>Site</small><span>2. Select Site</span></button>
+  </div>
+  <div class="latest" id="latest"></div>
+
+  <section class="card">
+    <h2>Chemical feed</h2>
+    <div id="chemFields"></div>
+    <div class="result" id="chemResult">CHEM FEED GPD: --</div>
+    <div id="chemInfo"></div>
+  </section>
+
+  <section class="card">
+    <h2>Biofilter</h2>
+    <div id="bioFields"></div>
+    <div class="result" id="bioResult"></div>
+    <div id="bioInfo"></div>
+  </section>
+
+  <section class="card">
+    <div class="row">
+      <label for="readingDate">Reading date</label>
+      <input type="date" id="readingDate">
+    </div>
+    <div class="btns">
+      <button class="primary" id="saveReadingBtn">SAVE READING</button>
+      <button id="historyBtn">HISTORY</button>
+    </div>
+    <div class="btns">
+      <button id="saveBtn">SAVE</button>
+      <button id="cancelBtn">CANCEL</button>
+      <button class="danger" id="deleteBtn">DELETE</button>
+    </div>
+    <p class="hint">SAVE READING stores today's numbers in this site's history (one per date).
+      SAVE just updates the site's current settings.</p>
+  </section>
+
+  <section class="card">
+    <h2>Backup &amp; sharing</h2>
+    <div class="btns">
+      <button id="exportBtn">EXPORT BACKUP</button>
+      <button id="importBtn">IMPORT</button>
+      <button id="csvBtn">EXPORT CSV</button>
+    </div>
+    <p class="hint">Backup files work with the Android app too. Import adds sites; a site with the same
+      county and name is replaced. CSV opens in Excel / Google Sheets.</p>
+    <input type="file" id="importFile" accept=".json,application/json,text/plain" hidden>
+  </section>
+</main>
+
+<dialog id="dlg">
+  <div class="dlg-head" id="dlgTitle"></div>
+  <div class="dlg-body" id="dlgBody"></div>
+  <div class="dlg-foot" id="dlgFoot"></div>
+</dialog>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+
+/* ---------- Field definitions (keys match the Android app) ---------- */
+const CHEM = [
+  { key: "p1Rate", label: "Pump1 rate mL/min", hint: "Pump1 mL/min", num: true },
+  { key: "p1Hrs",  label: "Pump1 timer hrs/day", hint: "blank = 24", num: true },
+  { key: "p2Rate", label: "Pump2 rate mL/min", hint: "Pump2 mL/min", num: true },
+  { key: "p2Hrs",  label: "Pump2 timer hrs/day", hint: "blank = 24", num: true },
+];
+const CHEM_INFO = { key: "chemInfo", label: "Chem feed info", hint: "Pump type/size/brand, tank level", num: false };
+const BIO = [
+  { key: "tankGal", label: "Nutrient tank gallons", hint: "Tank gal", num: true },
+  { key: "jugs",    label: "Nutrient jugs per tank", hint: "Jugs", num: true },
+  { key: "bioGph",  label: "Bio pump max GPH (label)", hint: "GPH", num: true },
+  { key: "speed",   label: "Pump speed %", hint: "Speed %", num: true },
+  { key: "stroke",  label: "Pump stroke %", hint: "Stroke %", num: true },
+  { key: "bioHrs",  label: "Bio pump timer hrs/day", hint: "blank = 24", num: true },
+];
+const BIO_INFO = { key: "bioInfo", label: "Biofilter info", hint: "e.g. belt size", num: false };
+const ALL = [...CHEM, CHEM_INFO, ...BIO, BIO_INFO];
+const HIST = "_history";   // per-site list of dated readings
+
+/* ---------- Storage: IndexedDB, falling back to localStorage ---------- */
+const store = (() => {
+  const KEY = "pocketsam-db";
+  let idb = null;
+  const open = () => new Promise((res) => {
+    try {
+      const r = indexedDB.open("pocketsam", 1);
+      r.onupgradeneeded = () => r.result.createObjectStore("kv");
+      r.onsuccess = () => { idb = r.result; res(); };
+      r.onerror = () => res();
+    } catch (e) { res(); }
+  });
+  const tx = (mode, fn) => new Promise((res, rej) => {
+    const t = idb.transaction("kv", mode); const req = fn(t.objectStore("kv"));
+    t.oncomplete = () => res(req && req.result); t.onerror = () => rej(t.error);
+  });
+  return {
+    async load() {
+      await open();
+      if (idb) {
+        try { const v = await tx("readonly", s => s.get(KEY)); if (v) return JSON.parse(v); } catch (e) {}
+      }
+      try { return JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) { return {}; }
+    },
+    async save(db) {
+      const s = JSON.stringify(db);
+      if (idb) { try { await tx("readwrite", st => st.put(s, KEY)); return; } catch (e) {} }
+      try { localStorage.setItem(KEY, s); } catch (e) { toast("Could not save on this device!"); }
+    },
+  };
+})();
+if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+
+/* ---------- State ---------- */
+let db = {};
+let county = null, site = null, dirty = false, loading = false;
+const inputs = {};
+const $ = (id) => document.getElementById(id);
+
+/* ---------- Build form ---------- */
+function addField(parent, f) {
+  const row = document.createElement("div"); row.className = "row";
+  const id = "f_" + f.key;
+  const lab = document.createElement("label"); lab.htmlFor = id; lab.textContent = f.label;
+  const el = document.createElement(f.num ? "input" : "textarea");
+  el.id = id; el.placeholder = f.hint;
+  if (f.num) { el.type = "text"; el.inputMode = "decimal"; el.autocomplete = "off"; }
+  else { el.rows = 1; }
+  el.addEventListener("input", () => { if (!loading) { dirty = true; updateStatus(); compute(); } });
+  row.append(lab, el); parent.append(row); inputs[f.key] = el;
+}
+CHEM.forEach(f => addField($("chemFields"), f)); addField($("chemInfo"), CHEM_INFO);
+BIO.forEach(f => addField($("bioFields"), f)); addField($("bioInfo"), BIO_INFO);
+
+/* ---------- Math (same as Android app) ---------- */
+const num = (v) => { const s = String(v ?? "").trim(); if (!s) return null; const n = Number(s); return isFinite(n) ? n : null; };
+function calc(rec) {
+  const r1 = num(rec.p1Rate) ?? 0, t1 = num(rec.p1Hrs) ?? 24;
+  const r2 = num(rec.p2Rate) ?? 0, t2 = num(rec.p2Hrs) ?? 24;
+  const gpd = (r1 === 0 && r2 === 0) ? null : (r1 * 60 * t1 + r2 * 60 * t2) / 3785.41;
+  const gph = num(rec.bioGph), speed = num(rec.speed), stroke = num(rec.stroke);
+  const hrs = num(rec.bioHrs) ?? 24, tank = num(rec.tankGal);
+  let bioGpd = null, days = null;
+  if (gph != null && speed != null && stroke != null) {
+    bioGpd = gph * (speed / 100) * (stroke / 100) * hrs;
+    if (tank != null && bioGpd > 0) days = tank / bioGpd;
+  }
+  return { gpd, bioGpd, days };
+}
+const currentRecord = () => { const r = {}; ALL.forEach(f => r[f.key] = inputs[f.key].value.trim()); return r; };
+function compute() {
+  const c = calc(currentRecord());
+  $("chemResult").textContent = c.gpd == null ? "CHEM FEED GPD: --" : "CHEM FEED GPD: " + c.gpd.toFixed(2);
+  $("bioResult").textContent = c.bioGpd == null ? "Bio feed: enter pump GPH, speed % and stroke %"
+    : "Bio feed: " + c.bioGpd.toFixed(2) + " gal/day" + (c.days != null ? "\nTank empty in about " + c.days.toFixed(1) + " days" : "");
+}
+
+/* ---------- UI helpers ---------- */
+const today = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
+const fmtDate = (iso) => { const [y, m, d] = iso.split("-").map(Number); return new Date(y, m - 1, d).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }); };
+const byName = (a, b) => a.localeCompare(b, undefined, { sensitivity: "base", numeric: true });
+const counties = () => Object.keys(db).sort(byName);
+const sites = (c) => Object.keys(db[c] || {}).sort(byName);
+const siteRec = () => (county && site && db[county] && db[county][site]) || null;
+
+function refreshUi() {
+  $("countyBtn").querySelector("span").textContent = county || "1. Select County";
+  $("siteBtn").querySelector("span").textContent = site || "2. Select Site";
+  const rec = siteRec(); const h = rec && Array.isArray(rec[HIST]) ? rec[HIST] : [];
+  $("latest").textContent = h.length ? `${h.length} reading(s) · latest ${fmtDate(h[h.length - 1].date)}` : "";
+  const on = !!(county && site);
+  ["saveReadingBtn", "historyBtn", "saveBtn"].forEach(id => $(id).disabled = !on);
+  $("historyBtn").disabled = !h.length;
+  updateStatus();
+}
+function updateStatus() {
+  $("status").textContent = !county ? "Pick or add a county / city to start."
+    : !site ? `${county} — pick or add a site.`
+    : dirty ? `${county} › ${site}   (unsaved changes)` : `${county} › ${site}`;
+}
+let toastTimer;
+function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 2200); }
+
+/* Generic dialog: buttons = [{text, cls, fn}] ; fn returning false keeps it open */
+function dialog(title, bodyNode, buttons) {
+  const d = $("dlg"); $("dlgTitle").textContent = title;
+  const body = $("dlgBody"); body.replaceChildren(); if (bodyNode) body.append(bodyNode);
+  const foot = $("dlgFoot"); foot.replaceChildren();
+  (buttons || [{ text: "Close" }]).forEach(b => {
+    const btn = document.createElement("button"); btn.textContent = b.text; if (b.cls) btn.className = b.cls;
+    btn.onclick = () => { if (b.fn && b.fn() === false) return; d.close(); };
+    foot.append(btn);
+  });
+  d.showModal();
+}
+const closeDlg = () => $("dlg").close();
+function confirmBox(msg, okText, fn) {
+  const p = document.createElement("p"); p.textContent = msg;
+  dialog("Please confirm", p, [{ text: "Cancel" }, { text: okText, cls: "primary", fn }]);
+}
+function askName(title, fn) {
+  const inp = document.createElement("input"); inp.autocapitalize = "words";
+  const ok = () => { const n = inp.value.trim(); if (!n) return false; closeDlg(); fn(n); return false; };
+  inp.addEventListener("keydown", e => { if (e.key === "Enter") ok(); });
+  dialog(title, inp, [{ text: "Cancel" }, { text: "OK", cls: "primary", fn: ok }]);
+  setTimeout(() => inp.focus(), 50);
+}
+function listDialog(title, items, addText, onPick, onAdd) {
+  const box = document.createElement("div"); box.className = "list";
+  items.forEach(name => { const b = document.createElement("button"); b.textContent = name; b.onclick = () => { closeDlg(); onPick(name); }; box.append(b); });
+  const a = document.createElement("button"); a.className = "add"; a.textContent = addText;
+  a.onclick = () => { closeDlg(); onAdd(); }; box.append(a);
+  dialog(title, box, [{ text: "Close" }]);
+}
+function guardUnsaved(action) {
+  if (!dirty) { action(); return; }
+  const p = document.createElement("p"); p.textContent = "Discard your changes?";
+  dialog("Unsaved changes", p, [{ text: "Keep editing" }, { text: "Discard", cls: "danger", fn: () => { dirty = false; setTimeout(action, 0); } }]);
+}
+
+/* ---------- Data ops ---------- */
+function fill(rec) { loading = true; ALL.forEach(f => inputs[f.key].value = rec ? (rec[f.key] ?? "") : ""); loading = false; compute(); }
+function selectCounty(c) { county = c; site = null; fill(null); dirty = false; refreshUi(); }
+function loadSite(s) { site = s; fill((db[county] || {})[s]); dirty = false; refreshUi(); }
+async function persist() { await store.save(db); }
+
+$("countyBtn").onclick = () => guardUnsaved(() =>
+  listDialog("Select county / city", counties(), "+ Add new county / city…", selectCounty,
+    () => askName("New county / city", async n => { if (!db[n]) { db[n] = {}; await persist(); } selectCounty(n); })));
+
+$("siteBtn").onclick = () => {
+  if (!county) { toast("Pick a county / city first"); return; }
+  guardUnsaved(() => listDialog(`Sites in ${county}`, sites(county), "+ Add new site…", loadSite,
+    () => askName("New site name", n => {
+      if (db[county][n]) { loadSite(n); return; }
+      site = n; fill(null); dirty = true; refreshUi(); toast("Fill in the fields, then SAVE");
+    })));
+};
+
+function writeCurrent() {
+  const old = siteRec() || {};
+  const rec = currentRecord();
+  if (Array.isArray(old[HIST])) rec[HIST] = old[HIST];
+  (db[county] ||= {})[site] = rec;
+  return rec;
+}
+
+$("saveBtn").onclick = async () => {
+  if (!county || !site) { toast("Pick a county and a site first"); return; }
+  writeCurrent(); await persist(); dirty = false; refreshUi(); toast("Saved " + site);
+};
+
+$("saveReadingBtn").onclick = () => {
+  if (!county || !site) { toast("Pick a county and a site first"); return; }
+  const date = $("readingDate").value || today();
+  const doSave = async () => {
+    const rec = writeCurrent();
+    const entry = { date, savedAt: new Date().toISOString() };
+    ALL.forEach(f => entry[f.key] = rec[f.key]);
+    const h = (rec[HIST] ||= []).filter(e => e.date !== date);
+    h.push(entry); h.sort((a, b) => a.date.localeCompare(b.date)); rec[HIST] = h;
+    await persist(); dirty = false; refreshUi(); toast(`Reading saved for ${fmtDate(date)}`);
+  };
+  const h = (siteRec() || {})[HIST] || [];
+  if (h.some(e => e.date === date)) confirmBox(`There's already a reading for ${fmtDate(date)}. Replace it?`, "Replace", doSave);
+  else doSave();
+};
+
+$("cancelBtn").onclick = () => {
+  if (!dirty) { toast("No changes to cancel"); return; }
+  if (siteRec()) loadSite(site); else { site = null; fill(null); dirty = false; refreshUi(); }
+  toast("Changes discarded");
+};
+
+$("deleteBtn").onclick = () => {
+  if (!county) { toast("Nothing selected"); return; }
+  if (site) {
+    confirmBox(`Delete site "${site}" from ${county}, including its history?`, "Delete", async () => {
+      delete db[county][site]; await persist(); const s = site; site = null; fill(null); dirty = false; refreshUi(); toast("Deleted " + s);
+    });
+  } else {
+    confirmBox(`Delete "${county}" and its ${sites(county).length} site(s)?`, "Delete", async () => {
+      delete db[county]; await persist(); const c = county; county = null; fill(null); dirty = false; refreshUi(); toast("Deleted " + c);
+    });
+  }
+};
+
+/* ---------- History ---------- */
+$("historyBtn").onclick = () => {
+  const h = ((siteRec() || {})[HIST] || []).slice().reverse();
+  const box = document.createElement("div"); box.className = "list";
+  h.forEach(e => {
+    const c = calc(e);
+    const b = document.createElement("button");
+    b.textContent = `${fmtDate(e.date)}  —  ${c.gpd == null ? "GPD --" : c.gpd.toFixed(2) + " GPD"}`;
+    b.onclick = () => showReading(e); box.append(b);
+  });
+  dialog(`${site} — history`, box, [{ text: "Close" }]);
+};
+function showReading(e) {
+  const c = calc(e);
+  const kv = document.createElement("div"); kv.className = "kv";
+  const add = (k, v) => { const a = document.createElement("div"); a.textContent = k; const b = document.createElement("div"); b.textContent = v || "—"; kv.append(a, b); };
+  ALL.forEach(f => add(f.label, e[f.key]));
+  add("CHEM FEED GPD", c.gpd == null ? "" : c.gpd.toFixed(2));
+  add("Bio feed gal/day", c.bioGpd == null ? "" : c.bioGpd.toFixed(2));
+  add("Tank empty in (days)", c.days == null ? "" : c.days.toFixed(1));
+  dialog(`${site} — ${fmtDate(e.date)}`, kv, [
+    { text: "Delete", cls: "danger", fn: () => { setTimeout(() => confirmBox(`Delete the ${fmtDate(e.date)} reading?`, "Delete", async () => {
+        const rec = siteRec(); rec[HIST] = rec[HIST].filter(x => x.date !== e.date); if (!rec[HIST].length) delete rec[HIST];
+        await persist(); refreshUi(); toast("Reading deleted"); }), 0); } },
+    { text: "Copy to form", fn: () => { setTimeout(() => guardUnsaved(() => { fill(e); dirty = true; updateStatus(); toast("Loaded — edit, then SAVE"); }), 0); } },
+    { text: "Close", cls: "primary" },
+  ]);
+}
+
+/* ---------- Backup / import / CSV ---------- */
+function download(name, text, type) {
+  const blob = new Blob([text], { type });
+  const file = new File([blob], name, { type });
+  if (navigator.canShare && navigator.canShare({ files: [file] }) && /iPhone|iPad|Android/i.test(navigator.userAgent)) {
+    navigator.share({ files: [file], title: name }).catch(() => saveLink(blob, name)); return;
+  }
+  saveLink(blob, name);
+}
+function saveLink(blob, name) {
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+const siteCount = (d) => Object.values(d).reduce((n, c) => n + (c && typeof c === "object" ? Object.keys(c).length : 0), 0);
+
+$("exportBtn").onclick = () => {
+  download(`PocketSAM-backup-${today()}.json`, JSON.stringify(db, null, 2), "application/json");
+  toast(`Exported ${siteCount(db)} site(s)`);
+};
+
+$("importBtn").onclick = () => guardUnsaved(() => { $("importFile").value = ""; $("importFile").click(); });
+$("importFile").onchange = async (ev) => {
+  const f = ev.target.files[0]; if (!f) return;
+  let incoming;
+  try { incoming = JSON.parse(await f.text()); if (!incoming || typeof incoming !== "object" || Array.isArray(incoming)) throw 0; }
+  catch (e) { toast("That file isn't a Pocket SAM backup"); return; }
+  const n = siteCount(incoming);
+  if (!n) { toast("No sites found in that file"); return; }
+  const p = document.createElement("p");
+  p.textContent = "They'll be added to your data. A site with the same county and name will be replaced.";
+  dialog(`Import ${n} site(s)?`, p, [{ text: "Cancel" }, { text: "Import", cls: "primary", fn: async () => {
+    for (const [c, ss] of Object.entries(incoming)) {
+      if (!ss || typeof ss !== "object") continue;
+      db[c] ||= {};
+      for (const [s, rec] of Object.entries(ss)) if (rec && typeof rec === "object") db[c][s] = rec;
+    }
+    await persist(); if (site && siteRec()) loadSite(site); else refreshUi(); toast(`Imported ${n} site(s)`);
+  } }]);
+};
+
+$("csvBtn").onclick = () => {
+  const esc = (v) => { const s = String(v ?? ""); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const head = ["County/City", "Site", "Reading date", ...ALL.map(f => f.label), "Chem feed GPD", "Bio feed gal/day", "Tank empty in days"];
+  const rows = [head];
+  for (const c of counties()) for (const s of sites(c)) {
+    const rec = db[c][s]; const h = Array.isArray(rec[HIST]) && rec[HIST].length ? rec[HIST] : [{ ...rec, date: "(current)" }];
+    for (const e of h) {
+      const k = calc(e);
+      rows.push([c, s, e.date, ...ALL.map(f => e[f.key]), k.gpd == null ? "" : k.gpd.toFixed(2),
+        k.bioGpd == null ? "" : k.bioGpd.toFixed(2), k.days == null ? "" : k.days.toFixed(1)]);
+    }
+  }
+  download(`PocketSAM-${today()}.csv`, "﻿" + rows.map(r => r.map(esc).join(",")).join("\r\n"), "text/csv");
+  toast(`Exported ${rows.length - 1} row(s)`);
+};
+
+window.addEventListener("beforeunload", (e) => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
+
+/* ---------- Start ---------- */
+(async () => {
+  $("readingDate").value = today();
+  db = await store.load();
+  compute(); refreshUi();
+  if ("serviceWorker" in navigator && location.protocol.startsWith("http")) navigator.serviceWorker.register("sw.js").catch(() => {});
+})();
+</script>
+</body>
+</html>
