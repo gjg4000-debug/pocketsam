@@ -408,6 +408,11 @@ class MainActivity : AppCompatActivity() {
         val old = db.optJSONObject(c)?.optJSONObject(s)
         val rec = JSONObject()
         fields.forEach { (k, e) -> rec.put(k, e.text.toString().trim()) }
+        // Store the calculated results too, so they show up in the backup file
+        val k = calc { key -> rec.optString(key, "") }
+        rec.put("chemGpd", k.gpd?.let { fmt(it, 2) } ?: "")
+        rec.put("bioGalPerDay", k.bioGpd?.let { fmt(it, 2) } ?: "")
+        rec.put("tankDaysLeft", k.days?.let { fmt(it, 1) } ?: "")
         old?.optJSONArray(HIST)?.let { rec.put(HIST, it) }
         val cObj = db.optJSONObject(c) ?: JSONObject().also { db.put(c, it) }
         cObj.put(s, rec)
@@ -464,7 +469,8 @@ class MainActivity : AppCompatActivity() {
         val entry = JSONObject()
         entry.put("date", date)
         entry.put("savedAt", SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).format(Date()))
-        fields.keys.forEach { k -> entry.put(k, rec.optString(k, "")) }
+        (fields.keys + listOf("chemGpd", "bioGalPerDay", "tankDaysLeft"))
+            .forEach { k -> entry.put(k, rec.optString(k, "")) }
         val list = history(rec).filter { it.optString("date") != date }.toMutableList()
         list.add(entry)
         list.sortBy { it.optString("date") }

@@ -322,6 +322,11 @@ $("siteBtn").onclick = () => {
 function writeCurrent() {
   const old = siteRec() || {};
   const rec = currentRecord();
+  // Store the calculated results too, so they show up in the backup file
+  const k = calc(rec);
+  rec.chemGpd = k.gpd == null ? "" : k.gpd.toFixed(2);
+  rec.bioGalPerDay = k.bioGpd == null ? "" : k.bioGpd.toFixed(2);
+  rec.tankDaysLeft = k.days == null ? "" : k.days.toFixed(1);
   if (Array.isArray(old[HIST])) rec[HIST] = old[HIST];
   (db[county] ||= {})[site] = rec;
   return rec;
@@ -332,7 +337,7 @@ $("saveBtn").onclick = async () => {
   const date = $("readingDate").value || today();
   const rec = writeCurrent();
   const entry = { date, savedAt: new Date().toISOString() };
-  ALL.forEach(f => entry[f.key] = rec[f.key]);
+  [...ALL.map(f => f.key), "chemGpd", "bioGalPerDay", "tankDaysLeft"].forEach(key => entry[key] = rec[key]);
   const h = (rec[HIST] || []).filter(e => e.date !== date);
   h.push(entry); h.sort((a, b) => a.date.localeCompare(b.date)); rec[HIST] = h;
   await persist(); dirty = false; refreshUi(); toast(`Saved ${site} (${fmtDate(date)})`);
