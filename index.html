@@ -102,20 +102,19 @@
 
   <section class="card">
     <div class="row">
-      <label for="readingDate">Reading date</label>
+      <label for="readingDate">Date</label>
       <input type="date" id="readingDate">
     </div>
     <div class="btns">
-      <button class="primary" id="saveReadingBtn">SAVE READING</button>
-      <button id="historyBtn">HISTORY</button>
-    </div>
-    <div class="btns">
-      <button id="saveBtn">SAVE</button>
+      <button class="primary" id="saveBtn">SAVE</button>
       <button id="cancelBtn">CANCEL</button>
       <button class="danger" id="deleteBtn">DELETE</button>
     </div>
-    <p class="hint">SAVE READING stores today's numbers in this site's history (one per date).
-      SAVE just updates the site's current settings.</p>
+    <div class="btns">
+      <button id="historyBtn">HISTORY</button>
+    </div>
+    <p class="hint">SAVE also keeps a copy under the date above, so HISTORY can show past months.
+      Saving again on the same date just updates that day.</p>
   </section>
 
   <section class="card">
@@ -252,7 +251,7 @@ function refreshUi() {
   const rec = siteRec(); const h = rec && Array.isArray(rec[HIST]) ? rec[HIST] : [];
   $("latest").textContent = h.length ? `${h.length} reading(s) · latest ${fmtDate(h[h.length - 1].date)}` : "";
   const on = !!(county && site);
-  ["saveReadingBtn", "historyBtn", "saveBtn"].forEach(id => $(id).disabled = !on);
+  ["historyBtn", "saveBtn"].forEach(id => $(id).disabled = !on);
   $("historyBtn").disabled = !h.length;
   updateStatus();
 }
@@ -330,23 +329,13 @@ function writeCurrent() {
 
 $("saveBtn").onclick = async () => {
   if (!county || !site) { toast("Pick a county and a site first"); return; }
-  writeCurrent(); await persist(); dirty = false; refreshUi(); toast("Saved " + site);
-};
-
-$("saveReadingBtn").onclick = () => {
-  if (!county || !site) { toast("Pick a county and a site first"); return; }
   const date = $("readingDate").value || today();
-  const doSave = async () => {
-    const rec = writeCurrent();
-    const entry = { date, savedAt: new Date().toISOString() };
-    ALL.forEach(f => entry[f.key] = rec[f.key]);
-    const h = (rec[HIST] ||= []).filter(e => e.date !== date);
-    h.push(entry); h.sort((a, b) => a.date.localeCompare(b.date)); rec[HIST] = h;
-    await persist(); dirty = false; refreshUi(); toast(`Reading saved for ${fmtDate(date)}`);
-  };
-  const h = (siteRec() || {})[HIST] || [];
-  if (h.some(e => e.date === date)) confirmBox(`There's already a reading for ${fmtDate(date)}. Replace it?`, "Replace", doSave);
-  else doSave();
+  const rec = writeCurrent();
+  const entry = { date, savedAt: new Date().toISOString() };
+  ALL.forEach(f => entry[f.key] = rec[f.key]);
+  const h = (rec[HIST] || []).filter(e => e.date !== date);
+  h.push(entry); h.sort((a, b) => a.date.localeCompare(b.date)); rec[HIST] = h;
+  await persist(); dirty = false; refreshUi(); toast(`Saved ${site} (${fmtDate(date)})`);
 };
 
 $("cancelBtn").onclick = () => {

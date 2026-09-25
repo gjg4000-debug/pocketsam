@@ -162,19 +162,11 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        dateRow.addView(TextView(this).apply { text = "Reading date"; setTypeface(null, Typeface.BOLD) },
+        dateRow.addView(TextView(this).apply { text = "Date"; setTypeface(null, Typeface.BOLD) },
             LinearLayout.LayoutParams(0, WRAP, 1f))
         dateBtn = Button(this).apply { isAllCaps = false; setOnClickListener { pickDate() } }
         dateRow.addView(dateBtn, LinearLayout.LayoutParams(0, WRAP, 1f))
         col.addView(dateRow, LinearLayout.LayoutParams(MATCH, WRAP))
-
-        // Save reading / History
-        val readRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        readRow.addView(Button(this).apply { text = "SAVE READING"; setOnClickListener { saveReading() } },
-            LinearLayout.LayoutParams(0, WRAP, 1f))
-        historyBtn = Button(this).apply { text = "HISTORY"; setOnClickListener { showHistory() } }
-        readRow.addView(historyBtn, LinearLayout.LayoutParams(0, WRAP, 1f))
-        col.addView(readRow, LinearLayout.LayoutParams(MATCH, WRAP))
 
         // Save / Cancel / Delete
         val btnRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
@@ -187,9 +179,11 @@ class MainActivity : AppCompatActivity() {
                 LinearLayout.LayoutParams(0, WRAP, 1f))
         }
         col.addView(btnRow, LinearLayout.LayoutParams(MATCH, WRAP))
+        historyBtn = Button(this).apply { text = "HISTORY"; setOnClickListener { showHistory() } }
+        col.addView(historyBtn, LinearLayout.LayoutParams(MATCH, WRAP))
         col.addView(TextView(this).apply {
-            text = "SAVE READING stores the numbers in this site's history (one per date). " +
-                    "SAVE just updates the site's current settings."
+            text = "SAVE also keeps a copy under the date above, so HISTORY can show past months. " +
+                    "Saving again on the same date just updates that day."
             textSize = 13f
             setPadding(0, dp(4), 0, 0)
         })
@@ -465,32 +459,19 @@ class MainActivity : AppCompatActivity() {
 
     private fun save() {
         if (county == null || site == null) { toast("Pick a county and a site first"); return }
-        writeCurrent()
+        val date = readingDate
+        val rec = writeCurrent()
+        val entry = JSONObject()
+        entry.put("date", date)
+        entry.put("savedAt", SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).format(Date()))
+        fields.keys.forEach { k -> entry.put(k, rec.optString(k, "")) }
+        val list = history(rec).filter { it.optString("date") != date }.toMutableList()
+        list.add(entry)
+        list.sortBy { it.optString("date") }
+        rec.put(HIST, JSONArray(list))
         saveDb()
         dirty = false; refreshUi()
-        toast("Saved $site")
-    }
-
-    private fun saveReading() {
-        if (county == null || site == null) { toast("Pick a county and a site first"); return }
-        val date = readingDate
-        val doSave: () -> Unit = {
-            val rec = writeCurrent()
-            val entry = JSONObject()
-            entry.put("date", date)
-            entry.put("savedAt", SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).format(Date()))
-            fields.keys.forEach { k -> entry.put(k, rec.optString(k, "")) }
-            val list = history(rec).filter { it.optString("date") != date }.toMutableList()
-            list.add(entry)
-            list.sortBy { it.optString("date") }
-            rec.put(HIST, JSONArray(list))
-            saveDb()
-            dirty = false; refreshUi()
-            toast("Reading saved for ${fmtDate(date)}")
-        }
-        if (history(siteRec()).any { it.optString("date") == date }) {
-            confirm("There's already a reading for ${fmtDate(date)}. Replace it?", "Replace", doSave)
-        } else doSave()
+        toast("Saved $site (${fmtDate(date)})")
     }
 
     private fun showHistory() {
