@@ -76,7 +76,7 @@ class MainActivity : AppCompatActivity() {
     private val HIST = "_history"
 
     private data class F(val key: String, val label: String, val hint: String, val numeric: Boolean)
-    private data class Calc(val gpd: Double?, val bioGpd: Double?, val days: Double?)
+    private data class Calc(val gpd: Double?, val bioGpd: Double?, val days: Double?, val runMin: Double, val timer: Boolean)
 
     private val chemFields = listOf(
         F("p1Rate", "Pump1 rate mL/min", "Pump1 mL/min", true),
@@ -89,10 +89,11 @@ class MainActivity : AppCompatActivity() {
     private val bioFields = listOf(
         F("tankGal", "Nutrient tank gallons", "Tank gal", true),
         F("jugs", "Nutrient jugs per tank", "Jugs", true),
-        F("bioGph", "Bio pump max GPH (label)", "GPH", true),
-        F("speed", "Pump speed %", "Speed %", true),
-        F("stroke", "Pump stroke %", "Stroke %", true),
-        F("bioHrs", "Bio pump timer hrs/day", "blank = 24", true),
+        F("bioGph", "Nutrient pump max GPH (label)", "GPH", true),
+        F("speed", "Nutrient pump speed %", "Speed %", true),
+        F("stroke", "Nutrient pump stroke %", "Stroke %", true),
+        F("onSec", "Timer ON (seconds)", "e.g. 11", true),
+        F("offMin", "Timer OFF (minutes)", "e.g. 14", true),
     )
     private val bioInfo = F("bioInfo", "Biofilter info", "e.g. belt size", false)
     private val allDefs by lazy { chemFields + chemInfo + bioFields + bioInfo }
@@ -151,7 +152,7 @@ class MainActivity : AppCompatActivity() {
         addField(col, chemInfo)
 
         // Biofilter
-        col.addView(header("Biofilter"))
+        col.addView(header("Biofilter / Nutrient pump"))
         bioFields.forEach { addField(col, it) }
         bioResult = resultView(); col.addView(bioResult)
         addField(col, bioInfo)
@@ -329,25 +330,31 @@ class MainActivity : AppCompatActivity() {
         val r2 = n("p2Rate") ?: 0.0
         val t2 = n("p2Hrs") ?: 24.0
         val gpd = if (r1 == 0.0 && r2 == 0.0) null else (r1 * 60 * t1 + r2 * 60 * t2) / 3785.41
-        // Bio: max GPH × speed% × stroke% × hrs/day = gal/day;  tank ÷ gal/day = days until empty
+        // Nutrient pump: max GPH × speed% × stroke% × run hrs/day = gal/day;  tank ÷ gal/day = days until empty
+        // Timer: ON seconds then OFF minutes, repeating all day -> run hrs = 24 × ON / (ON + OFF).
+        // Old records without a timer use their hrs/day (or 24).
         val gph = n("bioGph")
         val speed = n("speed")
         val stroke = n("stroke")
-        val hrs = n("bioHrs") ?: 24.0
+        val onS = n("onSec")
+        val offM = n("offMin")
+        val timer = onS != null && offM != null && onS + offM * 60 > 0
+        val runHrs = if (timer) 24.0 * onS!! / (onS + offM!! * 60) else (n("bioHrs") ?: 24.0)
         val tank = n("tankGal")
         val bioGpd = if (gph != null && speed != null && stroke != null)
-            gph * (speed / 100.0) * (stroke / 100.0) * hrs else null
+            gph * (speed / 100.0) * (stroke / 100.0) * runHrs else null
         val days = if (tank != null && bioGpd != null && bioGpd > 0) tank / bioGpd else null
-        return Calc(gpd, bioGpd, days)
+        return Calc(gpd, bioGpd, days, runHrs * 60, timer)
     }
 
     private fun compute() {
         val c = calc { k -> fields[k]?.text?.toString() }
         chemResult.text = if (c.gpd == null) "CHEM FEED GPD: --" else "CHEM FEED GPD: ${fmt(c.gpd, 2)}"
         bioResult.text = if (c.bioGpd == null) {
-            "Bio feed: enter pump GPH, speed % and stroke %"
+            "Nutrient feed: enter pump GPH, speed % and stroke %"
         } else {
-            var s = "Bio feed: ${fmt(c.bioGpd, 2)} gal/day"
+            var s = "Nutrient feed: ${fmt(c.bioGpd, 2)} gal/day"
+            s += if (c.timer) "\nPump runs about ${fmt(c.runMin, 1)} min/day" else "\nNo timer entered, figured as running 24 hrs"
             if (c.days != null) s += "\nTank empty in about ${fmt(c.days, 1)} days"
             s
         }
@@ -500,7 +507,7 @@ class MainActivity : AppCompatActivity() {
         allDefs.forEach { f -> sb.append(f.label).append(":  ").append(e.optString(f.key, "").ifEmpty { "—" }).append('\n') }
         sb.append('\n')
         sb.append("CHEM FEED GPD:  ").append(c.gpd?.let { fmt(it, 2) } ?: "—").append('\n')
-        sb.append("Bio feed gal/day:  ").append(c.bioGpd?.let { fmt(it, 2) } ?: "—").append('\n')
+        sb.append("Nutrient feed gal/day:  ").append(c.bioGpd?.let { fmt(it, 2) } ?: "—").append('\n')
         sb.append("Tank empty in (days):  ").append(c.days?.let { fmt(it, 1) } ?: "—")
         val date = e.optString("date")
         AlertDialog.Builder(this)
@@ -606,7 +613,7 @@ class MainActivity : AppCompatActivity() {
             if (v.contains(',') || v.contains('"') || v.contains('\n')) "\"" + v.replace("\"", "\"\"") + "\"" else v
         val rows = mutableListOf<List<String>>()
         rows.add(listOf("County/City", "Site", "Reading date") + allDefs.map { it.label } +
-                listOf("Chem feed GPD", "Bio feed gal/day", "Tank empty in days"))
+                listOf("Chem feed GPD", "Nutrient feed gal/day", "Tank empty in days"))
         for (c in countyNames()) for (s in siteNames(c)) {
             val rec = db.optJSONObject(c)?.optJSONObject(s) ?: continue
             val h = history(rec)

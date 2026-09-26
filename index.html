@@ -94,7 +94,7 @@
   </section>
 
   <section class="card">
-    <h2>Biofilter</h2>
+    <h2>Biofilter / Nutrient pump</h2>
     <div id="bioFields"></div>
     <div class="result" id="bioResult"></div>
     <div id="bioInfo"></div>
@@ -151,10 +151,11 @@ const CHEM_INFO = { key: "chemInfo", label: "Chem feed info", hint: "Pump type/s
 const BIO = [
   { key: "tankGal", label: "Nutrient tank gallons", hint: "Tank gal", num: true },
   { key: "jugs",    label: "Nutrient jugs per tank", hint: "Jugs", num: true },
-  { key: "bioGph",  label: "Bio pump max GPH (label)", hint: "GPH", num: true },
-  { key: "speed",   label: "Pump speed %", hint: "Speed %", num: true },
-  { key: "stroke",  label: "Pump stroke %", hint: "Stroke %", num: true },
-  { key: "bioHrs",  label: "Bio pump timer hrs/day", hint: "blank = 24", num: true },
+  { key: "bioGph",  label: "Nutrient pump max GPH (label)", hint: "GPH", num: true },
+  { key: "speed",   label: "Nutrient pump speed %", hint: "Speed %", num: true },
+  { key: "stroke",  label: "Nutrient pump stroke %", hint: "Stroke %", num: true },
+  { key: "onSec",   label: "Timer ON (seconds)", hint: "e.g. 11", num: true },
+  { key: "offMin",  label: "Timer OFF (minutes)", hint: "e.g. 14", num: true },
 ];
 const BIO_INFO = { key: "bioInfo", label: "Biofilter info", hint: "e.g. belt size", num: false };
 const ALL = [...CHEM, CHEM_INFO, ...BIO, BIO_INFO];
@@ -221,20 +222,28 @@ function calc(rec) {
   const r2 = num(rec.p2Rate) ?? 0, t2 = num(rec.p2Hrs) ?? 24;
   const gpd = (r1 === 0 && r2 === 0) ? null : (r1 * 60 * t1 + r2 * 60 * t2) / 3785.41;
   const gph = num(rec.bioGph), speed = num(rec.speed), stroke = num(rec.stroke);
-  const hrs = num(rec.bioHrs) ?? 24, tank = num(rec.tankGal);
+  const tank = num(rec.tankGal);
+  // Nutrient pump timer: ON seconds, then OFF minutes, repeating all day.
+  // Run time per day = 24 hrs × ON / (ON + OFF). Old records without a timer use their hrs/day (or 24).
+  const onS = num(rec.onSec), offM = num(rec.offMin);
+  let runHrs, timer = false;
+  if (onS != null && offM != null && onS + offM * 60 > 0) { runHrs = 24 * onS / (onS + offM * 60); timer = true; }
+  else runHrs = num(rec.bioHrs) ?? 24;
   let bioGpd = null, days = null;
   if (gph != null && speed != null && stroke != null) {
-    bioGpd = gph * (speed / 100) * (stroke / 100) * hrs;
+    bioGpd = gph * (speed / 100) * (stroke / 100) * runHrs;
     if (tank != null && bioGpd > 0) days = tank / bioGpd;
   }
-  return { gpd, bioGpd, days };
+  return { gpd, bioGpd, days, runMin: runHrs * 60, timer };
 }
 const currentRecord = () => { const r = {}; ALL.forEach(f => r[f.key] = inputs[f.key].value.trim()); return r; };
 function compute() {
   const c = calc(currentRecord());
   $("chemResult").textContent = c.gpd == null ? "CHEM FEED GPD: --" : "CHEM FEED GPD: " + c.gpd.toFixed(2);
-  $("bioResult").textContent = c.bioGpd == null ? "Bio feed: enter pump GPH, speed % and stroke %"
-    : "Bio feed: " + c.bioGpd.toFixed(2) + " gal/day" + (c.days != null ? "\nTank empty in about " + c.days.toFixed(1) + " days" : "");
+  $("bioResult").textContent = c.bioGpd == null ? "Nutrient feed: enter pump GPH, speed % and stroke %"
+    : "Nutrient feed: " + c.bioGpd.toFixed(2) + " gal/day"
+      + (c.timer ? "\nPump runs about " + c.runMin.toFixed(1) + " min/day" : "\nNo timer entered, figured as running 24 hrs")
+      + (c.days != null ? "\nTank empty in about " + c.days.toFixed(1) + " days" : "");
 }
 
 /* ---------- UI helpers ---------- */
@@ -380,7 +389,7 @@ function showReading(e) {
   const add = (k, v) => { const a = document.createElement("div"); a.textContent = k; const b = document.createElement("div"); b.textContent = v || "—"; kv.append(a, b); };
   ALL.forEach(f => add(f.label, e[f.key]));
   add("CHEM FEED GPD", c.gpd == null ? "" : c.gpd.toFixed(2));
-  add("Bio feed gal/day", c.bioGpd == null ? "" : c.bioGpd.toFixed(2));
+  add("Nutrient feed gal/day", c.bioGpd == null ? "" : c.bioGpd.toFixed(2));
   add("Tank empty in (days)", c.days == null ? "" : c.days.toFixed(1));
   dialog(`${site} — ${fmtDate(e.date)}`, kv, [
     { text: "Delete", cls: "danger", fn: () => { setTimeout(() => confirmBox(`Delete the ${fmtDate(e.date)} reading?`, "Delete", async () => {
@@ -433,7 +442,7 @@ $("importFile").onchange = async (ev) => {
 
 $("csvBtn").onclick = () => {
   const esc = (v) => { const s = String(v ?? ""); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
-  const head = ["County/City", "Site", "Reading date", ...ALL.map(f => f.label), "Chem feed GPD", "Bio feed gal/day", "Tank empty in days"];
+  const head = ["County/City", "Site", "Reading date", ...ALL.map(f => f.label), "Chem feed GPD", "Nutrient feed gal/day", "Tank empty in days"];
   const rows = [head];
   for (const c of counties()) for (const s of sites(c)) {
     const rec = db[c][s]; const h = Array.isArray(rec[HIST]) && rec[HIST].length ? rec[HIST] : [{ ...rec, date: "(current)" }];
