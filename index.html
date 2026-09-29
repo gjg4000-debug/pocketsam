@@ -444,11 +444,19 @@ function showReading(e) {
 /* ---------- Backup / import / CSV ---------- */
 function download(name, text, type) {
   const blob = new Blob([text], { type });
-  const file = new File([blob], name, { type });
-  if (navigator.canShare && navigator.canShare({ files: [file] }) && /iPhone|iPad|Android/i.test(navigator.userAgent)) {
-    navigator.share({ files: [file], title: name }).catch(() => saveLink(blob, name)); return;
+  const mobile = /iPhone|iPad|Android/i.test(navigator.userAgent);
+  if (mobile && navigator.canShare) {
+    // Some phones (Chrome on Android) refuse to share .json files, so fall back to a .txt copy.
+    const tries = [new File([text], name, { type })];
+    if (!/\.(txt|csv)$/i.test(name)) tries.push(new File([text], name.replace(/\.[^.]+$/, "") + ".txt", { type: "text/plain" }));
+    const f = tries.find(x => { try { return navigator.canShare({ files: [x] }); } catch (e) { return false; } });
+    if (f) {
+      navigator.share({ files: [f], title: f.name }).catch(err => { if (!err || err.name !== "AbortError") saveLink(blob, name); });
+      return;
+    }
   }
   saveLink(blob, name);
+  toast("Saved " + name + " to your Downloads folder");
 }
 function saveLink(blob, name) {
   const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
@@ -458,7 +466,6 @@ const siteCount = (d) => Object.values(d).reduce((n, c) => n + (c && typeof c ==
 
 $("exportBtn").onclick = () => {
   download(`PocketSAM-backup-${today()}.json`, JSON.stringify(db, null, 2), "application/json");
-  toast(`Exported ${siteCount(db)} site(s)`);
 };
 
 $("importBtn").onclick = () => guardUnsaved(() => { $("importFile").value = ""; $("importFile").click(); });
@@ -556,7 +563,6 @@ $("csvBtn").onclick = () => {
     }
   }
   download(`PocketSAM-${today()}.csv`, "﻿" + rows.map(r => r.map(esc).join(",")).join("\r\n"), "text/csv");
-  toast(`Exported ${rows.length - 1} row(s)`);
 };
 
 window.addEventListener("beforeunload", (e) => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
