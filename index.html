@@ -134,16 +134,20 @@
 
   <section class="card">
     <h2>Backup &amp; sharing</h2>
+    <div class="row">
+      <label for="techName">Your name</label>
+      <input type="text" id="techName" placeholder="e.g. Gary" autocomplete="off" autocapitalize="words">
+    </div>
     <div class="btns">
       <button id="exportBtn">EXPORT BACKUP</button>
       <button id="importBtn">IMPORT</button>
       <button id="csvBtn">EXPORT CSV</button>
     </div>
-    <p class="hint">Backup files work with the Android app too. Import merges by date: a reading on the same
+    <p class="hint">Backup files are named with your name (set once) and work with the Android app too. Import merges by date: a reading on the same
       site and date is replaced by the imported one; other dates are kept. CSV opens in Excel / Google Sheets.</p>
     <input type="file" id="importFile" accept=".json,.txt,.csv,application/json,text/plain,text/csv" hidden>
   </section>
-  <p class="hint version">Pocket SAM version <span id="appVersion">2026-09-29 (v12)</span></p>
+  <p class="hint version">Pocket SAM version <span id="appVersion">2026-09-29 (v13)</span></p>
 </main>
 
 <dialog id="dlg">
@@ -479,9 +483,21 @@ function saveLink(blob, name) {
 }
 const siteCount = (d) => Object.values(d).reduce((n, c) => n + (c && typeof c === "object" ? Object.keys(c).length : 0), 0);
 
-$("exportBtn").onclick = () => {
-  download(`PocketSAM-backup-${today()}.json`, JSON.stringify(db, null, 2), "application/json");
-};
+/* Your name: remembered on this device, used to name exported files (Gary-PocketSAM-2026-09-29). */
+const NAME_KEY = "pocketsam-techname";
+const safeName = (n) => n.replace(/[\\/:*?"<>|]+/g, "").trim();
+function getName() { try { return localStorage.getItem(NAME_KEY) || ""; } catch (e) { return $("techName").value.trim(); } }
+function setName(n) { $("techName").value = n; try { localStorage.setItem(NAME_KEY, n); } catch (e) {} }
+$("techName").value = getName();
+$("techName").addEventListener("change", () => setName(safeName($("techName").value)));
+// Ask once for a name, then run the export (the OK tap counts as a fresh tap, so the share menu still opens).
+function withName(fn) {
+  const n = safeName(getName() || $("techName").value);
+  if (n) { fn(n); return; }
+  askName("Your name (used to name your backup files)", v => { const c = safeName(v); if (!c) return; setName(c); fn(c); });
+}
+$("exportBtn").onclick = () => withName(n =>
+  download(`${n}-PocketSAM-${today()}.json`, JSON.stringify(db, null, 2), "application/json"));
 
 $("importBtn").onclick = () => guardUnsaved(() => { $("importFile").value = ""; $("importFile").click(); });
 /* Merge an imported site into the local one.
@@ -577,7 +593,8 @@ $("csvBtn").onclick = () => {
         k.bioGpd == null ? "" : k.bioGpd.toFixed(2), k.days == null ? "" : k.days.toFixed(1), e.complete ? "Yes" : ""]);
     }
   }
-  download(`PocketSAM-${today()}.csv`, "﻿" + rows.map(r => r.map(esc).join(",")).join("\r\n"), "text/csv");
+  const n = safeName(getName());
+  download(`${n ? n + "-" : ""}PocketSAM-${today()}.csv`, "﻿" + rows.map(r => r.map(esc).join(",")).join("\r\n"), "text/csv");
 };
 
 window.addEventListener("beforeunload", (e) => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });

@@ -60,6 +60,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var status: TextView
     private lateinit var latestView: TextView
     private lateinit var completeChk: CheckBox
+    private lateinit var nameEdit: EditText
     private lateinit var chemResult: TextView
     private lateinit var bioResult: TextView
     private lateinit var dateBtn: Button
@@ -209,10 +210,25 @@ class MainActivity : AppCompatActivity() {
 
         // Backup / Import / CSV
         col.addView(header("Backup & sharing"))
+        val nameRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        nameRow.addView(TextView(this).apply { text = "Your name"; setTypeface(null, Typeface.BOLD) },
+            LinearLayout.LayoutParams(0, WRAP, 1f))
+        nameEdit = EditText(this).apply {
+            hint = "e.g. Gary"; isSingleLine = true
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS
+            setText(prefs.getString("techName", ""))
+            addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                override fun afterTextChanged(s: Editable?) { prefs.edit().putString("techName", safeName(s.toString())).apply() }
+            })
+        }
+        nameRow.addView(nameEdit, LinearLayout.LayoutParams(0, WRAP, 1f))
+        col.addView(nameRow, LinearLayout.LayoutParams(MATCH, WRAP))
         val backupRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         backupRow.addView(Button(this).apply {
             text = "EXPORT BACKUP"
-            setOnClickListener { exportLauncher.launch("PocketSAM-backup-${today()}.json") }
+            setOnClickListener { withName { n -> exportLauncher.launch("$n-PocketSAM-${today()}.json") } }
         }, LinearLayout.LayoutParams(0, WRAP, 1f))
         backupRow.addView(Button(this).apply {
             text = "IMPORT"
@@ -220,7 +236,10 @@ class MainActivity : AppCompatActivity() {
         }, LinearLayout.LayoutParams(0, WRAP, 1f))
         backupRow.addView(Button(this).apply {
             text = "EXPORT CSV"
-            setOnClickListener { csvLauncher.launch("PocketSAM-${today()}.csv") }
+            setOnClickListener {
+                val n = safeName(prefs.getString("techName", "") ?: "")
+                csvLauncher.launch((if (n.isNotEmpty()) "$n-" else "") + "PocketSAM-${today()}.csv")
+            }
         }, LinearLayout.LayoutParams(0, WRAP, 1f))
         col.addView(backupRow, LinearLayout.LayoutParams(MATCH, WRAP))
 
@@ -771,6 +790,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ---------- Helpers ----------
+
+    private fun safeName(n: String) = n.replace(Regex("[\\\\/:*?\"<>|]+"), "").trim()
+
+    /** Asks once for the tech's name (used in export file names), then runs the export. */
+    private fun withName(fn: (String) -> Unit) {
+        val n = safeName(prefs.getString("techName", "") ?: "")
+        if (n.isNotEmpty()) { fn(n); return }
+        askName("Your name (used to name your backup files)") { v ->
+            val c = safeName(v)
+            if (c.isNotEmpty()) { nameEdit.setText(c); prefs.edit().putString("techName", c).apply(); fn(c) }
+        }
+    }
 
     private fun guardUnsaved(action: () -> Unit) {
         if (!dirty) { action(); return }
