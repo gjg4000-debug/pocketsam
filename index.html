@@ -143,7 +143,7 @@
       site and date is replaced by the imported one; other dates are kept. CSV opens in Excel / Google Sheets.</p>
     <input type="file" id="importFile" accept=".json,.txt,.csv,application/json,text/plain,text/csv" hidden>
   </section>
-  <p class="hint version">Pocket SAM version <span id="appVersion">2026-09-29 (v11)</span></p>
+  <p class="hint version">Pocket SAM version <span id="appVersion">2026-09-29 (v12)</span></p>
 </main>
 
 <dialog id="dlg">
@@ -451,8 +451,8 @@ function download(name, text, type) {
     // Chrome on Android won't share .json files, so offer a .txt copy (same contents) when needed.
     const asIs = new File([text], name, { type });
     const asTxt = /\.(txt|csv)$/i.test(name) ? asIs : new File([text], name.replace(/\.[^.]+$/, "") + ".txt", { type: "text/plain" });
-    const ok = (f) => { try { return !navigator.canShare || navigator.canShare({ files: [f] }); } catch (e) { return false; } };
-    const f = ok(asIs) ? asIs : asTxt;
+    // Chrome says it can share .json but then refuses ("Permission denied"), so phones always get the .txt copy.
+    const f = asTxt;
     navigator.share({ files: [f], title: f.name }).catch(err => {
       if (err && err.name === "AbortError") return;           // you closed the share menu
       saveLink(blob, name);
