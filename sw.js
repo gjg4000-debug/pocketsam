@@ -1,5 +1,5 @@
 // Pocket SAM offline cache. Bump VERSION when you upload a new index.html.
-const VERSION = "pocketsam-v6";
+const VERSION = "pocketsam-v7";
 const FILES = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(VERSION).then(c => c.addAll(FILES))); self.skipWaiting(); });
 self.addEventListener("activate", e => {

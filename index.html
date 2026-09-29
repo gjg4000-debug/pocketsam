@@ -66,10 +66,13 @@
   .list button.add { color: var(--brand); font-weight: 700; }
   .list button.done { color: var(--ok); font-weight: 700; border-color: var(--ok); }
   .list button .count { float: right; color: var(--muted); font-weight: 400; font-size: 14px; }
-  .complete { display: flex; align-items: center; gap: 10px; margin: 10px 0 0; padding: 10px 14px;
-    background: var(--card); border: 1px solid var(--line); border-radius: 12px; font-weight: 700; cursor: pointer; }
+  .complete { display: flex; align-items: center; gap: 10px; margin: 10px 0 0; padding: 8px 8px 8px 14px;
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px; font-weight: 700; }
+  .complete-lbl { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+  .complete button.quick { margin-left: auto; padding: 8px 16px; }
+  .complete .when + button.quick { margin-left: 0; }
   .complete input { width: 24px; height: 24px; accent-color: var(--ok); margin: 0; }
-  .complete .when { font-weight: 400; color: var(--muted); font-size: 14px; margin-left: auto; }
+  .complete .when { font-weight: 400; color: var(--muted); font-size: 13px; margin-left: auto; text-align: right; }
   .kv { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; font-size: 15px; }
   .kv div:nth-child(odd) { color: var(--muted); }
   .toast { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 24px);
@@ -91,10 +94,11 @@
     <button id="siteBtn"><small>Site</small><span>2. Select Site</span></button>
   </div>
   <div class="latest" id="latest"></div>
-  <label class="complete" for="completeChk">
-    <input type="checkbox" id="completeChk"> Complete
+  <div class="complete">
+    <label class="complete-lbl" for="completeChk"><input type="checkbox" id="completeChk"> Complete</label>
     <span class="when" id="completeWhen"></span>
-  </label>
+    <button class="primary quick" id="quickSaveBtn">SAVE</button>
+  </div>
 
   <section class="card">
     <h2>Chemical feed</h2>
@@ -258,6 +262,7 @@ function compute() {
 
 /* ---------- UI helpers ---------- */
 const today = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
+const fmtShort = (iso) => { const [y, m, d] = iso.split("-").map(Number); return new Date(y, m - 1, d).toLocaleDateString(undefined, { month: "short", day: "numeric" }); };
 const fmtDate = (iso) => { const [y, m, d] = iso.split("-").map(Number); return new Date(y, m - 1, d).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }); };
 const byName = (a, b) => a.localeCompare(b, undefined, { sensitivity: "base", numeric: true });
 const counties = () => Object.keys(db).sort(byName);
@@ -270,7 +275,7 @@ function refreshUi() {
   const rec = siteRec(); const h = rec && Array.isArray(rec[HIST]) ? rec[HIST] : [];
   $("latest").textContent = h.length ? `${h.length} reading(s) · latest ${fmtDate(h[h.length - 1].date)}` : "";
   const on = !!(county && site);
-  ["historyBtn", "saveBtn"].forEach(id => $(id).disabled = !on);
+  ["historyBtn", "saveBtn", "quickSaveBtn"].forEach(id => $(id).disabled = !on);
   $("historyBtn").disabled = !h.length;
   updateStatus();
 }
@@ -333,7 +338,7 @@ function fill(rec) { loading = true; ALL.forEach(f => inputs[f.key].value = rec 
 function setComplete(rec) {
   const done = !!(rec && rec.completeMonth === thisMonth());
   $("completeChk").checked = done;
-  $("completeWhen").textContent = done && rec.completedOn ? "this month · " + fmtDate(rec.completedOn) : "";
+  $("completeWhen").textContent = done && rec.completedOn ? "done " + fmtShort(rec.completedOn) : "";
 }
 $("completeChk").addEventListener("change", () => { if (!loading) { dirty = true; updateStatus(); } });
 function selectCounty(c) { county = c; site = null; fill(null); dirty = false; refreshUi(); }
@@ -375,13 +380,18 @@ $("saveBtn").onclick = async () => {
   const month = date.slice(0, 7);
   if ($("completeChk").checked) { rec.completeMonth = month; rec.completedOn = date; }
   else if (rec.completeMonth === month) { delete rec.completeMonth; delete rec.completedOn; }
-  const entry = { date, savedAt: new Date().toISOString(), complete: $("completeChk").checked };
-  [...ALL.map(f => f.key), "chemGpd", "bioGalPerDay", "tankDaysLeft"].forEach(key => entry[key] = rec[key]);
-  const h = (rec[HIST] || []).filter(e => e.date !== date);
-  h.push(entry); h.sort((a, b) => a.date.localeCompare(b.date)); rec[HIST] = h;
+  // Only add a dated reading when some numbers or notes are filled in; a blank save just marks Complete.
+  if (ALL.some(f => rec[f.key])) {
+    const entry = { date, savedAt: new Date().toISOString(), complete: $("completeChk").checked };
+    [...ALL.map(f => f.key), "chemGpd", "bioGalPerDay", "tankDaysLeft"].forEach(key => entry[key] = rec[key]);
+    const h = (rec[HIST] || []).filter(e => e.date !== date);
+    h.push(entry); h.sort((a, b) => a.date.localeCompare(b.date)); rec[HIST] = h;
+  }
   await persist(); dirty = false; setComplete(rec); refreshUi();
   toast(`Saved ${site} (${fmtDate(date)})` + (rec.completeMonth === thisMonth() ? " · Complete" : ""));
 };
+
+$("quickSaveBtn").onclick = () => $("saveBtn").onclick();
 
 $("cancelBtn").onclick = () => {
   if (!dirty) { toast("No changes to cancel"); return; }

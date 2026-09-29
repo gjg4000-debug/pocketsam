@@ -154,7 +154,14 @@ class MainActivity : AppCompatActivity() {
             text = "Complete"; textSize = 18f; setTypeface(null, Typeface.BOLD)
             setOnCheckedChangeListener { _, _ -> if (!loading) { dirty = true; updateStatus() } }
         }
-        col.addView(completeChk)
+        val completeRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        completeRow.addView(completeChk, LinearLayout.LayoutParams(0, WRAP, 1f))
+        completeRow.addView(Button(this).apply { text = "SAVE"; setOnClickListener { save() } },
+            LinearLayout.LayoutParams(WRAP, WRAP))
+        col.addView(completeRow, LinearLayout.LayoutParams(MATCH, WRAP))
 
         // Chemical feed
         col.addView(header("Chemical feed"))
@@ -413,7 +420,7 @@ class MainActivity : AppCompatActivity() {
         val done = rec.optString("completeMonth") == thisMonth()
         completeChk.isChecked = done
         val on = rec.optString("completedOn")
-        completeChk.text = if (done && on.isNotEmpty()) "Complete  (this month · ${fmtDate(on)})" else "Complete"
+        completeChk.text = if (done && on.isNotEmpty()) "Complete  (done ${fmtDate(on).substringBeforeLast(',')})" else "Complete"
         loading = false
         compute()
     }
@@ -519,21 +526,24 @@ class MainActivity : AppCompatActivity() {
         } else if (rec.optString("completeMonth") == month) {
             rec.remove("completeMonth"); rec.remove("completedOn")
         }
-        val entry = JSONObject()
-        entry.put("date", date)
-        entry.put("complete", completeChk.isChecked)
-        entry.put("savedAt", SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).format(Date()))
-        (fields.keys + listOf("chemGpd", "bioGalPerDay", "tankDaysLeft"))
-            .forEach { k -> entry.put(k, rec.optString(k, "")) }
-        val list = history(rec).filter { it.optString("date") != date }.toMutableList()
-        list.add(entry)
-        list.sortBy { it.optString("date") }
-        rec.put(HIST, JSONArray(list))
+        // Only add a dated reading when some numbers or notes are filled in; a blank save just marks Complete.
+        if (fields.keys.any { rec.optString(it, "").isNotEmpty() }) {
+            val entry = JSONObject()
+            entry.put("date", date)
+            entry.put("complete", completeChk.isChecked)
+            entry.put("savedAt", SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).format(Date()))
+            (fields.keys + listOf("chemGpd", "bioGalPerDay", "tankDaysLeft"))
+                .forEach { k -> entry.put(k, rec.optString(k, "")) }
+            val list = history(rec).filter { it.optString("date") != date }.toMutableList()
+            list.add(entry)
+            list.sortBy { it.optString("date") }
+            rec.put(HIST, JSONArray(list))
+        }
         saveDb()
         loading = true
         val done = rec.optString("completeMonth") == thisMonth()
         completeChk.isChecked = done
-        completeChk.text = if (done) "Complete  (this month · ${fmtDate(rec.optString("completedOn"))})" else "Complete"
+        completeChk.text = if (done) "Complete  (done ${fmtDate(rec.optString("completedOn")).substringBeforeLast(',')})" else "Complete"
         loading = false
         dirty = false; refreshUi()
         toast("Saved $site (${fmtDate(date)})" + if (done) " · Complete" else "")
