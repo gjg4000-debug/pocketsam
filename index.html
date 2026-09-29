@@ -143,7 +143,7 @@
       site and date is replaced by the imported one; other dates are kept. CSV opens in Excel / Google Sheets.</p>
     <input type="file" id="importFile" accept=".json,.txt,.csv,application/json,text/plain,text/csv" hidden>
   </section>
-  <p class="hint version">Pocket SAM version <span id="appVersion">2026-09-29 (v10)</span></p>
+  <p class="hint version">Pocket SAM version <span id="appVersion">2026-09-29 (v11)</span></p>
 </main>
 
 <dialog id="dlg">
@@ -456,12 +456,22 @@ function download(name, text, type) {
     navigator.share({ files: [f], title: f.name }).catch(err => {
       if (err && err.name === "AbortError") return;           // you closed the share menu
       saveLink(blob, name);
-      toast("Couldn't open the share menu (" + ((err && err.name) || "unknown") + "). Saved to Downloads instead.");
+      shareNotice("The phone wouldn't open the share menu (" + ((err && err.name) || "unknown") + ": " + ((err && err.message) || "") + ").");
     });
     return;
   }
   saveLink(blob, name);
-  toast("Saved " + name + " to your Downloads folder" + (mobile ? " (this browser can't share files)" : ""));
+  if (mobile) shareNotice("This browser can't share files.");
+  else toast("Saved " + name + " to your Downloads folder");
+}
+function shareNotice(why) {
+  const p = document.createElement("div");
+  p.innerHTML = "<p></p><p>The file was saved to your <b>Downloads</b> folder instead.</p>" +
+    "<p class='hint'>Tip: open Pocket SAM from its home-screen icon (installed from the Chrome app), not from a link inside another app.</p>" +
+    "<p class='hint'></p>";
+  p.children[0].textContent = why;
+  p.children[3].textContent = "Browser: " + navigator.userAgent;
+  dialog("Couldn't share", p, [{ text: "OK", cls: "primary" }]);
 }
 function saveLink(blob, name) {
   const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
