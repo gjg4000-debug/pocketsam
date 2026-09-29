@@ -124,8 +124,8 @@
       <button id="importBtn">IMPORT</button>
       <button id="csvBtn">EXPORT CSV</button>
     </div>
-    <p class="hint">Backup files work with the Android app too. Import adds sites; a site with the same
-      county and name is replaced. CSV opens in Excel / Google Sheets.</p>
+    <p class="hint">Backup files work with the Android app too. Import merges by date: a reading on the same
+      site and date is replaced by the imported one; other dates are kept. CSV opens in Excel / Google Sheets.</p>
     <input type="file" id="importFile" accept=".json,application/json,text/plain" hidden>
   </section>
 </main>
@@ -421,6 +421,26 @@ $("exportBtn").onclick = () => {
 };
 
 $("importBtn").onclick = () => guardUnsaved(() => { $("importFile").value = ""; $("importFile").click(); });
+/* Merge an imported site into the local one.
+   History: same date -> imported reading wins; different dates -> both kept.
+   Current numbers: taken from the newest dated reading; if neither side has history, the imported numbers win. */
+function mergeSite(local, inc) {
+  if (!local || typeof local !== "object") return inc;
+  const byDate = new Map();
+  for (const e of (Array.isArray(local[HIST]) ? local[HIST] : [])) if (e && e.date) byDate.set(e.date, e);
+  for (const e of (Array.isArray(inc[HIST]) ? inc[HIST] : [])) if (e && e.date) byDate.set(e.date, e);
+  const h = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+  let out;
+  if (h.length) {
+    const latest = h[h.length - 1];
+    out = {}; for (const [k, v] of Object.entries(latest)) if (k !== "date" && k !== "savedAt") out[k] = v;
+    out[HIST] = h;
+  } else {
+    out = { ...local, ...inc };
+  }
+  return out;
+}
+
 $("importFile").onchange = async (ev) => {
   const f = ev.target.files[0]; if (!f) return;
   let incoming;
@@ -429,12 +449,12 @@ $("importFile").onchange = async (ev) => {
   const n = siteCount(incoming);
   if (!n) { toast("No sites found in that file"); return; }
   const p = document.createElement("p");
-  p.textContent = "They'll be added to your data. A site with the same county and name will be replaced.";
+  p.textContent = "Readings are merged by date. A reading on the same site and date is replaced by the imported one; readings on other dates are kept.";
   dialog(`Import ${n} site(s)?`, p, [{ text: "Cancel" }, { text: "Import", cls: "primary", fn: async () => {
     for (const [c, ss] of Object.entries(incoming)) {
       if (!ss || typeof ss !== "object") continue;
       db[c] ||= {};
-      for (const [s, rec] of Object.entries(ss)) if (rec && typeof rec === "object") db[c][s] = rec;
+      for (const [s, rec] of Object.entries(ss)) if (rec && typeof rec === "object") db[c][s] = mergeSite(db[c][s], rec);
     }
     await persist(); if (site && siteRec()) loadSite(site); else refreshUi(); toast(`Imported ${n} site(s)`);
   } }]);

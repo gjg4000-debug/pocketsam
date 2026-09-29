@@ -576,6 +576,26 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** History: same date -> imported reading wins; different dates -> both kept.
+     *  Current numbers come from the newest dated reading; with no history, imported numbers win. */
+    private fun mergeSite(local: JSONObject?, inc: JSONObject): JSONObject {
+        if (local == null) return inc
+        val byDate = linkedMapOf<String, JSONObject>()
+        history(local).forEach { e -> e.optString("date").takeIf { it.isNotEmpty() }?.let { byDate[it] = e } }
+        history(inc).forEach { e -> e.optString("date").takeIf { it.isNotEmpty() }?.let { byDate[it] = e } }
+        val h = byDate.values.sortedBy { it.optString("date") }
+        val out = JSONObject()
+        if (h.isNotEmpty()) {
+            val latest = h.last()
+            latest.keys().forEach { k -> if (k != "date" && k != "savedAt") out.put(k, latest.opt(k)) }
+            out.put(HIST, JSONArray(h))
+        } else {
+            local.keys().forEach { k -> out.put(k, local.opt(k)) }
+            inc.keys().forEach { k -> out.put(k, inc.opt(k)) }
+        }
+        return out
+    }
+
     private fun importFrom(uri: Uri) {
         val incoming = try {
             val text = contentResolver.openInputStream(uri)?.use {
@@ -592,12 +612,14 @@ class MainActivity : AppCompatActivity() {
 
         AlertDialog.Builder(this)
             .setTitle("Import $sites site(s)?")
-            .setMessage("They'll be added to your data. A site with the same county and name will be replaced.")
+            .setMessage("Readings are merged by date. A reading on the same site and date is replaced by the imported one; readings on other dates are kept.")
             .setPositiveButton("Import") { _, _ ->
                 incoming.keys().forEach { c ->
                     val src = incoming.optJSONObject(c) ?: return@forEach
                     val dst = db.optJSONObject(c) ?: JSONObject().also { db.put(c, it) }
-                    src.keys().forEach { s -> src.optJSONObject(s)?.let { dst.put(s, it) } }
+                    src.keys().forEach { s ->
+                        src.optJSONObject(s)?.let { inc -> dst.put(s, mergeSite(dst.optJSONObject(s), inc)) }
+                    }
                 }
                 saveDb()
                 val s = site
