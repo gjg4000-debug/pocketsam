@@ -8,11 +8,16 @@ import android.net.Uri
 import android.os.Bundle
 import android.text.Editable
 import android.text.InputType
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
+import android.text.style.StyleSpan
 import android.text.TextWatcher
 import android.view.Gravity
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
@@ -54,6 +59,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var siteBtn: Button
     private lateinit var status: TextView
     private lateinit var latestView: TextView
+    private lateinit var completeChk: CheckBox
     private lateinit var chemResult: TextView
     private lateinit var bioResult: TextView
     private lateinit var dateBtn: Button
@@ -144,6 +150,11 @@ class MainActivity : AppCompatActivity() {
         col.addView(status)
         latestView = TextView(this).apply { setPadding(0, 0, 0, dp(4)) }
         col.addView(latestView)
+        completeChk = CheckBox(this).apply {
+            text = "Complete"; textSize = 18f; setTypeface(null, Typeface.BOLD)
+            setOnCheckedChangeListener { _, _ -> if (!loading) { dirty = true; updateStatus() } }
+        }
+        col.addView(completeChk)
 
         // Chemical feed
         col.addView(header("Chemical feed"))
@@ -382,9 +393,16 @@ class MainActivity : AppCompatActivity() {
         return (0 until a.length()).mapNotNull { a.optJSONObject(it) }
     }
 
+    private fun thisMonth(): String = today().substring(0, 7)
+
+    private fun isDone(c: String, s: String): Boolean =
+        db.optJSONObject(c)?.optJSONObject(s)?.optString("completeMonth") == thisMonth()
+
     private fun clearFields() {
         loading = true
         fields.values.forEach { it.setText("") }
+        completeChk.isChecked = false
+        completeChk.text = "Complete"
         loading = false
         compute()
     }
@@ -392,8 +410,21 @@ class MainActivity : AppCompatActivity() {
     private fun fillFrom(rec: JSONObject) {
         loading = true
         fields.forEach { (k, e) -> e.setText(rec.optString(k, "")) }
+        val done = rec.optString("completeMonth") == thisMonth()
+        completeChk.isChecked = done
+        val on = rec.optString("completedOn")
+        completeChk.text = if (done && on.isNotEmpty()) "Complete  (this month · ${fmtDate(on)})" else "Complete"
         loading = false
         compute()
+    }
+
+    private val green = 0xFF2E7D32.toInt()
+
+    private fun greenLabel(text: String): CharSequence {
+        val sp = SpannableString("✓ $text")
+        sp.setSpan(ForegroundColorSpan(green), 0, sp.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        sp.setSpan(StyleSpan(Typeface.BOLD), 0, sp.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        return sp
     }
 
     private fun selectCounty(c: String) {
@@ -421,6 +452,10 @@ class MainActivity : AppCompatActivity() {
         rec.put("chemGpd", k.gpd?.let { fmt(it, 2) } ?: "")
         rec.put("bioGalPerDay", k.bioGpd?.let { fmt(it, 2) } ?: "")
         rec.put("tankDaysLeft", k.days?.let { fmt(it, 1) } ?: "")
+        if (old != null && old.optString("completeMonth").isNotEmpty()) {
+            rec.put("completeMonth", old.optString("completeMonth"))
+            rec.put("completedOn", old.optString("completedOn"))
+        }
         old?.optJSONArray(HIST)?.let { rec.put(HIST, it) }
         val cObj = db.optJSONObject(c) ?: JSONObject().also { db.put(c, it) }
         cObj.put(s, rec)
@@ -431,7 +466,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun pickCounty() = guardUnsaved {
         val names = countyNames()
-        val items = (names + "+ Add new county / city…").toTypedArray()
+        val items: Array<CharSequence> = (names.map { c ->
+            val all = siteNames(c)
+            if (all.isEmpty()) c else "$c   (${all.count { isDone(c, it) }} of ${all.size} done)"
+        } + "+ Add new county / city…").toTypedArray<CharSequence>()
         AlertDialog.Builder(this)
             .setTitle("Select county / city")
             .setItems(items) { _, i ->
@@ -451,7 +489,8 @@ class MainActivity : AppCompatActivity() {
         if (c == null) { toast("Pick a county / city first"); return }
         guardUnsaved {
             val names = siteNames(c)
-            val items = (names + "+ Add new site…").toTypedArray()
+            val items: Array<CharSequence> = (names.map<String, CharSequence> { s -> if (isDone(c, s)) greenLabel(s) else s } +
+                    "+ Add new site…").toTypedArray<CharSequence>()
             AlertDialog.Builder(this)
                 .setTitle("Sites in $c")
                 .setItems(items) { _, i ->
@@ -474,8 +513,15 @@ class MainActivity : AppCompatActivity() {
         if (county == null || site == null) { toast("Pick a county and a site first"); return }
         val date = readingDate
         val rec = writeCurrent()
+        val month = date.substring(0, 7)
+        if (completeChk.isChecked) {
+            rec.put("completeMonth", month); rec.put("completedOn", date)
+        } else if (rec.optString("completeMonth") == month) {
+            rec.remove("completeMonth"); rec.remove("completedOn")
+        }
         val entry = JSONObject()
         entry.put("date", date)
+        entry.put("complete", completeChk.isChecked)
         entry.put("savedAt", SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).format(Date()))
         (fields.keys + listOf("chemGpd", "bioGalPerDay", "tankDaysLeft"))
             .forEach { k -> entry.put(k, rec.optString(k, "")) }
@@ -484,8 +530,13 @@ class MainActivity : AppCompatActivity() {
         list.sortBy { it.optString("date") }
         rec.put(HIST, JSONArray(list))
         saveDb()
+        loading = true
+        val done = rec.optString("completeMonth") == thisMonth()
+        completeChk.isChecked = done
+        completeChk.text = if (done) "Complete  (this month · ${fmtDate(rec.optString("completedOn"))})" else "Complete"
+        loading = false
         dirty = false; refreshUi()
-        toast("Saved $site (${fmtDate(date)})")
+        toast("Saved $site (${fmtDate(date)})" + if (done) " · Complete" else "")
     }
 
     private fun showHistory() {
@@ -594,17 +645,65 @@ class MainActivity : AppCompatActivity() {
             local.keys().forEach { k -> out.put(k, local.opt(k)) }
             inc.keys().forEach { k -> out.put(k, inc.opt(k)) }
         }
+        // Keep the most recent "Complete" mark from either phone
+        out.remove("completeMonth"); out.remove("completedOn")
+        listOf(local, inc).filter { it.optString("completeMonth").isNotEmpty() }
+            .maxByOrNull { it.optString("completedOn").ifEmpty { it.optString("completeMonth") } }
+            ?.let { m ->
+                out.put("completeMonth", m.optString("completeMonth"))
+                m.optString("completedOn").takeIf { it.isNotEmpty() }?.let { out.put("completedOn", it) }
+            }
         return out
     }
 
+    /** Site list: plain text or CSV. Lines can be "Apopka, LS 12", a heading "Apopka:",
+     *  or just a site name (goes under the last heading, or the county on screen). */
+    private fun importSiteList(text: String) {
+        val list = mutableListOf<Pair<String, String>>()
+        var cur: String? = null
+        var skipped = 0
+        val header = Regex("^\"?(county|city|county\\s*/\\s*city)\"?\\s*[,\t]\\s*\"?site\"?$", RegexOption.IGNORE_CASE)
+        fun clean(v: String) = v.trim().removeSurrounding("\"").trim()
+        for (raw in text.removePrefix("\uFEFF").lines()) {
+            val line = raw.trim()
+            if (line.isEmpty() || header.matches(line)) continue
+            if (line.endsWith(":")) { cur = line.dropLast(1).trim(); continue }
+            val parts = line.split(',', '\t')
+            val c: String?
+            val s: String
+            if (parts.size >= 2) { c = clean(parts[0]); s = clean(parts[1]) } else { c = cur ?: county; s = clean(line) }
+            if (c.isNullOrEmpty() || s.isEmpty()) { skipped++; continue }
+            list.add(c to s)
+        }
+        if (list.isEmpty()) {
+            toast(if (county != null) "No site names found in that file" else "No sites found. Pick a county first, or use 'County, Site' lines")
+            return
+        }
+        val fresh = list.distinct().filter { (c, s) -> db.optJSONObject(c)?.has(s) != true }
+        val msg = if (fresh.isEmpty()) "All of these sites are already on this phone. Nothing to add."
+        else "Adds ${fresh.size} new site(s): " +
+                fresh.groupingBy { it.first }.eachCount().entries.joinToString(", ") { "${it.key} (${it.value})" } +
+                ". ${list.distinct().size - fresh.size} already on this phone and left as they are." +
+                (if (skipped > 0) " $skipped line(s) skipped." else "")
+        val b = AlertDialog.Builder(this).setTitle("Import site list?").setMessage(msg)
+        if (fresh.isEmpty()) b.setPositiveButton("OK", null)
+        else b.setPositiveButton("Add sites") { _, _ ->
+            fresh.forEach { (c, s) -> (db.optJSONObject(c) ?: JSONObject().also { db.put(c, it) }).put(s, JSONObject()) }
+            saveDb(); refreshUi()
+            toast("Added ${fresh.size} site(s)")
+        }.setNegativeButton("Cancel", null)
+        b.show()
+    }
+
     private fun importFrom(uri: Uri) {
-        val incoming = try {
-            val text = contentResolver.openInputStream(uri)?.use {
-                it.readBytes().toString(Charsets.UTF_8)
-            } ?: ""
-            JSONObject(text)
+        val text = try {
+            contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) } ?: ""
         } catch (e: Exception) {
-            toast("That file isn't a Pocket SAM backup")
+            toast("Couldn't open that file")
+            return
+        }
+        val incoming = try { JSONObject(text) } catch (e: Exception) {
+            importSiteList(text)
             return
         }
         var sites = 0
@@ -636,10 +735,11 @@ class MainActivity : AppCompatActivity() {
             if (v.contains(',') || v.contains('"') || v.contains('\n')) "\"" + v.replace("\"", "\"\"") + "\"" else v
         val rows = mutableListOf<List<String>>()
         rows.add(listOf("County/City", "Site", "Reading date") + allDefs.map { it.label } +
-                listOf("Chem feed GPD", "Nutrient feed gal/day", "Tank empty in days"))
+                listOf("Chem feed GPD", "Nutrient feed gal/day", "Tank empty in days", "Complete"))
         for (c in countyNames()) for (s in siteNames(c)) {
             val rec = db.optJSONObject(c)?.optJSONObject(s) ?: continue
             val h = history(rec)
+            if (h.isEmpty() && allDefs.none { rec.optString(it.key, "").isNotEmpty() }) continue
             val entries = if (h.isEmpty()) listOf(rec) else h
             for (e in entries) {
                 val k = calc { key -> e.optString(key, "") }
@@ -647,7 +747,8 @@ class MainActivity : AppCompatActivity() {
                 rows.add(listOf(c, s, date) + allDefs.map { e.optString(it.key, "") } + listOf(
                     k.gpd?.let { fmt(it, 2) } ?: "",
                     k.bioGpd?.let { fmt(it, 2) } ?: "",
-                    k.days?.let { fmt(it, 1) } ?: ""))
+                    k.days?.let { fmt(it, 1) } ?: "",
+                    if (e.optBoolean("complete", false)) "Yes" else ""))
             }
         }
         try {
