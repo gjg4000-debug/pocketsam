@@ -64,6 +64,12 @@
   .dlg-foot { display: flex; gap: 8px; justify-content: flex-end; padding: 8px 16px 14px; flex-wrap: wrap; }
   .list button { display: block; width: 100%; text-align: left; margin: 6px 0; font-weight: 500; }
   .list button.add { color: var(--brand); font-weight: 700; }
+  .list button.done { color: var(--ok); font-weight: 700; border-color: var(--ok); }
+  .list button .count { float: right; color: var(--muted); font-weight: 400; font-size: 14px; }
+  .complete { display: flex; align-items: center; gap: 10px; margin: 10px 0 0; padding: 10px 14px;
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px; font-weight: 700; cursor: pointer; }
+  .complete input { width: 24px; height: 24px; accent-color: var(--ok); margin: 0; }
+  .complete .when { font-weight: 400; color: var(--muted); font-size: 14px; margin-left: auto; }
   .kv { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; font-size: 15px; }
   .kv div:nth-child(odd) { color: var(--muted); }
   .toast { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 24px);
@@ -85,6 +91,10 @@
     <button id="siteBtn"><small>Site</small><span>2. Select Site</span></button>
   </div>
   <div class="latest" id="latest"></div>
+  <label class="complete" for="completeChk">
+    <input type="checkbox" id="completeChk"> Complete
+    <span class="when" id="completeWhen"></span>
+  </label>
 
   <section class="card">
     <h2>Chemical feed</h2>
@@ -126,7 +136,7 @@
     </div>
     <p class="hint">Backup files work with the Android app too. Import merges by date: a reading on the same
       site and date is replaced by the imported one; other dates are kept. CSV opens in Excel / Google Sheets.</p>
-    <input type="file" id="importFile" accept=".json,application/json,text/plain" hidden>
+    <input type="file" id="importFile" accept=".json,.txt,.csv,application/json,text/plain,text/csv" hidden>
   </section>
 </main>
 
@@ -296,9 +306,18 @@ function askName(title, fn) {
   dialog(title, inp, [{ text: "Cancel" }, { text: "OK", cls: "primary", fn: ok }]);
   setTimeout(() => inp.focus(), 50);
 }
-function listDialog(title, items, addText, onPick, onAdd) {
+const thisMonth = () => today().slice(0, 7);
+const isDone = (c, s) => { const r = (db[c] || {})[s]; return !!(r && r.completeMonth === thisMonth()); };
+function listDialog(title, items, addText, onPick, onAdd, decorate) {
   const box = document.createElement("div"); box.className = "list";
-  items.forEach(name => { const b = document.createElement("button"); b.textContent = name; b.onclick = () => { closeDlg(); onPick(name); }; box.append(b); });
+  items.forEach(name => {
+    const b = document.createElement("button");
+    const d = decorate ? decorate(name) : {};
+    b.textContent = (d.done ? "✓ " : "") + name;
+    if (d.done) b.classList.add("done");
+    if (d.count) { const sp = document.createElement("span"); sp.className = "count"; sp.textContent = d.count; b.append(sp); }
+    b.onclick = () => { closeDlg(); onPick(name); }; box.append(b);
+  });
   const a = document.createElement("button"); a.className = "add"; a.textContent = addText;
   a.onclick = () => { closeDlg(); onAdd(); }; box.append(a);
   dialog(title, box, [{ text: "Close" }]);
@@ -310,14 +329,21 @@ function guardUnsaved(action) {
 }
 
 /* ---------- Data ops ---------- */
-function fill(rec) { loading = true; ALL.forEach(f => inputs[f.key].value = rec ? (rec[f.key] ?? "") : ""); loading = false; compute(); }
+function fill(rec) { loading = true; ALL.forEach(f => inputs[f.key].value = rec ? (rec[f.key] ?? "") : ""); loading = false; compute(); setComplete(rec); }
+function setComplete(rec) {
+  const done = !!(rec && rec.completeMonth === thisMonth());
+  $("completeChk").checked = done;
+  $("completeWhen").textContent = done && rec.completedOn ? "this month · " + fmtDate(rec.completedOn) : "";
+}
+$("completeChk").addEventListener("change", () => { if (!loading) { dirty = true; updateStatus(); } });
 function selectCounty(c) { county = c; site = null; fill(null); dirty = false; refreshUi(); }
 function loadSite(s) { site = s; fill((db[county] || {})[s]); dirty = false; refreshUi(); }
 async function persist() { await store.save(db); }
 
 $("countyBtn").onclick = () => guardUnsaved(() =>
   listDialog("Select county / city", counties(), "+ Add new county / city…", selectCounty,
-    () => askName("New county / city", async n => { if (!db[n]) { db[n] = {}; await persist(); } selectCounty(n); })));
+    () => askName("New county / city", async n => { if (!db[n]) { db[n] = {}; await persist(); } selectCounty(n); }),
+    c => { const all = sites(c); return all.length ? { count: `${all.filter(s => isDone(c, s)).length} of ${all.length} done` } : {}; }));
 
 $("siteBtn").onclick = () => {
   if (!county) { toast("Pick a county / city first"); return; }
@@ -325,7 +351,7 @@ $("siteBtn").onclick = () => {
     () => askName("New site name", n => {
       if (db[county][n]) { loadSite(n); return; }
       site = n; fill(null); dirty = true; refreshUi(); toast("Fill in the fields, then SAVE");
-    })));
+    }), s => ({ done: isDone(county, s) })));
 };
 
 function writeCurrent() {
@@ -336,6 +362,7 @@ function writeCurrent() {
   rec.chemGpd = k.gpd == null ? "" : k.gpd.toFixed(2);
   rec.bioGalPerDay = k.bioGpd == null ? "" : k.bioGpd.toFixed(2);
   rec.tankDaysLeft = k.days == null ? "" : k.days.toFixed(1);
+  if (old.completeMonth) { rec.completeMonth = old.completeMonth; rec.completedOn = old.completedOn; }
   if (Array.isArray(old[HIST])) rec[HIST] = old[HIST];
   (db[county] ||= {})[site] = rec;
   return rec;
@@ -345,11 +372,15 @@ $("saveBtn").onclick = async () => {
   if (!county || !site) { toast("Pick a county and a site first"); return; }
   const date = $("readingDate").value || today();
   const rec = writeCurrent();
-  const entry = { date, savedAt: new Date().toISOString() };
+  const month = date.slice(0, 7);
+  if ($("completeChk").checked) { rec.completeMonth = month; rec.completedOn = date; }
+  else if (rec.completeMonth === month) { delete rec.completeMonth; delete rec.completedOn; }
+  const entry = { date, savedAt: new Date().toISOString(), complete: $("completeChk").checked };
   [...ALL.map(f => f.key), "chemGpd", "bioGalPerDay", "tankDaysLeft"].forEach(key => entry[key] = rec[key]);
   const h = (rec[HIST] || []).filter(e => e.date !== date);
   h.push(entry); h.sort((a, b) => a.date.localeCompare(b.date)); rec[HIST] = h;
-  await persist(); dirty = false; refreshUi(); toast(`Saved ${site} (${fmtDate(date)})`);
+  await persist(); dirty = false; setComplete(rec); refreshUi();
+  toast(`Saved ${site} (${fmtDate(date)})` + (rec.completeMonth === thisMonth() ? " · Complete" : ""));
 };
 
 $("cancelBtn").onclick = () => {
@@ -438,14 +469,54 @@ function mergeSite(local, inc) {
   } else {
     out = { ...local, ...inc };
   }
+  // Keep the most recent "Complete" mark from either phone
+  const marks = [local, inc].filter(r => r.completeMonth).sort((a, b) => (a.completedOn || a.completeMonth).localeCompare(b.completedOn || b.completeMonth));
+  delete out.completeMonth; delete out.completedOn;
+  if (marks.length) { const m = marks[marks.length - 1]; out.completeMonth = m.completeMonth; if (m.completedOn) out.completedOn = m.completedOn; }
   return out;
+}
+
+/* Site list: plain text or CSV. Accepted lines:
+     Apopka, LS 12        (county, site)
+     Apopka:              (heading - the lines below it go into Apopka)
+     LS 14                (a site under the last heading, or the county on screen) */
+function parseSiteList(text) {
+  const out = []; let cur = null, skipped = 0;
+  for (let line of text.replace(/^\uFEFF/, "").split(/\r?\n/)) {
+    line = line.trim(); if (!line) continue;
+    if (/^"?(county|city|county\s*\/\s*city)"?\s*[,\t]\s*"?site"?$/i.test(line)) continue;
+    if (line.endsWith(":")) { cur = line.slice(0, -1).trim(); continue; }
+    const m = line.match(/^([^,\t]+)[,\t](.+)$/);
+    const clean = (v) => v.trim().replace(/^"|"$/g, "").trim();
+    let c, s;
+    if (m) { c = clean(m[1]); s = clean(m[2].split(/[,\t]/)[0]); } else { c = cur || county; s = clean(line); }
+    if (!c || !s) { skipped++; continue; }
+    out.push([c, s]);
+  }
+  return { list: out, skipped };
+}
+function importSiteList(text) {
+  const { list, skipped } = parseSiteList(text);
+  if (!list.length) { toast(county ? "No site names found in that file" : "No sites found. Pick a county first, or use 'County, Site' lines"); return; }
+  const fresh = list.filter(([c, s]) => !(db[c] && db[c][s]));
+  const byCounty = {}; fresh.forEach(([c]) => byCounty[c] = (byCounty[c] || 0) + 1);
+  const p = document.createElement("p");
+  p.textContent = fresh.length
+    ? `Adds ${fresh.length} new site(s): ` + Object.entries(byCounty).map(([c, n]) => `${c} (${n})`).join(", ") +
+      `. ${list.length - fresh.length} already on this phone and left as they are.` + (skipped ? ` ${skipped} line(s) skipped.` : "")
+    : "All of these sites are already on this phone. Nothing to add.";
+  dialog("Import site list?", p, fresh.length ? [{ text: "Cancel" }, { text: "Add sites", cls: "primary", fn: async () => {
+    fresh.forEach(([c, s]) => { (db[c] ||= {})[s] = {}; });
+    await persist(); refreshUi(); toast(`Added ${fresh.length} site(s)`);
+  } }] : [{ text: "OK" }]);
 }
 
 $("importFile").onchange = async (ev) => {
   const f = ev.target.files[0]; if (!f) return;
+  const text = await f.text();
   let incoming;
-  try { incoming = JSON.parse(await f.text()); if (!incoming || typeof incoming !== "object" || Array.isArray(incoming)) throw 0; }
-  catch (e) { toast("That file isn't a Pocket SAM backup"); return; }
+  try { incoming = JSON.parse(text); if (!incoming || typeof incoming !== "object" || Array.isArray(incoming)) throw 0; }
+  catch (e) { importSiteList(text); return; }
   const n = siteCount(incoming);
   if (!n) { toast("No sites found in that file"); return; }
   const p = document.createElement("p");
@@ -462,14 +533,16 @@ $("importFile").onchange = async (ev) => {
 
 $("csvBtn").onclick = () => {
   const esc = (v) => { const s = String(v ?? ""); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
-  const head = ["County/City", "Site", "Reading date", ...ALL.map(f => f.label), "Chem feed GPD", "Nutrient feed gal/day", "Tank empty in days"];
+  const head = ["County/City", "Site", "Reading date", ...ALL.map(f => f.label), "Chem feed GPD", "Nutrient feed gal/day", "Tank empty in days", "Complete"];
   const rows = [head];
   for (const c of counties()) for (const s of sites(c)) {
-    const rec = db[c][s]; const h = Array.isArray(rec[HIST]) && rec[HIST].length ? rec[HIST] : [{ ...rec, date: "(current)" }];
+    const rec = db[c][s];
+    if (!(Array.isArray(rec[HIST]) && rec[HIST].length) && !ALL.some(f => rec[f.key])) continue;
+    const h = Array.isArray(rec[HIST]) && rec[HIST].length ? rec[HIST] : [{ ...rec, date: "(current)" }];
     for (const e of h) {
       const k = calc(e);
       rows.push([c, s, e.date, ...ALL.map(f => e[f.key]), k.gpd == null ? "" : k.gpd.toFixed(2),
-        k.bioGpd == null ? "" : k.bioGpd.toFixed(2), k.days == null ? "" : k.days.toFixed(1)]);
+        k.bioGpd == null ? "" : k.bioGpd.toFixed(2), k.days == null ? "" : k.days.toFixed(1), e.complete ? "Yes" : ""]);
     }
   }
   download(`PocketSAM-${today()}.csv`, "﻿" + rows.map(r => r.map(esc).join(",")).join("\r\n"), "text/csv");
