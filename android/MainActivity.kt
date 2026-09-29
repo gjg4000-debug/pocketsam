@@ -251,6 +251,7 @@ class MainActivity : AppCompatActivity() {
         val edit = EditText(this).apply {
             hint = f.hint
             isSingleLine = f.numeric
+            if (!f.numeric) { minLines = 3; gravity = Gravity.TOP or Gravity.START }
             inputType = if (f.numeric)
                 InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
             else

@@ -208,7 +208,7 @@ function addField(parent, f) {
   const el = document.createElement(f.num ? "input" : "textarea");
   el.id = id; el.placeholder = f.hint;
   if (f.num) { el.type = "text"; el.inputMode = "decimal"; el.autocomplete = "off"; }
-  else { el.rows = 1; }
+  else { el.rows = 3; }
   el.addEventListener("input", () => { if (!loading) { dirty = true; updateStatus(); compute(); } });
   row.append(lab, el); parent.append(row); inputs[f.key] = el;
 }
