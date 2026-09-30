@@ -98,7 +98,7 @@
   <div class="complete">
     <label class="complete-lbl" for="completeChk"><input type="checkbox" id="completeChk"> Complete</label>
     <span class="when" id="completeWhen"></span>
-    <button class="primary quick" id="quickSaveBtn">SAVE</button>
+    <button class="primary quick" id="quickSaveBtn">CONFIRM</button>
   </div>
 
   <section class="card">
@@ -370,9 +370,11 @@ function writeCurrent() {
   const rec = currentRecord();
   // Store the calculated results too, so they show up in the backup file
   const k = calc(rec);
-  rec.chemGpd = k.gpd == null ? "" : k.gpd.toFixed(2);
-  rec.bioGalPerDay = k.bioGpd == null ? "" : k.bioGpd.toFixed(2);
-  rec.tankDaysLeft = k.days == null ? "" : k.days.toFixed(1);
+  if (k.gpd != null) rec.chemGpd = k.gpd.toFixed(2);
+  if (k.bioGpd != null) rec.bioGalPerDay = k.bioGpd.toFixed(2);
+  if (k.days != null) rec.tankDaysLeft = k.days.toFixed(1);
+  // Don't store empty boxes
+  for (const key of Object.keys(rec)) if (rec[key] === "") delete rec[key];
   if (old.completeMonth) { rec.completeMonth = old.completeMonth; rec.completedOn = old.completedOn; }
   if (Array.isArray(old[HIST])) rec[HIST] = old[HIST];
   (db[county] ||= {})[site] = rec;
@@ -389,7 +391,7 @@ $("saveBtn").onclick = async () => {
   // Only add a dated reading when some numbers or notes are filled in; a blank save just marks Complete.
   if (ALL.some(f => rec[f.key])) {
     const entry = { date, savedAt: new Date().toISOString(), complete: $("completeChk").checked };
-    [...ALL.map(f => f.key), "chemGpd", "bioGalPerDay", "tankDaysLeft"].forEach(key => entry[key] = rec[key]);
+    [...ALL.map(f => f.key), "chemGpd", "bioGalPerDay", "tankDaysLeft"].forEach(key => { if (rec[key] != null && rec[key] !== "") entry[key] = rec[key]; });
     const h = (rec[HIST] || []).filter(e => e.date !== date);
     h.push(entry); h.sort((a, b) => a.date.localeCompare(b.date)); rec[HIST] = h;
   }
@@ -397,7 +399,17 @@ $("saveBtn").onclick = async () => {
   toast(`Saved ${site} (${fmtDate(date)})` + (rec.completeMonth === thisMonth() ? " · Complete" : ""));
 };
 
-$("quickSaveBtn").onclick = () => $("saveBtn").onclick();
+// CONFIRM: saves just the Complete status. If any boxes have data, it saves those too (same as SAVE).
+$("quickSaveBtn").onclick = async () => {
+  if (!county || !site) { toast("Pick a county and a site first"); return; }
+  if (ALL.some(f => inputs[f.key].value.trim())) { $("saveBtn").onclick(); return; }
+  const date = $("readingDate").value || today(), month = date.slice(0, 7);
+  const rec = ((db[county] ||= {})[site] ||= {});
+  if ($("completeChk").checked) { rec.completeMonth = month; rec.completedOn = date; }
+  else if (rec.completeMonth === month) { delete rec.completeMonth; delete rec.completedOn; }
+  await persist(); dirty = false; setComplete(rec); refreshUi();
+  toast(rec.completeMonth === thisMonth() ? `${site} marked Complete` : `${site} not marked complete`);
+};
 
 $("cancelBtn").onclick = () => {
   if (!dirty) { toast("No changes to cancel"); return; }
