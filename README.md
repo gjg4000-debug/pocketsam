@@ -18,7 +18,7 @@ Works offline. Each person's data stays on their own device.
 - **Nutrient pump:** max GPH × speed % × stroke % × run time = gal/day, where run time per day = 24 hrs × ON seconds ÷ (ON seconds + OFF minutes × 60). Also shows days until the nutrient tank is empty.
 - **SAVE** stores the site's numbers and keeps a dated copy for **HISTORY** (one per date; saving again the same day updates it).
 - **EXPORT BACKUP / IMPORT** share sites between phones (same file format as the Android app). Import merges readings by date: same site and date = the imported reading replaces yours; other dates are kept.
-- **Complete** checkbox: check it and SAVE, and the site shows green with ✓ in the site list for the rest of the month. Every site goes back to black on the 1st. Complete marks travel with backup files.
+- **Complete** checkbox: check it and tap CONFIRM (or SAVE), and the site shows green with ✓ in the site list for the rest of the month. Every site goes back to black on the 1st. Complete marks travel with backup files.
 - **Site lists:** IMPORT also takes a plain text or CSV list of sites (`County, Site` per line, or a `County:` heading line followed by site names). It only adds sites that are missing. Site lists stay on the phone; nothing is uploaded.
 - **EXPORT CSV** gives one row per reading for Excel or Google Sheets.
 
