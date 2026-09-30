@@ -22,8 +22,17 @@ Works offline. Each person's data stays on their own device.
 - **Site lists:** IMPORT also takes a plain text or CSV list of sites (`County, Site` per line, or a `County:` heading line followed by site names). It only adds sites that are missing. Site lists stay on the phone; nothing is uploaded.
 - **EXPORT CSV** gives one row per reading for Excel or Google Sheets.
 
+## Sharing with a Google Sheet (REFRESH)
+
+Everyone's SAVE / CONFIRM goes to one Google Sheet, and REFRESH pulls in everyone's latest.
+Setup is done once by the Sheet owner: make a Google Sheet, open Extensions -> Apps Script,
+paste in `sync/Code.gs`, change the password on the first line, then Deploy -> New deployment ->
+Web app (Execute as: Me, Who has access: Anyone). Each phone taps REFRESH once and enters that
+link and the password. The link and password are never stored on GitHub.
+
 ## Files
 
 - `index.html` – the whole app
 - `manifest.webmanifest`, `sw.js`, `icon-*.png` – home-screen install and offline support
-- `android/MainActivity.kt` – source for the Android (Android Studio) version
+- `sync/Code.gs` – the Google Sheet script used by REFRESH
+- `android/MainActivity.kt` – older Android Studio version (no longer updated)

@@ -32,6 +32,11 @@
     padding: calc(env(safe-area-inset-top) + 12px) 16px 12px; position: sticky; top: 0; z-index: 5; }
   header h1 { margin: 0; font-size: 22px; }
   header .status { font-size: 14px; opacity: .9; margin-top: 2px; min-height: 1.2em; }
+  header .hrow { display: flex; align-items: center; gap: 12px; max-width: 640px; margin: 0 auto; }
+  header .htext { flex: 1; min-width: 0; }
+  header .syncline { font-size: 12px; opacity: .85; min-height: 1em; }
+  header button.refresh { background: var(--brand-ink); color: var(--brand); border: none; padding: 10px 14px; font-weight: 800; }
+  header button.refresh:disabled { opacity: .6; }
   main { max-width: 640px; margin: 0 auto; padding: 12px 16px calc(env(safe-area-inset-bottom) + 32px); }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
     padding: 12px 14px; margin: 12px 0; }
@@ -85,8 +90,14 @@
 </head>
 <body>
 <header>
-  <h1>Pocket SAM</h1>
-  <div class="status" id="status"></div>
+  <div class="hrow">
+    <div class="htext">
+      <h1>Pocket SAM</h1>
+      <div class="status" id="status"></div>
+      <div class="syncline" id="syncStatus"></div>
+    </div>
+    <button id="refreshBtn" class="refresh">REFRESH</button>
+  </div>
 </header>
 
 <main>
@@ -145,9 +156,11 @@
     </div>
     <p class="hint">Backup files are named with your name (set once) and work with the Android app too. Import merges by date: a reading on the same
       site and date is replaced by the imported one; other dates are kept. CSV opens in Excel / Google Sheets.</p>
+    <div class="row"><span id="syncInfo" class="hint">Sync: not set up. Tap REFRESH at the top to connect.</span>
+      <button id="syncSettingsBtn">SYNC SETTINGS</button></div>
     <input type="file" id="importFile" accept=".json,.txt,.csv,application/json,text/plain,text/csv" hidden>
   </section>
-  <p class="hint version">Pocket SAM version <span id="appVersion">2026-09-30 (v14)</span></p>
+  <p class="hint version">Pocket SAM version <span id="appVersion">2026-09-30 (v15)</span></p>
 </main>
 
 <dialog id="dlg">
@@ -396,6 +409,7 @@ $("saveBtn").onclick = async () => {
     h.push(entry); h.sort((a, b) => a.date.localeCompare(b.date)); rec[HIST] = h;
   }
   await persist(); dirty = false; setComplete(rec); refreshUi();
+  queue({ op: "put", c: county, s: site, log: logFor(rec, date) });
   toast(`Saved ${site} (${fmtDate(date)})` + (rec.completeMonth === thisMonth() ? " · Complete" : ""));
 };
 
@@ -408,6 +422,7 @@ $("quickSaveBtn").onclick = async () => {
   if ($("completeChk").checked) { rec.completeMonth = month; rec.completedOn = date; }
   else if (rec.completeMonth === month) { delete rec.completeMonth; delete rec.completedOn; }
   await persist(); dirty = false; setComplete(rec); refreshUi();
+  queue({ op: "put", c: county, s: site, log: logFor(rec, date) });
   toast(rec.completeMonth === thisMonth() ? `${site} marked Complete` : `${site} not marked complete`);
 };
 
@@ -421,11 +436,11 @@ $("deleteBtn").onclick = () => {
   if (!county) { toast("Nothing selected"); return; }
   if (site) {
     confirmBox(`Delete site "${site}" from ${county}, including its history?`, "Delete", async () => {
-      delete db[county][site]; await persist(); const s = site; site = null; fill(null); dirty = false; refreshUi(); toast("Deleted " + s);
+      delete db[county][site]; await persist(); queue({ op: "del", c: county, s: site }); const s = site; site = null; fill(null); dirty = false; refreshUi(); toast("Deleted " + s);
     });
   } else {
     confirmBox(`Delete "${county}" and its ${sites(county).length} site(s)?`, "Delete", async () => {
-      delete db[county]; await persist(); const c = county; county = null; fill(null); dirty = false; refreshUi(); toast("Deleted " + c);
+      delete db[county]; await persist(); queue({ op: "del", c: county }); const c = county; county = null; fill(null); dirty = false; refreshUi(); toast("Deleted " + c);
     });
   }
 };
@@ -453,7 +468,7 @@ function showReading(e) {
   dialog(`${site} — ${fmtDate(e.date)}`, kv, [
     { text: "Delete", cls: "danger", fn: () => { setTimeout(() => confirmBox(`Delete the ${fmtDate(e.date)} reading?`, "Delete", async () => {
         const rec = siteRec(); rec[HIST] = rec[HIST].filter(x => x.date !== e.date); if (!rec[HIST].length) delete rec[HIST];
-        await persist(); refreshUi(); toast("Reading deleted"); }), 0); } },
+        await persist(); queue({ op: "delReading", c: county, s: site, date: e.date }); refreshUi(); toast("Reading deleted"); }), 0); } },
     { text: "Copy to form", fn: () => { setTimeout(() => guardUnsaved(() => { fill(e); dirty = true; updateStatus(); toast("Loaded — edit, then SAVE"); }), 0); } },
     { text: "Close", cls: "primary" },
   ]);
@@ -515,7 +530,7 @@ $("importBtn").onclick = () => guardUnsaved(() => { $("importFile").value = ""; 
 /* Merge an imported site into the local one.
    History: same date -> imported reading wins; different dates -> both kept.
    Current numbers: taken from the newest dated reading; if neither side has history, the imported numbers win. */
-function mergeSite(local, inc) {
+function mergeSite(local, inc, takeIncomingComplete) {
   if (!local || typeof local !== "object") return inc;
   const byDate = new Map();
   for (const e of (Array.isArray(local[HIST]) ? local[HIST] : [])) if (e && e.date) byDate.set(e.date, e);
@@ -524,13 +539,14 @@ function mergeSite(local, inc) {
   let out;
   if (h.length) {
     const latest = h[h.length - 1];
-    out = {}; for (const [k, v] of Object.entries(latest)) if (k !== "date" && k !== "savedAt") out[k] = v;
+    out = {}; for (const [k, v] of Object.entries(latest)) if (!["date", "savedAt", "by", "complete"].includes(k)) out[k] = v;
     out[HIST] = h;
   } else {
     out = { ...local, ...inc };
   }
-  // Keep the most recent "Complete" mark from either phone
-  const marks = [local, inc].filter(r => r.completeMonth).sort((a, b) => (a.completedOn || a.completeMonth).localeCompare(b.completedOn || b.completeMonth));
+  // Complete mark: from the shared sheet when syncing, otherwise the most recent from either phone
+  const marks = takeIncomingComplete ? [inc].filter(r => r.completeMonth)
+    : [local, inc].filter(r => r.completeMonth).sort((a, b) => (a.completedOn || a.completeMonth).localeCompare(b.completedOn || b.completeMonth));
   delete out.completeMonth; delete out.completedOn;
   if (marks.length) { const m = marks[marks.length - 1]; out.completeMonth = m.completeMonth; if (m.completedOn) out.completedOn = m.completedOn; }
   return out;
@@ -567,7 +583,8 @@ function importSiteList(text) {
     : "All of these sites are already on this phone. Nothing to add.";
   dialog("Import site list?", p, fresh.length ? [{ text: "Cancel" }, { text: "Add sites", cls: "primary", fn: async () => {
     fresh.forEach(([c, s]) => { (db[c] ||= {})[s] = {}; });
-    await persist(); refreshUi(); toast(`Added ${fresh.length} site(s)`);
+    await persist(); fresh.forEach(([c, s]) => queue({ op: "put", c, s }, true)); syncNow();
+    refreshUi(); toast(`Added ${fresh.length} site(s)`);
   } }] : [{ text: "OK" }]);
 }
 
@@ -585,9 +602,9 @@ $("importFile").onchange = async (ev) => {
     for (const [c, ss] of Object.entries(incoming)) {
       if (!ss || typeof ss !== "object") continue;
       db[c] ||= {};
-      for (const [s, rec] of Object.entries(ss)) if (rec && typeof rec === "object") db[c][s] = mergeSite(db[c][s], rec);
+      for (const [s, rec] of Object.entries(ss)) if (rec && typeof rec === "object") { db[c][s] = mergeSite(db[c][s], rec); queue({ op: "put", c, s }, true); }
     }
-    await persist(); if (site && siteRec()) loadSite(site); else refreshUi(); toast(`Imported ${n} site(s)`);
+    await persist(); syncNow(); if (site && siteRec()) loadSite(site); else refreshUi(); toast(`Imported ${n} site(s)`);
   } }]);
 };
 
@@ -611,11 +628,118 @@ $("csvBtn").onclick = () => {
 
 window.addEventListener("beforeunload", (e) => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
 
+/* ---------- Sync with the shared Google Sheet ----------
+   SAVE / CONFIRM / DELETE / IMPORT queue a change and send it right away (or when signal comes back).
+   REFRESH sends anything waiting and pulls in everyone's latest. The link + password stay on this device. */
+const SYNC_KEY = "pocketsam-sync", QUEUE_KEY = "pocketsam-queue";
+const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
+let syncCfg = lsGet(SYNC_KEY, null);        // { url, pass, last }
+let pending = lsGet(QUEUE_KEY, []);
+let syncing = false, syncAgain = false;
+
+function logFor(rec, date) {
+  const k = calc(rec);
+  return { date, complete: rec.completeMonth === date.slice(0, 7),
+    cols: [...ALL.map(f => f.label), "Chem feed GPD", "Nutrient feed gal/day", "Tank empty in days"],
+    vals: [...ALL.map(f => rec[f.key] || ""), k.gpd == null ? "" : k.gpd.toFixed(2), k.bioGpd == null ? "" : k.bioGpd.toFixed(2), k.days == null ? "" : k.days.toFixed(1)] };
+}
+function queue(op, noSend) {
+  if (!syncCfg) return;                                  // not connected: nothing to send
+  pending.push(op); lsSet(QUEUE_KEY, pending); showSync();
+  if (!noSend) syncNow();
+}
+function showSync(msg) {
+  const el = $("syncStatus");
+  if (!syncCfg) { el.textContent = ""; $("syncInfo").textContent = "Sync: not set up. Tap REFRESH at the top to connect."; return; }
+  const when = syncCfg.last ? new Date(syncCfg.last).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "";
+  el.textContent = msg || (pending.length ? `${pending.length} change(s) waiting to send` : when ? `Synced ${when}` : "Connected");
+  $("syncInfo").textContent = "Sync: connected" + (when ? ` · last synced ${when}` : "");
+}
+async function api(cfg, body) {
+  const r = await fetch(cfg.url, { method: "POST", body: JSON.stringify({ pass: cfg.pass, ...body }) });
+  const j = await r.json();
+  if (!j.ok) throw new Error(j.error || "Sync error");
+  return j;
+}
+async function syncNow(manual) {
+  if (!syncCfg) { if (manual) setupSync(); return; }
+  if (syncing) { syncAgain = true; return; }
+  syncing = true; $("refreshBtn").disabled = true; showSync("Syncing…");
+  try {
+    do {
+      syncAgain = false;
+      const sending = pending.slice();
+      const ops = sending.map(o => o.op === "put" ? { ...o, rec: (db[o.c] || {})[o.s] } : o).filter(o => o.op !== "put" || o.rec);
+      const res = await api(syncCfg, { action: "push", ops, by: safeName(getName()) });
+      pending = pending.slice(sending.length); lsSet(QUEUE_KEY, pending);
+      if (pending.length) { syncAgain = true; continue; }    // something new was saved meanwhile: send it first
+      applyServer(res.data || {}, res.deleted || []);
+      await persist();
+      syncCfg.last = Date.now(); lsSet(SYNC_KEY, syncCfg);
+    } while (syncAgain);
+    if (!dirty && site && siteRec()) loadSite(site); else refreshUi();
+    showSync(); if (manual) toast("Up to date");
+  } catch (e) {
+    const offline = !navigator.onLine || e instanceof TypeError;
+    showSync(offline ? `No signal · ${pending.length} change(s) waiting` : "Sync problem: " + e.message);
+    if (manual) toast(offline ? "No signal. Your changes will send when you're back online." : "Sync problem: " + e.message);
+  } finally {
+    syncing = false; $("refreshBtn").disabled = false;
+  }
+}
+function applyServer(data, deleted) {
+  for (const d of deleted) {
+    if (!db[d.c]) continue;
+    if (d.s) delete db[d.c][d.s]; else delete db[d.c];
+  }
+  for (const [c, ss] of Object.entries(data)) {
+    if (!ss || typeof ss !== "object") continue;
+    db[c] ||= {};
+    for (const [s, rec] of Object.entries(ss)) if (rec && typeof rec === "object") db[c][s] = mergeSite(db[c][s], rec, true);
+  }
+  if (county && !db[county]) { county = null; site = null; fill(null); }
+  else if (county && site && !db[county][site] && !dirty) { site = null; fill(null); }
+}
+function setupSync() {
+  const box = document.createElement("div");
+  box.innerHTML = `<p>Paste the link from your Google Sheet and type the password. You only do this once.</p>
+    <label class="hint" for="syncUrl">Link</label><input id="syncUrl" type="url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off">
+    <p></p><label class="hint" for="syncPass">Password</label><input id="syncPass" type="password" autocomplete="off">
+    <p class="hint" id="syncErr"></p>`;
+  const connect = () => {
+    const url = box.querySelector("#syncUrl").value.trim(), pass = box.querySelector("#syncPass").value;
+    const err = box.querySelector("#syncErr");
+    if (!/^https:\/\/script\.google(usercontent)?\.com\//.test(url)) { err.textContent = "That doesn't look like the Google Sheet link. It starts with https://script.google.com/"; return false; }
+    if (!pass) { err.textContent = "Type the password."; return false; }
+    err.textContent = "Connecting…";
+    api({ url, pass }, { action: "ping" }).then(() => {
+      const first = !syncCfg;
+      syncCfg = { url, pass, last: 0 }; lsSet(SYNC_KEY, syncCfg); closeDlg();
+      if (first) for (const c of counties()) for (const s of sites(c)) pending.push({ op: "put", c, s });   // send what's already on this phone
+      lsSet(QUEUE_KEY, pending);
+      toast("Connected ✓"); syncNow();
+    }).catch(e => { err.textContent = e.message === "Wrong password" ? "Wrong password." : "Couldn't connect: " + e.message; });
+    return false;
+  };
+  const buttons = [{ text: "Cancel" }, { text: "CONNECT", cls: "primary", fn: connect }];
+  if (syncCfg) buttons.unshift({ text: "Disconnect", cls: "danger", fn: () => { syncCfg = null; pending = []; lsSet(SYNC_KEY, null); lsSet(QUEUE_KEY, []); showSync(); toast("Sync turned off on this device"); } });
+  dialog(syncCfg ? "Sync settings" : "Connect to the shared sheet", box, buttons);
+  if (syncCfg) box.querySelector("#syncUrl").value = syncCfg.url;
+}
+$("refreshBtn").onclick = () => syncNow(true);
+$("syncSettingsBtn").onclick = () => setupSync();
+window.addEventListener("online", () => { if (syncCfg) syncNow(); });
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && syncCfg && Date.now() - (syncCfg.last || 0) > 60000) syncNow();
+});
+
 /* ---------- Start ---------- */
 (async () => {
   $("readingDate").value = today();
   db = await store.load();
-  compute(); refreshUi();
+  compute(); refreshUi(); showSync();
+  if (syncCfg) syncNow();
   if ("serviceWorker" in navigator && location.protocol.startsWith("http")) navigator.serviceWorker.register("sw.js").catch(() => {});
 })();
 </script>
