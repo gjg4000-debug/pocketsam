@@ -156,11 +156,9 @@
     </div>
     <p class="hint">Backup files are named with your name (set once) and work with the Android app too. Import merges by date: a reading on the same
       site and date is replaced by the imported one; other dates are kept. CSV opens in Excel / Google Sheets.</p>
-    <div class="row"><span id="syncInfo" class="hint">Sync: not set up. Tap REFRESH at the top to connect.</span>
-      <button id="syncSettingsBtn">SYNC SETTINGS</button></div>
     <input type="file" id="importFile" accept=".json,.txt,.csv,application/json,text/plain,text/csv" hidden>
   </section>
-  <p class="hint version">Pocket SAM version <span id="appVersion">2026-09-30 (v15)</span></p>
+  <p class="hint version">Pocket SAM version <span id="appVersion">2026-09-30 (v16)</span></p>
 </main>
 
 <dialog id="dlg">
@@ -636,7 +634,7 @@ const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v ? JS
 const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
 let syncCfg = lsGet(SYNC_KEY, null);        // { url, pass, last }
 let pending = lsGet(QUEUE_KEY, []);
-let syncing = false, syncAgain = false;
+let syncing = false, syncAgain = false, askedAgain = false;
 
 function logFor(rec, date) {
   const k = calc(rec);
@@ -651,14 +649,14 @@ function queue(op, noSend) {
 }
 function showSync(msg) {
   const el = $("syncStatus");
-  if (!syncCfg) { el.textContent = ""; $("syncInfo").textContent = "Sync: not set up. Tap REFRESH at the top to connect."; return; }
+  if (!syncCfg) { el.textContent = ""; return; }
   const when = syncCfg.last ? new Date(syncCfg.last).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "";
   el.textContent = msg || (pending.length ? `${pending.length} change(s) waiting to send` : when ? `Synced ${when}` : "Connected");
-  $("syncInfo").textContent = "Sync: connected" + (when ? ` · last synced ${when}` : "");
 }
 async function api(cfg, body) {
   const r = await fetch(cfg.url, { method: "POST", body: JSON.stringify({ pass: cfg.pass, ...body }) });
-  const j = await r.json();
+  let j;
+  try { j = await r.json(); } catch (e) { throw new Error("Bad link"); }
   if (!j.ok) throw new Error(j.error || "Sync error");
   return j;
 }
@@ -681,6 +679,11 @@ async function syncNow(manual) {
     if (!dirty && site && siteRec()) loadSite(site); else refreshUi();
     showSync(); if (manual) toast("Up to date");
   } catch (e) {
+    if (e.message === "Wrong password" || e.message === "Bad link") {
+      showSync("Sync needs the new password");
+      if (!askedAgain) { askedAgain = true; setupSync(e.message); }
+      return;
+    }
     const offline = !navigator.onLine || e instanceof TypeError;
     showSync(offline ? `No signal · ${pending.length} change(s) waiting` : "Sync problem: " + e.message);
     if (manual) toast(offline ? "No signal. Your changes will send when you're back online." : "Sync problem: " + e.message);
@@ -701,9 +704,12 @@ function applyServer(data, deleted) {
   if (county && !db[county]) { county = null; site = null; fill(null); }
   else if (county && site && !db[county][site] && !dirty) { site = null; fill(null); }
 }
-function setupSync() {
+function setupSync(problem) {
   const box = document.createElement("div");
-  box.innerHTML = `<p>Paste the link from your Google Sheet and type the password. You only do this once.</p>
+  const intro = problem === "Wrong password" ? "The password doesn't work anymore. It was probably changed. Type the new one."
+    : problem === "Bad link" ? "The link doesn't work anymore. Paste the new link from the Google Sheet (and the password)."
+    : "Paste the link from your Google Sheet and type the password. You only do this once.";
+  box.innerHTML = `<p>${intro}</p>
     <label class="hint" for="syncUrl">Link</label><input id="syncUrl" type="url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off">
     <p></p><label class="hint" for="syncPass">Password</label><input id="syncPass" type="password" autocomplete="off">
     <p class="hint" id="syncErr"></p>`;
@@ -718,17 +724,16 @@ function setupSync() {
       syncCfg = { url, pass, last: 0 }; lsSet(SYNC_KEY, syncCfg); closeDlg();
       if (first) for (const c of counties()) for (const s of sites(c)) pending.push({ op: "put", c, s });   // send what's already on this phone
       lsSet(QUEUE_KEY, pending);
-      toast("Connected ✓"); syncNow();
+      askedAgain = false; toast("Connected ✓"); syncNow(true);
     }).catch(e => { err.textContent = e.message === "Wrong password" ? "Wrong password." : "Couldn't connect: " + e.message; });
     return false;
   };
   const buttons = [{ text: "Cancel" }, { text: "CONNECT", cls: "primary", fn: connect }];
-  if (syncCfg) buttons.unshift({ text: "Disconnect", cls: "danger", fn: () => { syncCfg = null; pending = []; lsSet(SYNC_KEY, null); lsSet(QUEUE_KEY, []); showSync(); toast("Sync turned off on this device"); } });
-  dialog(syncCfg ? "Sync settings" : "Connect to the shared sheet", box, buttons);
+  if (syncCfg) buttons.unshift({ text: "Turn off sync", cls: "danger", fn: () => { syncCfg = null; pending = []; lsSet(SYNC_KEY, null); lsSet(QUEUE_KEY, []); showSync(); toast("Sync turned off on this device"); } });
+  dialog(problem === "Wrong password" ? "New password needed" : problem === "Bad link" ? "New link needed" : "Connect to the shared sheet", box, buttons);
   if (syncCfg) box.querySelector("#syncUrl").value = syncCfg.url;
 }
 $("refreshBtn").onclick = () => syncNow(true);
-$("syncSettingsBtn").onclick = () => setupSync();
 window.addEventListener("online", () => { if (syncCfg) syncNow(); });
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && syncCfg && Date.now() - (syncCfg.last || 0) > 60000) syncNow();
