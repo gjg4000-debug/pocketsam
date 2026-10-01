@@ -187,6 +187,7 @@ const BIO = [
   { key: "stroke",  label: "Nutrient pump stroke %", hint: "Stroke %", num: true },
   { key: "onSec",   label: "Timer ON (seconds)", hint: "e.g. 11", num: true },
   { key: "offMin",  label: "Timer OFF (minutes)", hint: "e.g. 14", num: true },
+  { key: "waterGpm", label: "Water GPM (set point)", hint: "GPM", num: true },
   { key: "ductDia", label: "Air duct diameter (inches)", hint: "e.g. 8", num: true },
   { key: "fpm",     label: "Airflow FPM", hint: "e.g. 600", num: true },
 ];
@@ -648,11 +649,12 @@ let syncing = false, syncAgain = false, askedAgain = false;
 const LOG_KEYS = ["p1Rate", "p1Hrs", "p2Rate", "p2Hrs", "chemInfo", "tankGal", "jugs", "bioGph", "speed", "stroke", "onSec", "offMin", "bioInfo"];
 function logFor(rec, date) {
   const k = calc(rec), lab = Object.fromEntries(ALL.map(f => [f.key, f.label]));
-  const later = ALL.map(f => f.key).filter(x => !LOG_KEYS.includes(x));
+  const AIR = ["ductDia", "fpm"];
+  const later = ALL.map(f => f.key).filter(x => !LOG_KEYS.includes(x) && !AIR.includes(x));   // newest boxes go last
   return { date, complete: rec.completeMonth === date.slice(0, 7),
-    cols: [...LOG_KEYS.map(x => lab[x]), "Chem feed GPD", "Nutrient feed gal/day", "Tank empty in days", ...later.map(x => lab[x]), "Airflow CFM"],
+    cols: [...LOG_KEYS.map(x => lab[x]), "Chem feed GPD", "Nutrient feed gal/day", "Tank empty in days", ...AIR.map(x => lab[x]), "Airflow CFM", ...later.map(x => lab[x])],
     vals: [...LOG_KEYS.map(x => rec[x] || ""), k.gpd == null ? "" : k.gpd.toFixed(2), k.bioGpd == null ? "" : k.bioGpd.toFixed(2), k.days == null ? "" : k.days.toFixed(1),
-      ...later.map(x => rec[x] || ""), k.cfm == null ? "" : String(Math.round(k.cfm))] };
+      ...AIR.map(x => rec[x] || ""), k.cfm == null ? "" : String(Math.round(k.cfm)), ...later.map(x => rec[x] || "")] };
 }
 function queue(op, noSend) {
   if (!syncCfg) return;                                  // not connected: nothing to send
