@@ -15,6 +15,7 @@ Works offline. Each person's data stays on their own device.
 
 - Pick a county/city, then a site. Each site keeps its current settings.
 - **CHEM FEED GPD** = (Pump1 mL/min × 60 × Pump1 hrs + Pump2 mL/min × 60 × Pump2 hrs) ÷ 3785.41. A blank timer counts as 24 hrs.
+- **Airflow:** duct diameter (inches) and FPM give CFM = FPM × π × (diameter ÷ 12)² ÷ 4.
 - **Nutrient pump:** max GPH × speed % × stroke % × run time = gal/day, where run time per day = 24 hrs × ON seconds ÷ (ON seconds + OFF minutes × 60). Also shows days until the nutrient tank is empty.
 - **SAVE** stores the site's numbers and keeps a dated copy for **HISTORY** (one per date; saving again the same day updates it).
 - **EXPORT BACKUP / IMPORT** share sites between phones (same file format as the Android app). Import merges readings by date: same site and date = the imported reading replaces yours; other dates are kept.

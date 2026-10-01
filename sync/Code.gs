@@ -116,7 +116,11 @@ function removeDeleted(del, c, s) {
 }
 
 function logReading(c, s, by, log) {
-  const sh = sheet(LOG, ["Saved", "By", "County/City", "Site", "Date", "Complete"].concat(log.cols || []));
+  const header = ["Saved", "By", "County/City", "Site", "Date", "Complete"].concat(log.cols || []);
+  const sh = sheet(LOG, header);
+  // When the app adds new boxes, add their column headings too
+  const current = sh.getRange(1, 1, 1, Math.max(sh.getLastColumn(), 1)).getValues()[0];
+  if (header.length > current.length || header.some((h, i) => h !== current[i])) sh.getRange(1, 1, 1, header.length).setValues([header]);
   sh.appendRow([new Date(), by, c, s, log.date || "", log.complete ? "Yes" : ""].concat(log.vals || []));
 }
 
