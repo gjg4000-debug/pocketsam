@@ -120,6 +120,11 @@
   </section>
 
   <section class="card">
+    <h2>Sample Point</h2>
+    <div id="sampleFields"></div>
+  </section>
+
+  <section class="card">
     <h2>Biofilter / Nutrient pump</h2>
     <div id="bioFields"></div>
     <div class="result" id="bioResult"></div>
@@ -192,7 +197,15 @@ const BIO = [
   { key: "fpm",     label: "Airflow FPM", hint: "e.g. 600", num: true },
 ];
 const BIO_INFO = { key: "bioInfo", label: "Biofilter info", hint: "e.g. belt size", num: false };
-const ALL = [...CHEM, CHEM_INFO, ...BIO, BIO_INFO];
+const SAMPLE = [
+  { key: "ph",       label: "pH", hint: "pH", num: true },
+  { key: "tempC",    label: "Temperature °C", hint: "°C", num: true },
+  { key: "sulfide",  label: "Total sulfide", hint: "mg/L", num: true },
+  { key: "h2s",      label: "H2S", hint: "ppm", num: true },
+  { key: "nitrate",  label: "Nitrate residual", hint: "mg/L", num: true },
+  { key: "peroxide", label: "Peroxide residual", hint: "mg/L", num: true },
+];
+const ALL = [...CHEM, CHEM_INFO, ...SAMPLE, ...BIO, BIO_INFO];
 const HIST = "_history";   // per-site list of dated readings
 
 /* ---------- Storage: IndexedDB, falling back to localStorage ---------- */
@@ -247,6 +260,7 @@ function addField(parent, f) {
   row.append(lab, el); parent.append(row); inputs[f.key] = el;
 }
 CHEM.forEach(f => addField($("chemFields"), f)); addField($("chemInfo"), CHEM_INFO);
+SAMPLE.forEach(f => addField($("sampleFields"), f));
 BIO.forEach(f => addField($("bioFields"), f)); addField($("bioInfo"), BIO_INFO);
 
 /* ---------- Math (same as Android app) ---------- */
@@ -650,7 +664,8 @@ const LOG_KEYS = ["p1Rate", "p1Hrs", "p2Rate", "p2Hrs", "chemInfo", "tankGal", "
 function logFor(rec, date) {
   const k = calc(rec), lab = Object.fromEntries(ALL.map(f => [f.key, f.label]));
   const AIR = ["ductDia", "fpm"];
-  const later = ALL.map(f => f.key).filter(x => !LOG_KEYS.includes(x) && !AIR.includes(x));   // newest boxes go last
+  const EXTRA = ["waterGpm", ...SAMPLE.map(f => f.key)];                                       // added later, in the order they were added
+  const later = [...EXTRA, ...ALL.map(f => f.key).filter(x => !LOG_KEYS.includes(x) && !AIR.includes(x) && !EXTRA.includes(x))];
   return { date, complete: rec.completeMonth === date.slice(0, 7),
     cols: [...LOG_KEYS.map(x => lab[x]), "Chem feed GPD", "Nutrient feed gal/day", "Tank empty in days", ...AIR.map(x => lab[x]), "Airflow CFM", ...later.map(x => lab[x])],
     vals: [...LOG_KEYS.map(x => rec[x] || ""), k.gpd == null ? "" : k.gpd.toFixed(2), k.bioGpd == null ? "" : k.bioGpd.toFixed(2), k.days == null ? "" : k.days.toFixed(1),

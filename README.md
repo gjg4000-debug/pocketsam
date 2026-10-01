@@ -15,6 +15,7 @@ Works offline. Each person's data stays on their own device.
 
 - Pick a county/city, then a site. Each site keeps its current settings.
 - **CHEM FEED GPD** = (Pump1 mL/min × 60 × Pump1 hrs + Pump2 mL/min × 60 × Pump2 hrs) ÷ 3785.41. A blank timer counts as 24 hrs.
+- **Sample Point:** pH, temperature °C, total sulfide (mg/L), H2S (ppm), nitrate residual (mg/L), peroxide residual (mg/L). No calculations.
 - **Airflow:** duct diameter (inches) and FPM give CFM = FPM × π × (diameter ÷ 12)² ÷ 4.
 - **Nutrient pump:** max GPH × speed % × stroke % × run time = gal/day, where run time per day = 24 hrs × ON seconds ÷ (ON seconds + OFF minutes × 60). Also shows days until the nutrient tank is empty.
 - **SAVE** stores the site's numbers and keeps a dated copy for **HISTORY** (one per date; saving again the same day updates it).
