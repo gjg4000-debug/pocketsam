@@ -202,6 +202,9 @@ const BIO = [
   { key: "waterGpm", label: "Make Up Water GPM", hint: "GPM", num: true },
   { key: "ductDia", label: "Air duct diameter (inches)", hint: "e.g. 8", num: true },
   { key: "fpm",     label: "Airflow FPM", hint: "e.g. 600", num: true },
+  { key: "h2sIn",   label: "H2S In ppm", hint: "ppm", num: true },
+  { key: "h2sMid",  label: "H2S Middle ppm", hint: "ppm", num: true },
+  { key: "h2sOut",  label: "H2S Out ppm", hint: "ppm", num: true },
 ];
 const BIO_INFO = { key: "bioInfo", label: "Biofilter info", hint: "e.g. belt size", num: false };
 const SAMPLE = [
@@ -676,7 +679,7 @@ const LOG_KEYS = ["p1Rate", "p1Hrs", "p2Rate", "p2Hrs", "chemInfo", "tankGal", "
 function logFor(rec, date) {
   const k = calc(rec), lab = Object.fromEntries(ALL.map(f => [f.key, f.label]));
   const AIR = ["ductDia", "fpm"];
-  const EXTRA = ["waterGpm", ...SAMPLE.map(f => f.key), "chemName", "bioSystem"];                                       // added later, in the order they were added
+  const EXTRA = ["waterGpm", ...SAMPLE.map(f => f.key), "chemName", "bioSystem", "h2sIn", "h2sMid", "h2sOut"];                                       // added later, in the order they were added
   const later = [...EXTRA, ...ALL.map(f => f.key).filter(x => !LOG_KEYS.includes(x) && !AIR.includes(x) && !EXTRA.includes(x))];
   return { date, complete: rec.completeMonth === date.slice(0, 7),
     cols: [...LOG_KEYS.map(x => lab[x]), "Chem feed GPD", "Nutrient feed gal/day", "Tank empty in days", ...AIR.map(x => lab[x]), "Airflow CFM", ...later.map(x => lab[x])],
