@@ -128,7 +128,7 @@
   </section>
 
   <section class="card">
-    <h2>Biofilter / Nutrient pump</h2>
+    <h2 class="titled"><label for="f_bioSystem">Biofilter:</label><input type="text" id="f_bioSystem" placeholder="system type" autocomplete="off" autocapitalize="words"></h2>
     <div id="bioFields"></div>
     <div class="result" id="bioResult"></div>
     <div id="bioInfo"></div>
@@ -187,6 +187,7 @@ const CHEM = [
   { key: "p2Hrs",  label: "Pump2 timer hrs/day", hint: "blank = 24", num: true },
 ];
 const CHEM_NAME = { key: "chemName", label: "Chemical", hint: "chemical name", num: false };
+const BIO_SYSTEM = { key: "bioSystem", label: "Biofilter system", hint: "system type", num: false };
 const CHEM_INFO = { key: "chemInfo", label: "Chem feed info", hint: "Pump type/size/brand, tank level", num: false };
 const BIO = [
   { key: "tankGal", label: "Nutrient tank gallons", hint: "Tank gal", num: true },
@@ -209,7 +210,7 @@ const SAMPLE = [
   { key: "nitrate",  label: "Nitrate residual", hint: "mg/L", num: true },
   { key: "peroxide", label: "Peroxide residual", hint: "mg/L", num: true },
 ];
-const ALL = [CHEM_NAME, ...CHEM, CHEM_INFO, ...SAMPLE, ...BIO, BIO_INFO];
+const ALL = [CHEM_NAME, ...CHEM, CHEM_INFO, ...SAMPLE, BIO_SYSTEM, ...BIO, BIO_INFO];
 const HIST = "_history";   // per-site list of dated readings
 
 /* ---------- Storage: IndexedDB, falling back to localStorage ---------- */
@@ -266,6 +267,8 @@ function addField(parent, f) {
 // Chemical name lives in the "Chemical feed:" title
 inputs.chemName = $("f_chemName");
 inputs.chemName.addEventListener("input", () => { if (!loading) { dirty = true; updateStatus(); } });
+inputs.bioSystem = $("f_bioSystem");
+inputs.bioSystem.addEventListener("input", () => { if (!loading) { dirty = true; updateStatus(); } });
 CHEM.forEach(f => addField($("chemFields"), f)); addField($("chemInfo"), CHEM_INFO);
 SAMPLE.forEach(f => addField($("sampleFields"), f));
 BIO.forEach(f => addField($("bioFields"), f)); addField($("bioInfo"), BIO_INFO);
@@ -671,7 +674,7 @@ const LOG_KEYS = ["p1Rate", "p1Hrs", "p2Rate", "p2Hrs", "chemInfo", "tankGal", "
 function logFor(rec, date) {
   const k = calc(rec), lab = Object.fromEntries(ALL.map(f => [f.key, f.label]));
   const AIR = ["ductDia", "fpm"];
-  const EXTRA = ["waterGpm", ...SAMPLE.map(f => f.key), "chemName"];                                       // added later, in the order they were added
+  const EXTRA = ["waterGpm", ...SAMPLE.map(f => f.key), "chemName", "bioSystem"];                                       // added later, in the order they were added
   const later = [...EXTRA, ...ALL.map(f => f.key).filter(x => !LOG_KEYS.includes(x) && !AIR.includes(x) && !EXTRA.includes(x))];
   return { date, complete: rec.completeMonth === date.slice(0, 7),
     cols: [...LOG_KEYS.map(x => lab[x]), "Chem feed GPD", "Nutrient feed gal/day", "Tank empty in days", ...AIR.map(x => lab[x]), "Airflow CFM", ...later.map(x => lab[x])],
