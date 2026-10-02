@@ -41,6 +41,9 @@
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
     padding: 12px 14px; margin: 12px 0; }
   .card h2 { font-size: 17px; margin: 0 0 8px; }
+  .card h2.titled { display: flex; align-items: center; gap: 8px; }
+  .card h2.titled label { white-space: nowrap; }
+  .card h2.titled input { flex: 1; min-width: 0; font-size: 17px; font-weight: 700; padding: 6px 8px; }
   .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: center; padding: 5px 0; }
   .row label { font-weight: 600; font-size: 15px; }
   input, textarea { width: 100%; font: inherit; color: var(--text); background: var(--input);
@@ -113,7 +116,7 @@
   </div>
 
   <section class="card">
-    <h2>Chemical feed</h2>
+    <h2 class="titled"><label for="f_chemName">Chemical feed:</label><input type="text" id="f_chemName" placeholder="chemical name" autocomplete="off" autocapitalize="words"></h2>
     <div id="chemFields"></div>
     <div class="result" id="chemResult">CHEM FEED GPD: --</div>
     <div id="chemInfo"></div>
@@ -183,6 +186,7 @@ const CHEM = [
   { key: "p2Rate", label: "Pump2 rate mL/min", hint: "Pump2 mL/min", num: true },
   { key: "p2Hrs",  label: "Pump2 timer hrs/day", hint: "blank = 24", num: true },
 ];
+const CHEM_NAME = { key: "chemName", label: "Chemical", hint: "chemical name", num: false };
 const CHEM_INFO = { key: "chemInfo", label: "Chem feed info", hint: "Pump type/size/brand, tank level", num: false };
 const BIO = [
   { key: "tankGal", label: "Nutrient tank gallons", hint: "Tank gal", num: true },
@@ -205,7 +209,7 @@ const SAMPLE = [
   { key: "nitrate",  label: "Nitrate residual", hint: "mg/L", num: true },
   { key: "peroxide", label: "Peroxide residual", hint: "mg/L", num: true },
 ];
-const ALL = [...CHEM, CHEM_INFO, ...SAMPLE, ...BIO, BIO_INFO];
+const ALL = [CHEM_NAME, ...CHEM, CHEM_INFO, ...SAMPLE, ...BIO, BIO_INFO];
 const HIST = "_history";   // per-site list of dated readings
 
 /* ---------- Storage: IndexedDB, falling back to localStorage ---------- */
@@ -259,6 +263,9 @@ function addField(parent, f) {
   el.addEventListener("input", () => { if (!loading) { dirty = true; updateStatus(); compute(); } });
   row.append(lab, el); parent.append(row); inputs[f.key] = el;
 }
+// Chemical name lives in the "Chemical feed:" title
+inputs.chemName = $("f_chemName");
+inputs.chemName.addEventListener("input", () => { if (!loading) { dirty = true; updateStatus(); } });
 CHEM.forEach(f => addField($("chemFields"), f)); addField($("chemInfo"), CHEM_INFO);
 SAMPLE.forEach(f => addField($("sampleFields"), f));
 BIO.forEach(f => addField($("bioFields"), f)); addField($("bioInfo"), BIO_INFO);
@@ -664,7 +671,7 @@ const LOG_KEYS = ["p1Rate", "p1Hrs", "p2Rate", "p2Hrs", "chemInfo", "tankGal", "
 function logFor(rec, date) {
   const k = calc(rec), lab = Object.fromEntries(ALL.map(f => [f.key, f.label]));
   const AIR = ["ductDia", "fpm"];
-  const EXTRA = ["waterGpm", ...SAMPLE.map(f => f.key)];                                       // added later, in the order they were added
+  const EXTRA = ["waterGpm", ...SAMPLE.map(f => f.key), "chemName"];                                       // added later, in the order they were added
   const later = [...EXTRA, ...ALL.map(f => f.key).filter(x => !LOG_KEYS.includes(x) && !AIR.includes(x) && !EXTRA.includes(x))];
   return { date, complete: rec.completeMonth === date.slice(0, 7),
     cols: [...LOG_KEYS.map(x => lab[x]), "Chem feed GPD", "Nutrient feed gal/day", "Tank empty in days", ...AIR.map(x => lab[x]), "Airflow CFM", ...later.map(x => lab[x])],
