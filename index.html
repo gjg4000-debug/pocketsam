@@ -43,6 +43,8 @@
   .card h2 { font-size: 17px; margin: 0 0 8px; }
   .card h2.titled { display: flex; align-items: center; gap: 8px; }
   .card h2.titled label { white-space: nowrap; }
+  .card h2.titled label.pencil { color: var(--muted); font-weight: 400; }
+  #f_bioSystem::placeholder { color: var(--text); opacity: 1; }
   .card h2.titled input { flex: 1; min-width: 0; font-size: 17px; font-weight: 700; padding: 6px 8px; }
   .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: center; padding: 5px 0; }
   .row label { font-weight: 600; font-size: 15px; }
@@ -128,7 +130,7 @@
   </section>
 
   <section class="card">
-    <h2 class="titled"><label for="f_bioSystem">Biofilter:</label><input type="text" id="f_bioSystem" placeholder="system type" autocomplete="off" autocapitalize="words"></h2>
+    <h2 class="titled"><label for="f_bioSystem" class="pencil" title="Tap to change the system type">✎</label><input type="text" id="f_bioSystem" placeholder="Biofilter" aria-label="System type (Biofilter, Scrubber, Carbon…)" autocomplete="off" autocapitalize="words"></h2>
     <div id="bioFields"></div>
     <div class="result" id="bioResult"></div>
     <div id="bioInfo"></div>
@@ -187,7 +189,7 @@ const CHEM = [
   { key: "p2Hrs",  label: "Pump2 timer hrs/day", hint: "blank = 24", num: true },
 ];
 const CHEM_NAME = { key: "chemName", label: "Chemical", hint: "chemical name", num: false };
-const BIO_SYSTEM = { key: "bioSystem", label: "Biofilter system", hint: "system type", num: false };
+const BIO_SYSTEM = { key: "bioSystem", label: "System type", hint: "Biofilter", num: false };
 const CHEM_INFO = { key: "chemInfo", label: "Chem feed info", hint: "Pump type/size/brand, tank level", num: false };
 const BIO = [
   { key: "tankGal", label: "Nutrient tank gallons", hint: "Tank gal", num: true },
