@@ -300,7 +300,10 @@ function calc(rec) {
   // Airflow: CFM = FPM x round duct area in sq ft = FPM x pi x (diameter in / 12)^2 / 4
   const dia = num(rec.ductDia), fpm = num(rec.fpm);
   const cfm = (dia != null && fpm != null && dia > 0) ? fpm * Math.PI * Math.pow(dia / 12, 2) / 4 : null;
-  return { gpd, bioGpd, days, runMin: runHrs * 60, timer, cfm };
+  // H2S removal % = (In - Out) / In x 100
+  const hin = num(rec.h2sIn), hout = num(rec.h2sOut);
+  const removal = (hin != null && hout != null && hin > 0) ? (hin - hout) / hin * 100 : null;
+  return { gpd, bioGpd, days, runMin: runHrs * 60, timer, cfm, removal };
 }
 const currentRecord = () => { const r = {}; ALL.forEach(f => r[f.key] = inputs[f.key].value.trim()); return r; };
 function compute() {
@@ -310,7 +313,8 @@ function compute() {
     : "Nutrient feed: " + c.bioGpd.toFixed(2) + " gal/day"
       + (c.timer ? "\nPump runs about " + c.runMin.toFixed(1) + " min/day" : "\nNo timer entered, figured as running 24 hrs")
       + (c.days != null ? "\nTank empty in about " + c.days.toFixed(1) + " days" : ""))
-    + "\nAirflow: " + (c.cfm == null ? "enter duct diameter and FPM" : Math.round(c.cfm) + " CFM");
+    + "\nAirflow: " + (c.cfm == null ? "enter duct diameter and FPM" : Math.round(c.cfm) + " CFM")
+    + (c.removal == null ? "" : "\nH2S removal: " + c.removal.toFixed(1) + "%");
 }
 
 /* ---------- UI helpers ---------- */
@@ -421,6 +425,7 @@ function writeCurrent() {
   if (k.bioGpd != null) rec.bioGalPerDay = k.bioGpd.toFixed(2);
   if (k.days != null) rec.tankDaysLeft = k.days.toFixed(1);
   if (k.cfm != null) rec.cfm = String(Math.round(k.cfm));
+  if (k.removal != null) rec.h2sRemoval = k.removal.toFixed(1);
   // Don't store empty boxes
   for (const key of Object.keys(rec)) if (rec[key] === "") delete rec[key];
   if (old.completeMonth) { rec.completeMonth = old.completeMonth; rec.completedOn = old.completedOn; }
@@ -439,7 +444,7 @@ $("saveBtn").onclick = async () => {
   // Only add a dated reading when some numbers or notes are filled in; a blank save just marks Complete.
   if (ALL.some(f => rec[f.key])) {
     const entry = { date, savedAt: new Date().toISOString(), complete: $("completeChk").checked };
-    [...ALL.map(f => f.key), "chemGpd", "bioGalPerDay", "tankDaysLeft", "cfm"].forEach(key => { if (rec[key] != null && rec[key] !== "") entry[key] = rec[key]; });
+    [...ALL.map(f => f.key), "chemGpd", "bioGalPerDay", "tankDaysLeft", "cfm", "h2sRemoval"].forEach(key => { if (rec[key] != null && rec[key] !== "") entry[key] = rec[key]; });
     const h = (rec[HIST] || []).filter(e => e.date !== date);
     h.push(entry); h.sort((a, b) => a.date.localeCompare(b.date)); rec[HIST] = h;
   }
@@ -501,6 +506,7 @@ function showReading(e) {
   add("Nutrient feed gal/day", c.bioGpd == null ? "" : c.bioGpd.toFixed(2));
   add("Tank empty in (days)", c.days == null ? "" : c.days.toFixed(1));
   add("Airflow CFM", c.cfm == null ? "" : String(Math.round(c.cfm)));
+  add("H2S removal %", c.removal == null ? "" : c.removal.toFixed(1));
   dialog(`${site} — ${fmtDate(e.date)}`, kv, [
     { text: "Delete", cls: "danger", fn: () => { setTimeout(() => confirmBox(`Delete the ${fmtDate(e.date)} reading?`, "Delete", async () => {
         const rec = siteRec(); rec[HIST] = rec[HIST].filter(x => x.date !== e.date); if (!rec[HIST].length) delete rec[HIST];
@@ -646,7 +652,7 @@ $("importFile").onchange = async (ev) => {
 
 $("csvBtn").onclick = () => {
   const esc = (v) => { const s = String(v ?? ""); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
-  const head = ["County/City", "Site", "Reading date", ...ALL.map(f => f.label), "Chem feed GPD", "Nutrient feed gal/day", "Tank empty in days", "Airflow CFM", "Complete"];
+  const head = ["County/City", "Site", "Reading date", ...ALL.map(f => f.label), "Chem feed GPD", "Nutrient feed gal/day", "Tank empty in days", "Airflow CFM", "H2S removal %", "Complete"];
   const rows = [head];
   for (const c of counties()) for (const s of sites(c)) {
     const rec = db[c][s];
@@ -655,7 +661,7 @@ $("csvBtn").onclick = () => {
     for (const e of h) {
       const k = calc(e);
       rows.push([c, s, e.date, ...ALL.map(f => e[f.key]), k.gpd == null ? "" : k.gpd.toFixed(2),
-        k.bioGpd == null ? "" : k.bioGpd.toFixed(2), k.days == null ? "" : k.days.toFixed(1), k.cfm == null ? "" : String(Math.round(k.cfm)), e.complete ? "Yes" : ""]);
+        k.bioGpd == null ? "" : k.bioGpd.toFixed(2), k.days == null ? "" : k.days.toFixed(1), k.cfm == null ? "" : String(Math.round(k.cfm)), k.removal == null ? "" : k.removal.toFixed(1), e.complete ? "Yes" : ""]);
     }
   }
   const n = safeName(getName());
@@ -682,9 +688,9 @@ function logFor(rec, date) {
   const EXTRA = ["waterGpm", ...SAMPLE.map(f => f.key), "chemName", "bioSystem", "h2sIn", "h2sMid", "h2sOut"];                                       // added later, in the order they were added
   const later = [...EXTRA, ...ALL.map(f => f.key).filter(x => !LOG_KEYS.includes(x) && !AIR.includes(x) && !EXTRA.includes(x))];
   return { date, complete: rec.completeMonth === date.slice(0, 7),
-    cols: [...LOG_KEYS.map(x => lab[x]), "Chem feed GPD", "Nutrient feed gal/day", "Tank empty in days", ...AIR.map(x => lab[x]), "Airflow CFM", ...later.map(x => lab[x])],
+    cols: [...LOG_KEYS.map(x => lab[x]), "Chem feed GPD", "Nutrient feed gal/day", "Tank empty in days", ...AIR.map(x => lab[x]), "Airflow CFM", ...later.map(x => lab[x]), "H2S removal %"],
     vals: [...LOG_KEYS.map(x => rec[x] || ""), k.gpd == null ? "" : k.gpd.toFixed(2), k.bioGpd == null ? "" : k.bioGpd.toFixed(2), k.days == null ? "" : k.days.toFixed(1),
-      ...AIR.map(x => rec[x] || ""), k.cfm == null ? "" : String(Math.round(k.cfm)), ...later.map(x => rec[x] || "")] };
+      ...AIR.map(x => rec[x] || ""), k.cfm == null ? "" : String(Math.round(k.cfm)), ...later.map(x => rec[x] || ""), k.removal == null ? "" : k.removal.toFixed(1)] };
 }
 function queue(op, noSend) {
   if (!syncCfg) return;                                  // not connected: nothing to send
