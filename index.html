@@ -26,6 +26,7 @@
     }
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   html, body { margin: 0; background: var(--bg); color: var(--text);
     font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   header { background: var(--brand); color: var(--brand-ink);
@@ -86,6 +87,16 @@
   .kv { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; font-size: 15px; }
   .kv div:nth-child(odd) { color: var(--muted); }
   .version { text-align: center; margin-top: 16px; }
+  .curvebar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 6px 0; }
+  .curvebar .what { flex: 1; min-width: 160px; font-size: 15px; }
+  .curvebar button { padding: 8px 12px; }
+  .adjgrid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin: 4px 0 6px; }
+  .adjgrid label { display: block; text-align: center; font-size: 12px; font-weight: 600; color: var(--muted); }
+  .adjgrid input { padding: 8px 2px; text-align: center; }
+  table.curve { border-collapse: collapse; font-size: 12px; width: 100%; }
+  table.curve th, table.curve td { border: 1px solid var(--line); padding: 2px 3px; text-align: right; }
+  table.curve th { color: var(--muted); font-weight: 600; }
+  textarea.paste { min-height: 160px; font-size: 13px; }
   .toast { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 24px);
     transform: translateX(-50%); background: #222; color: #fff; padding: 10px 16px; border-radius: 20px;
     font-size: 15px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 50; max-width: 90vw; }
@@ -120,6 +131,15 @@
   <section class="card">
     <h2 class="titled"><label for="f_chemName">Chemical feed:</label><input type="text" id="f_chemName" placeholder="chemical name" autocomplete="off" autocapitalize="words"></h2>
     <div id="chemFields"></div>
+    <div id="curveBox">
+      <div class="curvebar"><span class="what" id="curveWhat"></span><span id="curveBtns"></span></div>
+      <div id="adjFields" hidden>
+        <div id="adjGlobalRow"></div>
+        <div class="hint">Day adjustments %</div>
+        <div class="adjgrid" id="adjGrid"></div>
+      </div>
+    </div>
+    <input type="file" id="curveFile" accept=".csv,.txt,text/csv,text/plain" hidden>
     <div class="result" id="chemResult">CHEM FEED GPD: --</div>
     <div id="chemInfo"></div>
   </section>
@@ -168,7 +188,7 @@
       site and date is replaced by the imported one; other dates are kept. CSV opens in Excel / Google Sheets.</p>
     <input type="file" id="importFile" accept=".json,.txt,.csv,application/json,text/plain,text/csv" hidden>
   </section>
-  <p class="hint version">Pocket SAM version <span id="appVersion">2026-10-03 (v18)</span></p>
+  <p class="hint version">Pocket SAM version <span id="appVersion">2026-10-03 (v19)</span></p>
 </main>
 
 <dialog id="dlg">
@@ -216,7 +236,13 @@ const SAMPLE = [
   { key: "nitrate",  label: "Nitrate residual", hint: "mg/L", num: true },
   { key: "peroxide", label: "Peroxide residual", hint: "mg/L", num: true },
 ];
-const ALL = [CHEM_NAME, ...CHEM, CHEM_INFO, ...SAMPLE, BIO_SYSTEM, ...BIO, BIO_INFO];
+// Dosing curve (only some sites): 24 hourly mL/min rates for each day Sun..Sat, plus % adjustments.
+// Stored as text: 7 days separated by ";", each day 24 rates separated by "," (or one number if the same all day).
+const CURVE = { key: "curve", label: "Dosing curve", hint: "", num: false };
+const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const ADJ_GLOBAL = { key: "adjGlobal", label: "Global adjustment %", hint: "100", num: true };
+const ADJ_DAYS = DAYS.map(d => ({ key: "adj" + d.slice(0, 3), label: d + " adjustment %", hint: "100", num: true, short: d.slice(0, 2) }));
+const ALL = [CHEM_NAME, ...CHEM, CURVE, ADJ_GLOBAL, ...ADJ_DAYS, CHEM_INFO, ...SAMPLE, BIO_SYSTEM, ...BIO, BIO_INFO];
 const HIST = "_history";   // per-site list of dated readings
 
 /* ---------- Storage: IndexedDB, falling back to localStorage ---------- */
@@ -276,15 +302,45 @@ inputs.chemName.addEventListener("input", () => { if (!loading) { dirty = true; 
 inputs.bioSystem = $("f_bioSystem");
 inputs.bioSystem.addEventListener("input", () => { if (!loading) { dirty = true; updateStatus(); } });
 CHEM.forEach(f => addField($("chemFields"), f)); addField($("chemInfo"), CHEM_INFO);
+inputs.curve = document.createElement("input"); inputs.curve.type = "hidden"; $("curveBox").append(inputs.curve);
+addField($("adjGlobalRow"), ADJ_GLOBAL);
+ADJ_DAYS.forEach(f => {
+  const cell = document.createElement("div");
+  const lab = document.createElement("label"); lab.htmlFor = "f_" + f.key; lab.textContent = f.short;
+  const el = document.createElement("input"); el.id = "f_" + f.key; el.type = "text"; el.inputMode = "decimal"; el.autocomplete = "off";
+  el.placeholder = f.hint; el.setAttribute("aria-label", f.label);
+  el.addEventListener("input", () => { if (!loading) { dirty = true; updateStatus(); compute(); } });
+  cell.append(lab, el); $("adjGrid").append(cell); inputs[f.key] = el;
+});
 SAMPLE.forEach(f => addField($("sampleFields"), f));
 BIO.forEach(f => addField($("bioFields"), f)); addField($("bioInfo"), BIO_INFO);
 
 /* ---------- Math (same as Android app) ---------- */
 const num = (v) => { const s = String(v ?? "").trim(); if (!s) return null; const n = Number(s); return isFinite(n) ? n : null; };
+function parseCurve(str) {
+  const days = String(str || "").split(";");
+  if (days.length !== 7) return null;
+  const out = days.map(d => { const v = d.split(",").map(Number); return v.length === 1 ? Array(24).fill(v[0]) : v; });
+  return out.every(d => d.length === 24 && d.every(n => isFinite(n))) ? out : null;
+}
+const packCurve = (grid) => grid.map(d => d.every(n => n === d[0]) ? String(d[0]) : d.join(",")).join(";");
+function curveSummary(str) {
+  const g = parseCurve(str); if (!g) return "";
+  const all = g.flat(), lo = Math.min(...all), hi = Math.max(...all);
+  return lo === hi ? `${lo} mL/min all hours` : `${lo}–${hi} mL/min`;
+}
+function curveCalc(rec) {
+  const g = parseCurve(rec.curve); if (!g) return null;
+  const glob = num(rec.adjGlobal) ?? 100;
+  const perDay = g.map((d, i) => d.reduce((a, b) => a + b, 0) * 60 / 3785.41 * (num(rec[ADJ_DAYS[i].key]) ?? 100) / 100 * glob / 100);
+  return { perDay, avg: perDay.reduce((a, b) => a + b, 0) / 7 };
+}
 function calc(rec) {
   const r1 = num(rec.p1Rate) ?? 0, t1 = num(rec.p1Hrs) ?? 24;
   const r2 = num(rec.p2Rate) ?? 0, t2 = num(rec.p2Hrs) ?? 24;
-  const gpd = (r1 === 0 && r2 === 0) ? null : (r1 * 60 * t1 + r2 * 60 * t2) / 3785.41;
+  // A dosing curve is the total feed for the site (the pumps share it), so it replaces the pump math.
+  const cv = curveCalc(rec);
+  const gpd = cv ? cv.avg : (r1 === 0 && r2 === 0) ? null : (r1 * 60 * t1 + r2 * 60 * t2) / 3785.41;
   const gph = num(rec.bioGph), speed = num(rec.speed) ?? 100, stroke = num(rec.stroke) ?? 100;   // empty = 100%
   const tank = num(rec.tankGal);
   // Nutrient pump timer: ON seconds, then OFF minutes, repeating all day.
@@ -304,12 +360,19 @@ function calc(rec) {
   // H2S removal % = (In - Out) / In x 100
   const hin = num(rec.h2sIn), hout = num(rec.h2sOut);
   const removal = (hin != null && hout != null && hin > 0) ? (hin - hout) / hin * 100 : null;
-  return { gpd, bioGpd, days, runMin: runHrs * 60, timer, cfm, removal };
+  return { gpd, bioGpd, days, runMin: runHrs * 60, timer, cfm, removal, curve: cv };
 }
 const currentRecord = () => { const r = {}; ALL.forEach(f => r[f.key] = inputs[f.key].value.trim()); return r; };
 function compute() {
   const c = calc(currentRecord());
-  $("chemResult").textContent = c.gpd == null ? "CHEM FEED GPD: --" : "CHEM FEED GPD: " + c.gpd.toFixed(2);
+  let chem = c.gpd == null ? "CHEM FEED GPD: --" : "CHEM FEED GPD: " + c.gpd.toFixed(2);
+  if (c.curve) {
+    chem += "\nFrom the dosing curve (weekly average)";
+    const pd = c.curve.perDay, lo = Math.min(...pd), hi = Math.max(...pd);
+    if (hi - lo > 0.005) chem += `\nLowest ${DAYS[pd.indexOf(lo)].slice(0, 3)} ${lo.toFixed(2)} · Highest ${DAYS[pd.indexOf(hi)].slice(0, 3)} ${hi.toFixed(2)}`;
+  }
+  $("chemResult").textContent = chem;
+  updateCurveUi();
   $("bioResult").textContent = (c.bioGpd == null ? "Nutrient feed: enter pump GPH, speed % and stroke %"
     : "Nutrient feed: " + c.bioGpd.toFixed(2) + " gal/day"
       + (c.timer ? "\nPump runs about " + c.runMin.toFixed(1) + " min/day" : "\nNo timer entered, figured as running 24 hrs")
@@ -502,7 +565,8 @@ function showReading(e) {
   const c = calc(e);
   const kv = document.createElement("div"); kv.className = "kv";
   const add = (k, v) => { const a = document.createElement("div"); a.textContent = k; const b = document.createElement("div"); b.textContent = v || "—"; kv.append(a, b); };
-  ALL.forEach(f => add(f.label, e[f.key]));
+  ALL.forEach(f => { if (f.key === "curve") { if (e.curve) add(f.label, curveSummary(e.curve)); }
+    else if (!f.key.startsWith("adj") || e.curve) add(f.label, e[f.key]); });
   add("CHEM FEED GPD", c.gpd == null ? "" : c.gpd.toFixed(2));
   add("Nutrient feed gal/day", c.bioGpd == null ? "" : c.bioGpd.toFixed(2));
   add("Tank empty in (days)", c.days == null ? "" : c.days.toFixed(1));
@@ -515,6 +579,81 @@ function showReading(e) {
     { text: "Copy to form", fn: () => { setTimeout(() => guardUnsaved(() => { fill(e); dirty = true; updateStatus(); toast("Loaded — edit, then SAVE"); }), 0); } },
     { text: "Close", cls: "primary" },
   ]);
+}
+
+/* ---------- Dosing curve ---------- */
+// Reads the controller's curve export: CSV, tab-separated, or copied from the web page (one value per line).
+function readCurveText(text) {
+  const t = String(text).split(/[\r\n,\t]+/).map(x => x.trim()).filter(Boolean);
+  const grid = Array.from({ length: 7 }, () => Array(24).fill(null));
+  for (let i = 0; i < t.length; i++) {
+    const m = t[i].match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+    if (!m) continue;
+    let h = Number(m[1]) % 12; if (!m[3]) h = Number(m[1]); else if (m[3].toUpperCase() === "PM") h += 12;
+    const vals = t.slice(i + 1, i + 8).map(Number);
+    if (h < 24 && vals.length === 7 && vals.every(n => isFinite(n))) vals.forEach((v, d) => grid[d][h] = v);
+  }
+  if (grid.some(d => d.some(v => v == null))) return null;
+  const adj = {};
+  for (let i = 0; i < t.length - 1; i++) {
+    const m = t[i].match(/^(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Global)\s+Adjustment$/i);
+    if (m && isFinite(Number(t[i + 1]))) adj[m[1].toLowerCase()] = t[i + 1];
+  }
+  return { curve: packCurve(grid), adj };
+}
+function useCurve(text) {
+  const r = readCurveText(text);
+  if (!r) { toast("Couldn't read a 24-hour × 7-day curve from that"); return false; }
+  loading = true;
+  inputs.curve.value = r.curve;
+  const put = (f, v) => { inputs[f.key].value = v == null || Number(v) === 100 ? "" : String(v); };
+  put(ADJ_GLOBAL, r.adj.global);
+  ADJ_DAYS.forEach((f, i) => put(f, r.adj[DAYS[i].toLowerCase()]));
+  loading = false; dirty = true; updateStatus(); compute();
+  toast("Dosing curve loaded — SAVE to keep it");
+  return true;
+}
+function curveDialog() {
+  const p = document.createElement("p");
+  p.textContent = "Pick the curve CSV file from the controller, or paste it (from the file or copied from the web page).";
+  dialog("Dosing curve", p, [
+    { text: "Cancel" },
+    { text: "Paste", fn: () => { setTimeout(pasteCurve, 0); } },
+    { text: "Choose file", cls: "primary", fn: () => { $("curveFile").value = ""; $("curveFile").click(); } },
+  ]);
+}
+function pasteCurve() {
+  const ta = document.createElement("textarea"); ta.className = "paste"; ta.placeholder = "Paste the curve here";
+  dialog("Paste dosing curve", ta, [{ text: "Cancel" }, { text: "Use it", cls: "primary", fn: () => useCurve(ta.value) }]);
+  setTimeout(() => ta.focus(), 50);
+}
+$("curveFile").onchange = async () => { const f = $("curveFile").files[0]; if (f) useCurve(await f.text()); };
+function viewCurve() {
+  const g = parseCurve(inputs.curve.value); if (!g) return;
+  const tbl = document.createElement("table"); tbl.className = "curve";
+  const hr = tbl.insertRow(); ["Hour", ...DAYS.map(d => d.slice(0, 2))].forEach(h => { const th = document.createElement("th"); th.textContent = h; hr.append(th); });
+  for (let h = 0; h < 24; h++) {
+    const r = tbl.insertRow();
+    r.insertCell().textContent = `${(h % 12) || 12}${h < 12 ? "a" : "p"}`;
+    g.forEach(d => r.insertCell().textContent = d[h]);
+  }
+  dialog("Dosing curve (mL/min)", tbl, [{ text: "Close", cls: "primary" }]);
+}
+function updateCurveUi() {
+  const has = !!parseCurve(inputs.curve.value);
+  CHEM.forEach(f => inputs[f.key].closest(".row").hidden = has);
+  $("adjFields").hidden = !has;
+  $("curveWhat").textContent = has ? "Dosing curve: " + curveSummary(inputs.curve.value) : "";
+  const btns = $("curveBtns"); btns.replaceChildren();
+  const mk = (text, fn, cls) => { const b = document.createElement("button"); b.textContent = text; b.onclick = fn; if (cls) b.className = cls; btns.append(b); };
+  if (!has) mk("+ Dosing curve", curveDialog);
+  else {
+    mk("VIEW", viewCurve); mk("REPLACE", curveDialog);
+    mk("REMOVE", () => confirmBox("Remove the dosing curve from this site? (SAVE to make it stick)", "Remove", () => {
+      loading = true; inputs.curve.value = ""; [ADJ_GLOBAL, ...ADJ_DAYS].forEach(f => inputs[f.key].value = "");
+      loading = false; dirty = true; updateStatus(); compute();
+    }), "danger");
+  }
 }
 
 /* ---------- Backup / import / CSV ---------- */
@@ -661,7 +800,7 @@ $("csvBtn").onclick = () => {
     const h = Array.isArray(rec[HIST]) && rec[HIST].length ? rec[HIST] : [{ ...rec, date: "(current)" }];
     for (const e of h) {
       const k = calc(e);
-      rows.push([c, s, e.date, ...ALL.map(f => e[f.key]), k.gpd == null ? "" : k.gpd.toFixed(2),
+      rows.push([c, s, e.date, ...ALL.map(f => f.key === "curve" ? curveSummary(e.curve) : e[f.key]), k.gpd == null ? "" : k.gpd.toFixed(2),
         k.bioGpd == null ? "" : k.bioGpd.toFixed(2), k.days == null ? "" : k.days.toFixed(1), k.cfm == null ? "" : String(Math.round(k.cfm)), k.removal == null ? "" : k.removal.toFixed(1), e.complete ? "Yes" : ""]);
     }
   }
@@ -686,12 +825,14 @@ const LOG_KEYS = ["p1Rate", "p1Hrs", "p2Rate", "p2Hrs", "chemInfo", "tankGal", "
 function logFor(rec, date) {
   const k = calc(rec), lab = Object.fromEntries(ALL.map(f => [f.key, f.label]));
   const AIR = ["ductDia", "fpm"];
-  const EXTRA = ["waterGpm", ...SAMPLE.map(f => f.key), "chemName", "bioSystem", "h2sIn", "h2sMid", "h2sOut", "vfdHz"];                                       // added later, in the order they were added
-  const later = [...EXTRA, ...ALL.map(f => f.key).filter(x => !LOG_KEYS.includes(x) && !AIR.includes(x) && !EXTRA.includes(x))];
+  const EXTRA = ["waterGpm", ...SAMPLE.map(f => f.key), "chemName", "bioSystem", "h2sIn", "h2sMid", "h2sOut"];   // added later, in the order they were added
+  const TAIL = ["vfdHz", "curve", ADJ_GLOBAL.key, ...ADJ_DAYS.map(f => f.key)];                            // added after "H2S removal %": always append new ones HERE
+  const later = [...EXTRA, ...ALL.map(f => f.key).filter(x => !LOG_KEYS.includes(x) && !AIR.includes(x) && !EXTRA.includes(x) && !TAIL.includes(x))];
+  const val = x => x === "curve" ? curveSummary(rec.curve) : (rec[x] || "");
   return { date, complete: rec.completeMonth === date.slice(0, 7),
-    cols: [...LOG_KEYS.map(x => lab[x]), "Chem feed GPD", "Nutrient feed gal/day", "Tank empty in days", ...AIR.map(x => lab[x]), "Airflow CFM", ...later.map(x => lab[x]), "H2S removal %"],
-    vals: [...LOG_KEYS.map(x => rec[x] || ""), k.gpd == null ? "" : k.gpd.toFixed(2), k.bioGpd == null ? "" : k.bioGpd.toFixed(2), k.days == null ? "" : k.days.toFixed(1),
-      ...AIR.map(x => rec[x] || ""), k.cfm == null ? "" : String(Math.round(k.cfm)), ...later.map(x => rec[x] || ""), k.removal == null ? "" : k.removal.toFixed(1)] };
+    cols: [...LOG_KEYS.map(x => lab[x]), "Chem feed GPD", "Nutrient feed gal/day", "Tank empty in days", ...AIR.map(x => lab[x]), "Airflow CFM", ...later.map(x => lab[x]), "H2S removal %", ...TAIL.map(x => lab[x])],
+    vals: [...LOG_KEYS.map(val), k.gpd == null ? "" : k.gpd.toFixed(2), k.bioGpd == null ? "" : k.bioGpd.toFixed(2), k.days == null ? "" : k.days.toFixed(1),
+      ...AIR.map(val), k.cfm == null ? "" : String(Math.round(k.cfm)), ...later.map(val), k.removal == null ? "" : k.removal.toFixed(1), ...TAIL.map(val)] };
 }
 function queue(op, noSend) {
   if (!syncCfg) return;                                  // not connected: nothing to send
