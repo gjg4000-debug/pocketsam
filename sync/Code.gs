@@ -40,6 +40,8 @@ function sheet(name, header) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sh = ss.getSheetByName(name);
   if (!sh) { sh = ss.insertSheet(name); if (header) sh.appendRow(header); sh.setFrozenRows(1); }
+  // Keep County/City and Site as plain text, so names like "91" or "3/4" aren't turned into numbers or dates
+  if (name !== LOG) sh.getRange("A:B").setNumberFormat("@");
   return sh;
 }
 
@@ -96,7 +98,7 @@ function push(ops, by) {
       // Delete one site, or a whole county when op.s is blank
       const data = sh.getDataRange().getValues();
       for (let i = data.length - 1; i >= 1; i--) {
-        if (data[i][0] === op.c && (!op.s || data[i][1] === op.s)) sh.deleteRow(i + 1);
+        if (String(data[i][0]) === op.c && (!op.s || String(data[i][1]) === op.s)) sh.deleteRow(i + 1);
       }
       for (const k in index) delete index[k];
       const fresh = sh.getDataRange().getValues();
@@ -111,7 +113,7 @@ function removeDeleted(del, c, s) {
   const data = del.getDataRange().getValues();
   for (let i = data.length - 1; i >= 1; i--) {
     // Re-adding a site clears its own delete mark and a whole-county mark for that county
-    if (data[i][0] === c && (String(data[i][1] || "") === s || !data[i][1])) del.deleteRow(i + 1);
+    if (String(data[i][0]) === c && (String(data[i][1] ?? "") === s || data[i][1] === "")) del.deleteRow(i + 1);
   }
 }
 
