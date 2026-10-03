@@ -168,7 +168,7 @@
       site and date is replaced by the imported one; other dates are kept. CSV opens in Excel / Google Sheets.</p>
     <input type="file" id="importFile" accept=".json,.txt,.csv,application/json,text/plain,text/csv" hidden>
   </section>
-  <p class="hint version">Pocket SAM version <span id="appVersion">2026-10-01 (v17)</span></p>
+  <p class="hint version">Pocket SAM version <span id="appVersion">2026-10-03 (v18)</span></p>
 </main>
 
 <dialog id="dlg">
@@ -200,6 +200,7 @@ const BIO = [
   { key: "onSec",   label: "Timer ON (seconds)", hint: "e.g. 11", num: true },
   { key: "offMin",  label: "Timer OFF (minutes)", hint: "e.g. 14", num: true },
   { key: "waterGpm", label: "Make Up Water GPM", hint: "GPM", num: true },
+  { key: "vfdHz", label: "VFD Settings (Hz)", hint: "Hz", num: true },
   { key: "ductDia", label: "Air duct diameter (inches)", hint: "e.g. 8", num: true },
   { key: "fpm",     label: "Airflow FPM", hint: "e.g. 600", num: true },
   { key: "h2sIn",   label: "H2S In ppm", hint: "ppm", num: true },
@@ -685,7 +686,7 @@ const LOG_KEYS = ["p1Rate", "p1Hrs", "p2Rate", "p2Hrs", "chemInfo", "tankGal", "
 function logFor(rec, date) {
   const k = calc(rec), lab = Object.fromEntries(ALL.map(f => [f.key, f.label]));
   const AIR = ["ductDia", "fpm"];
-  const EXTRA = ["waterGpm", ...SAMPLE.map(f => f.key), "chemName", "bioSystem", "h2sIn", "h2sMid", "h2sOut"];                                       // added later, in the order they were added
+  const EXTRA = ["waterGpm", ...SAMPLE.map(f => f.key), "chemName", "bioSystem", "h2sIn", "h2sMid", "h2sOut", "vfdHz"];                                       // added later, in the order they were added
   const later = [...EXTRA, ...ALL.map(f => f.key).filter(x => !LOG_KEYS.includes(x) && !AIR.includes(x) && !EXTRA.includes(x))];
   return { date, complete: rec.completeMonth === date.slice(0, 7),
     cols: [...LOG_KEYS.map(x => lab[x]), "Chem feed GPD", "Nutrient feed gal/day", "Tank empty in days", ...AIR.map(x => lab[x]), "Airflow CFM", ...later.map(x => lab[x]), "H2S removal %"],
