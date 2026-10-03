@@ -195,8 +195,8 @@ const BIO = [
   { key: "tankGal", label: "Nutrient tank gallons", hint: "Tank gal", num: true },
   { key: "jugs",    label: "Nutrient jugs per tank", hint: "Jugs", num: true },
   { key: "bioGph",  label: "Nutrient Pump GPH", hint: "GPH", num: true },
-  { key: "speed",   label: "Nutrient Speed %", hint: "Speed %", num: true },
-  { key: "stroke",  label: "Nutrient Stroke %", hint: "Stroke %", num: true },
+  { key: "speed",   label: "Nutrient Speed %", hint: "100", num: true },
+  { key: "stroke",  label: "Nutrient Stroke %", hint: "100", num: true },
   { key: "onSec",   label: "Timer ON (seconds)", hint: "e.g. 11", num: true },
   { key: "offMin",  label: "Timer OFF (minutes)", hint: "e.g. 14", num: true },
   { key: "waterGpm", label: "Make Up Water GPM", hint: "GPM", num: true },
@@ -285,7 +285,7 @@ function calc(rec) {
   const r1 = num(rec.p1Rate) ?? 0, t1 = num(rec.p1Hrs) ?? 24;
   const r2 = num(rec.p2Rate) ?? 0, t2 = num(rec.p2Hrs) ?? 24;
   const gpd = (r1 === 0 && r2 === 0) ? null : (r1 * 60 * t1 + r2 * 60 * t2) / 3785.41;
-  const gph = num(rec.bioGph), speed = num(rec.speed), stroke = num(rec.stroke);
+  const gph = num(rec.bioGph), speed = num(rec.speed) ?? 100, stroke = num(rec.stroke) ?? 100;   // empty = 100%
   const tank = num(rec.tankGal);
   // Nutrient pump timer: ON seconds, then OFF minutes, repeating all day.
   // Run time per day = 24 hrs × ON / (ON + OFF). Old records without a timer use their hrs/day (or 24).
