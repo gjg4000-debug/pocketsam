@@ -66,6 +66,11 @@
   .pickers small { display: block; font-weight: 400; color: var(--muted); font-size: 12px; }
   .hint { color: var(--muted); font-size: 13px; }
   .latest { color: var(--muted); font-size: 14px; margin-top: 6px; }
+  .locbar { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+  .locbar .what { flex: 1; min-width: 0; font-size: 14px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .locbar a.btn, .locbar button { padding: 7px 12px; font-size: 14px; }
+  a.btn { display: inline-block; font-weight: 700; text-decoration: none; border-radius: 10px; background: var(--brand); color: var(--brand-ink); border: 1px solid var(--brand); }
+  .gpsbig { font-size: 20px; font-weight: 700; margin: 8px 0; }
   /* dialog */
   dialog { border: none; border-radius: 14px; padding: 0; width: min(92vw, 460px);
     background: var(--card); color: var(--text); }
@@ -122,6 +127,11 @@
     <button id="siteBtn"><small>Site</small><span>2. Select Site</span></button>
   </div>
   <div class="latest" id="latest"></div>
+  <div class="locbar" id="locBar" hidden>
+    <span class="what" id="locWhat"></span>
+    <a class="btn" id="dirBtn" target="_blank" rel="noopener">DIRECTIONS</a>
+    <button id="locSetBtn">SET</button>
+  </div>
   <div class="complete">
     <label class="complete-lbl" for="completeChk"><input type="checkbox" id="completeChk"> Complete</label>
     <span class="when" id="completeWhen"></span>
@@ -188,7 +198,7 @@
       site and date is replaced by the imported one; other dates are kept. CSV opens in Excel / Google Sheets.</p>
     <input type="file" id="importFile" accept=".json,.txt,.csv,application/json,text/plain,text/csv" hidden>
   </section>
-  <p class="hint version">Pocket SAM version <span id="appVersion">2026-10-03 (v19)</span></p>
+  <p class="hint version">Pocket SAM version <span id="appVersion">2026-10-03 (v20)</span></p>
 </main>
 
 <dialog id="dlg">
@@ -242,7 +252,9 @@ const CURVE = { key: "curve", label: "Dosing curve", hint: "", num: false };
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const ADJ_GLOBAL = { key: "adjGlobal", label: "Global adjustment %", hint: "100", num: true };
 const ADJ_DAYS = DAYS.map(d => ({ key: "adj" + d.slice(0, 3), label: d + " adjustment %", hint: "100", num: true, short: d.slice(0, 2) }));
-const ALL = [CHEM_NAME, ...CHEM, CURVE, ADJ_GLOBAL, ...ADJ_DAYS, CHEM_INFO, ...SAMPLE, BIO_SYSTEM, ...BIO, BIO_INFO];
+// Site location for DIRECTIONS: "lat,lng,accuracy in meters" (accuracy blank when typed in).
+const LOC = { key: "loc", label: "Location", hint: "", num: false };
+const ALL = [CHEM_NAME, ...CHEM, CURVE, ADJ_GLOBAL, ...ADJ_DAYS, CHEM_INFO, ...SAMPLE, BIO_SYSTEM, ...BIO, BIO_INFO, LOC];
 const HIST = "_history";   // per-site list of dated readings
 
 /* ---------- Storage: IndexedDB, falling back to localStorage ---------- */
@@ -303,6 +315,7 @@ inputs.bioSystem = $("f_bioSystem");
 inputs.bioSystem.addEventListener("input", () => { if (!loading) { dirty = true; updateStatus(); } });
 CHEM.forEach(f => addField($("chemFields"), f)); addField($("chemInfo"), CHEM_INFO);
 inputs.curve = document.createElement("input"); inputs.curve.type = "hidden"; $("curveBox").append(inputs.curve);
+inputs.loc = document.createElement("input"); inputs.loc.type = "hidden"; $("locBar").append(inputs.loc);
 addField($("adjGlobalRow"), ADJ_GLOBAL);
 ADJ_DAYS.forEach(f => {
   const cell = document.createElement("div");
@@ -372,7 +385,7 @@ function compute() {
     if (hi - lo > 0.005) chem += `\nLowest ${DAYS[pd.indexOf(lo)].slice(0, 3)} ${lo.toFixed(2)} · Highest ${DAYS[pd.indexOf(hi)].slice(0, 3)} ${hi.toFixed(2)}`;
   }
   $("chemResult").textContent = chem;
-  updateCurveUi();
+  updateCurveUi(); updateLocUi();
   $("bioResult").textContent = (c.bioGpd == null ? "Nutrient feed: enter pump GPH, speed % and stroke %"
     : "Nutrient feed: " + c.bioGpd.toFixed(2) + " gal/day"
       + (c.timer ? "\nPump runs about " + c.runMin.toFixed(1) + " min/day" : "\nNo timer entered, figured as running 24 hrs")
@@ -398,7 +411,7 @@ function refreshUi() {
   const on = !!(county && site);
   ["historyBtn", "saveBtn", "quickSaveBtn"].forEach(id => $(id).disabled = !on);
   $("historyBtn").disabled = !h.length;
-  updateStatus();
+  updateStatus(); updateLocUi();
 }
 function updateStatus() {
   $("status").textContent = !county ? "Pick or add a county / city to start."
@@ -566,6 +579,7 @@ function showReading(e) {
   const kv = document.createElement("div"); kv.className = "kv";
   const add = (k, v) => { const a = document.createElement("div"); a.textContent = k; const b = document.createElement("div"); b.textContent = v || "—"; kv.append(a, b); };
   ALL.forEach(f => { if (f.key === "curve") { if (e.curve) add(f.label, curveSummary(e.curve)); }
+    else if (f.key === "loc") { if (e.loc) add(f.label, locText(e.loc)); }
     else if (!f.key.startsWith("adj") || e.curve) add(f.label, e[f.key]); });
   add("CHEM FEED GPD", c.gpd == null ? "" : c.gpd.toFixed(2));
   add("Nutrient feed gal/day", c.bioGpd == null ? "" : c.bioGpd.toFixed(2));
@@ -655,6 +669,92 @@ function updateCurveUi() {
     }), "danger");
   }
 }
+
+/* ---------- Site location / directions ---------- */
+function parseLoc(str) {
+  const parts = String(str || "").split(",");
+  const la = Number(parts[0]), ln = Number(parts[1]), acc = parts[2] && parts[2].trim() ? Number(parts[2]) : NaN;
+  return parts[0].trim() && parts[1] && isFinite(la) && isFinite(ln) && Math.abs(la) <= 90 && Math.abs(ln) <= 180 ? { lat: la, lng: ln, acc: isFinite(acc) ? acc : null } : null;
+}
+const ft = (m) => Math.round(m * 3.281);
+const locText = (str) => { const l = parseLoc(str); return l ? `${l.lat.toFixed(6)}, ${l.lng.toFixed(6)}` : ""; };
+function distM(a, b) {   // meters between two points
+  const R = 6371000, r = Math.PI / 180, dLa = (b.lat - a.lat) * r, dLn = (b.lng - a.lng) * r;
+  const h = Math.sin(dLa / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLn / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+function updateLocUi() {
+  $("locBar").hidden = !(county && site);
+  const l = parseLoc(inputs.loc.value);
+  $("locWhat").textContent = l ? "📍 Location saved" + (l.acc != null ? ` (±${ft(l.acc)} ft)` : "") : "📍 No location yet";
+  const d = $("dirBtn");
+  if (l) { d.href = `https://www.google.com/maps/dir/?api=1&destination=${l.lat},${l.lng}`; d.hidden = false; }
+  else { d.removeAttribute("href"); d.hidden = true; }
+  $("locSetBtn").textContent = l ? "SET" : "SET LOCATION";
+}
+// Put a new location in the form, asking first if it's far from the saved one.
+function setLoc(lat, lng, acc) {
+  const apply = () => {
+    loading = true; inputs.loc.value = [lat.toFixed(6), lng.toFixed(6), acc == null ? "" : Math.round(acc)].join(",");
+    loading = false; dirty = true; updateStatus(); updateLocUi(); toast("Location set — SAVE to keep it");
+  };
+  const old = parseLoc(inputs.loc.value);
+  if (old) {
+    const m = distM(old, { lat, lng });
+    setTimeout(() => confirmBox(`The new spot is ${m < 1609 ? ft(m) + " ft" : (m / 1609).toFixed(1) + " miles"} from the saved one. Replace it?`, "Replace", apply), 0);
+  } else apply();
+}
+$("locSetBtn").onclick = () => {
+  const box = document.createElement("div");
+  const big = document.createElement("div"); big.className = "gpsbig";
+  const msg = document.createElement("p"); msg.className = "hint";
+  let best = null, watch = null, timer = null;
+  const stop = () => { if (watch != null) navigator.geolocation.clearWatch(watch); watch = null; clearTimeout(timer); };
+  const show = () => {
+    if (!best) return;
+    const a = ft(best.acc);
+    big.textContent = `±${a} ft` + (a <= 30 ? "  good" : a <= 100 ? "  OK" : "  weak signal");
+    msg.textContent = watch != null ? "Still listening for a better fix…" : a > 100 ? "Weak fix. Try again outside, away from the panel or roof." : "Tap Use it to keep this spot.";
+  };
+  const start = () => {
+    stop(); best = null; big.textContent = "Finding you…"; msg.textContent = "Stand at the unit. This takes up to 20 seconds.";
+    if (!navigator.geolocation) { big.textContent = "No GPS on this device"; msg.textContent = "Type or paste the coordinates below instead."; return; }
+    const t0 = Date.now();
+    watch = navigator.geolocation.watchPosition(p => {
+      if (!best || p.coords.accuracy < best.acc) best = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy };
+      if (best.acc <= 5 && Date.now() - t0 > 3000) stop();   // very good fix: stop early
+      show();
+    }, err => {
+      stop();
+      big.textContent = err.code === 1 ? "Location is blocked" : "Couldn't get a fix";
+      msg.textContent = err.code === 1 ? "Allow location for this site in the browser settings, or type the coordinates below." : "Try again outside, or type the coordinates below.";
+    }, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
+    timer = setTimeout(() => { stop(); show(); if (!best) { big.textContent = "Couldn't get a fix"; msg.textContent = "Try again outside, or type the coordinates below."; } }, 20000);
+  };
+  const lab = document.createElement("label"); lab.className = "hint"; lab.htmlFor = "locType";
+  lab.textContent = "Or type / paste coordinates (or a Google Maps link):";
+  const inp = document.createElement("input"); inp.id = "locType"; inp.placeholder = "28.123456, -81.654321"; inp.autocomplete = "off";
+  box.append(big, msg, lab, inp);
+  const typed = () => {
+    const t = inp.value.trim(); if (!t) return null;
+    const m = t.match(/(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/);
+    return m && parseLoc(m[1] + "," + m[2]);
+  };
+  dialog("Set location — " + site, box, [
+    { text: "Cancel", fn: () => stop() },
+    { text: "Try again", fn: () => { start(); return false; } },
+    { text: "Use it", cls: "primary", fn: () => {
+        const t = typed();
+        if (inp.value.trim() && !t) { toast("Couldn't read those coordinates"); return false; }
+        if (t) { stop(); setLoc(t.lat, t.lng, null); return; }
+        if (!best) { toast("No fix yet"); return false; }
+        stop(); setLoc(best.lat, best.lng, best.acc);
+      } },
+  ]);
+  inp.blur();                                   // don't pop the keyboard open
+  $("dlg").addEventListener("close", stop, { once: true });
+  start();
+};
 
 /* ---------- Backup / import / CSV ---------- */
 function download(name, text, type) {
@@ -800,7 +900,7 @@ $("csvBtn").onclick = () => {
     const h = Array.isArray(rec[HIST]) && rec[HIST].length ? rec[HIST] : [{ ...rec, date: "(current)" }];
     for (const e of h) {
       const k = calc(e);
-      rows.push([c, s, e.date, ...ALL.map(f => f.key === "curve" ? curveSummary(e.curve) : e[f.key]), k.gpd == null ? "" : k.gpd.toFixed(2),
+      rows.push([c, s, e.date, ...ALL.map(f => f.key === "curve" ? curveSummary(e.curve) : f.key === "loc" ? locText(e.loc) : e[f.key]), k.gpd == null ? "" : k.gpd.toFixed(2),
         k.bioGpd == null ? "" : k.bioGpd.toFixed(2), k.days == null ? "" : k.days.toFixed(1), k.cfm == null ? "" : String(Math.round(k.cfm)), k.removal == null ? "" : k.removal.toFixed(1), e.complete ? "Yes" : ""]);
     }
   }
@@ -826,9 +926,9 @@ function logFor(rec, date) {
   const k = calc(rec), lab = Object.fromEntries(ALL.map(f => [f.key, f.label]));
   const AIR = ["ductDia", "fpm"];
   const EXTRA = ["waterGpm", ...SAMPLE.map(f => f.key), "chemName", "bioSystem", "h2sIn", "h2sMid", "h2sOut"];   // added later, in the order they were added
-  const TAIL = ["vfdHz", "curve", ADJ_GLOBAL.key, ...ADJ_DAYS.map(f => f.key)];                            // added after "H2S removal %": always append new ones HERE
+  const TAIL = ["vfdHz", "curve", ADJ_GLOBAL.key, ...ADJ_DAYS.map(f => f.key), "loc"];                            // added after "H2S removal %": always append new ones HERE
   const later = [...EXTRA, ...ALL.map(f => f.key).filter(x => !LOG_KEYS.includes(x) && !AIR.includes(x) && !EXTRA.includes(x) && !TAIL.includes(x))];
-  const val = x => x === "curve" ? curveSummary(rec.curve) : (rec[x] || "");
+  const val = x => x === "curve" ? curveSummary(rec.curve) : x === "loc" ? locText(rec.loc) : (rec[x] || "");
   return { date, complete: rec.completeMonth === date.slice(0, 7),
     cols: [...LOG_KEYS.map(x => lab[x]), "Chem feed GPD", "Nutrient feed gal/day", "Tank empty in days", ...AIR.map(x => lab[x]), "Airflow CFM", ...later.map(x => lab[x]), "H2S removal %", ...TAIL.map(x => lab[x])],
     vals: [...LOG_KEYS.map(val), k.gpd == null ? "" : k.gpd.toFixed(2), k.bioGpd == null ? "" : k.bioGpd.toFixed(2), k.days == null ? "" : k.days.toFixed(1),
