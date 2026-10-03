@@ -119,6 +119,8 @@ function logReading(c, s, by, log) {
   const header = ["Saved", "By", "County/City", "Site", "Date", "Complete"].concat(log.cols || []);
   const sh = sheet(LOG, header);
   // When the app adds new boxes, add their column headings too
+  // The tab needs enough columns first, or Google stops with an error
+  if (sh.getMaxColumns() < header.length) sh.insertColumnsAfter(sh.getMaxColumns(), header.length - sh.getMaxColumns() + 10);
   const current = sh.getRange(1, 1, 1, Math.max(sh.getLastColumn(), 1)).getValues()[0];
   if (header.length > current.length || header.some((h, i) => h !== current[i])) sh.getRange(1, 1, 1, header.length).setValues([header]);
   sh.appendRow([new Date(), by, c, s, log.date || "", log.complete ? "Yes" : ""].concat(log.vals || []));
