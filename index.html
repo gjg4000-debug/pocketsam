@@ -960,8 +960,17 @@ $("importFile").onchange = async (ev) => {
 // Left out of the spreadsheet export: the dosing curve and its adjustments (the GPD column already uses them).
 const CSV_SKIP = new Set(["curve", ADJ_GLOBAL.key, ...ADJ_DAYS.map(f => f.key), "loc"]);
 function csvRows(f) {
-  const COLS = ALL.filter(x => !CSV_SKIP.has(x.key));
-  const head = ["County/City", "Site", "Reading date", ...COLS.map(x => x.label), "Chem feed GPD", "Nutrient feed gal/day", "Tank empty in days", "Airflow CFM", "Complete"];
+  // Column list: each entry is [heading, value for one reading]. Chem feed GPD sits right after the pump boxes.
+  const COLS = [];
+  ALL.filter(x => !CSV_SKIP.has(x.key)).forEach(x => {
+    COLS.push([x.label, (e) => e[x.key]]);
+    if (x.key === "p2Hrs") COLS.push(["Chem feed GPD", (e, k) => k.gpd == null ? "" : k.gpd.toFixed(2)]);
+  });
+  COLS.push(["Nutrient feed gal/day", (e, k) => k.bioGpd == null ? "" : k.bioGpd.toFixed(2)],
+    ["Tank empty in days", (e, k) => k.days == null ? "" : k.days.toFixed(1)],
+    ["Airflow CFM", (e, k) => k.cfm == null ? "" : String(Math.round(k.cfm))],
+    ["Complete", (e) => e.complete ? "Yes" : ""]);
+  const head = ["County/City", "Site", "Reading date", ...COLS.map(x => x[0])];
   const rows = [head];
   const dated = !!(f.from || f.to);
   for (const c of counties()) {
@@ -977,8 +986,7 @@ function csvRows(f) {
         if (f.from && e.date < f.from) continue;
         if (f.to && e.date > f.to) continue;
         const k = calc(e);
-        rows.push([c, s, e.date, ...COLS.map(x => e[x.key]), k.gpd == null ? "" : k.gpd.toFixed(2),
-          k.bioGpd == null ? "" : k.bioGpd.toFixed(2), k.days == null ? "" : k.days.toFixed(1), k.cfm == null ? "" : String(Math.round(k.cfm)), e.complete ? "Yes" : ""]);
+        rows.push([c, s, e.date, ...COLS.map(x => x[1](e, k))]);
       }
     }
   }
