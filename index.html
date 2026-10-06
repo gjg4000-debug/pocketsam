@@ -491,6 +491,14 @@ $("siteBtn").onclick = () => {
       if (db[county][n]) { loadSite(n); return; }
       site = n; fill(null); dirty = true; refreshUi(); toast("Fill in the fields, then SAVE");
     }), s => ({ done: isDone(county, s), count: siteDist(s), distFor: s })));
+  // Not sure where you are yet (common on iPhone): offer a button to get distances
+  if (!here && sites(county).some(x => parseLoc((db[county][x] || {}).loc))) {
+    const box = document.querySelector("#dlgBody .list");
+    const b = document.createElement("button"); b.className = "add"; b.id = "distBtn"; b.textContent = "📍 Show distances (closest first)";
+    b.onclick = () => { b.textContent = "📍 Finding you…"; fetchHere(err => {
+      b.textContent = err && err.code === 1 ? "📍 Location is blocked. Allow it in Settings, then tap again" : "📍 Couldn't get your location. Tap to try again"; }); };
+    if (box) box.prepend(b);
+  }
   autoHere(true);
 };
 
@@ -693,12 +701,13 @@ function awayText(m) {
   const mi = m / 1609.34;
   return `${mi < 10 ? mi.toFixed(1) : Math.round(mi)} mi away`;
 }
-function fetchHere() {
-  if (!navigator.geolocation || hereBusy) return;
+function fetchHere(onFail) {
+  if (!navigator.geolocation) { if (onFail) onFail(); return; }
+  if (hereBusy) return;
   hereBusy = true; updateLocUi();
   navigator.geolocation.getCurrentPosition(
     p => { here = { lat: p.coords.latitude, lng: p.coords.longitude }; hereBusy = false; updateLocUi(); updateListDistances(); },
-    () => { hereBusy = false; updateLocUi(); },
+    (err) => { hereBusy = false; updateLocUi(); if (onFail) onFail(err); },
     { enableHighAccuracy: false, maximumAge: 60000, timeout: 15000 });
 }
 // Check automatically only if location is already allowed (never pops a permission box by itself).
@@ -722,6 +731,7 @@ function byDistance(list) {
 function updateListDistances() {
   const spans = [...document.querySelectorAll("#dlgBody span[data-site]")];
   if (!spans.length) return;
+  if (here) { const db_ = $("distBtn"); if (db_) db_.remove(); }
   spans.forEach(sp => sp.textContent = siteDist(sp.dataset.site));
   // Re-sort the open list now that distances are known
   const box = spans[0].closest(".list"), add = box.querySelector("button.add");
