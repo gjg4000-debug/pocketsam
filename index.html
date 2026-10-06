@@ -67,7 +67,7 @@
   .hint { color: var(--muted); font-size: 13px; }
   .latest { color: var(--muted); font-size: 14px; margin-top: 6px; }
   .locbar { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
-  .locbar .what { flex: 1; min-width: 0; font-size: 14px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .locbar .what { flex: 1; min-width: 0; font-size: 14px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
   .locbar a.btn, .locbar button { padding: 7px 12px; font-size: 14px; }
   a.btn { display: inline-block; font-weight: 700; text-decoration: none; border-radius: 10px; background: var(--brand); color: var(--brand-ink); border: 1px solid var(--brand); }
   .gpsbig { font-size: 20px; font-weight: 700; margin: 8px 0; }
@@ -476,7 +476,7 @@ function setComplete(rec) {
 }
 $("completeChk").addEventListener("change", () => { if (!loading) { dirty = true; updateStatus(); } });
 function selectCounty(c) { county = c; site = null; fill(null); dirty = false; refreshUi(); }
-function loadSite(s) { site = s; fill((db[county] || {})[s]); dirty = false; refreshUi(); }
+function loadSite(s) { site = s; fill((db[county] || {})[s]); dirty = false; refreshUi(); autoHere(); }
 async function persist() { await store.save(db); }
 
 $("countyBtn").onclick = () => guardUnsaved(() =>
@@ -683,10 +683,36 @@ function distM(a, b) {   // meters between two points
   const h = Math.sin(dLa / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLn / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(h));
 }
+// Where you are right now, to show how far the site is (straight line, not driving distance).
+let here = null, hereBusy = false;
+function awayText(m) {
+  const f = ft(m);
+  if (f <= 150) return `You're here (${f} ft)`;
+  if (m < 160) return `${f} ft away`;
+  const mi = m / 1609.34;
+  return `${mi < 10 ? mi.toFixed(1) : Math.round(mi)} mi away`;
+}
+function fetchHere() {
+  if (!navigator.geolocation || hereBusy) return;
+  hereBusy = true; updateLocUi();
+  navigator.geolocation.getCurrentPosition(
+    p => { here = { lat: p.coords.latitude, lng: p.coords.longitude }; hereBusy = false; updateLocUi(); },
+    () => { hereBusy = false; updateLocUi(); },
+    { enableHighAccuracy: false, maximumAge: 60000, timeout: 15000 });
+}
+// Check automatically only if location is already allowed (never pops a permission box by itself).
+function autoHere() {
+  if (!(county && site && parseLoc(inputs.loc.value)) || !navigator.permissions) return;
+  navigator.permissions.query({ name: "geolocation" }).then(st => { if (st.state === "granted") fetchHere(); }).catch(() => {});
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) autoHere(); });
+setInterval(() => { if (!document.hidden) autoHere(); }, 60000);
 function updateLocUi() {
   $("locBar").hidden = !(county && site);
   const l = parseLoc(inputs.loc.value);
-  $("locWhat").textContent = l ? "📍 Location saved" + (l.acc != null ? ` (±${ft(l.acc)} ft)` : "") : "📍 No location yet";
+  $("locWhat").textContent = !l ? "📍 No location yet"
+    : here ? "📍 " + awayText(distM(here, l))
+    : hereBusy ? "📍 Checking distance…" : "📍 Location saved · tap for distance";
   const d = $("dirBtn");
   if (l) { d.href = `https://www.google.com/maps/dir/?api=1&destination=${l.lat},${l.lng}`; d.hidden = false; }
   else { d.removeAttribute("href"); d.hidden = true; }
@@ -696,6 +722,7 @@ function updateLocUi() {
 function setLoc(lat, lng, acc) {
   const apply = () => {
     loading = true; inputs.loc.value = [lat.toFixed(6), lng.toFixed(6), acc == null ? "" : Math.round(acc)].join(",");
+    if (acc != null) here = { lat, lng };   // set from GPS: you're standing there
     loading = false; dirty = true; updateStatus(); updateLocUi(); toast("Location set — SAVE to keep it");
   };
   const old = parseLoc(inputs.loc.value);
@@ -704,6 +731,7 @@ function setLoc(lat, lng, acc) {
     setTimeout(() => confirmBox(`The new spot is ${m < 1609 ? ft(m) + " ft" : (m / 1609).toFixed(1) + " miles"} from the saved one. Replace it?`, "Replace", apply), 0);
   } else apply();
 }
+$("locWhat").onclick = () => { if (parseLoc(inputs.loc.value)) fetchHere(); };
 $("locSetBtn").onclick = () => {
   const box = document.createElement("div");
   const big = document.createElement("div"); big.className = "gpsbig";
