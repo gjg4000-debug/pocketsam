@@ -982,6 +982,11 @@ function csvRows(f) {
       }
     }
   }
+  // Drop columns that are empty in every exported reading (always keep County, Site, Date)
+  if (rows.length > 1) {
+    const keep = rows[0].map((_, i) => i < 3 || rows.slice(1).some(r => String(r[i] ?? "").trim() !== ""));
+    return rows.map(r => r.filter((_, i) => keep[i]));
+  }
   return rows;
 }
 $("csvBtn").onclick = () => {
