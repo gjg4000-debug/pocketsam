@@ -966,8 +966,7 @@ function csvRows(f) {
     COLS.push([x.label, (e) => e[x.key]]);
     if (x.key === "p2Hrs") COLS.push(["Chem feed GPD", (e, k) => k.gpd == null ? "" : k.gpd.toFixed(2)]);
   });
-  COLS.push(["Nutrient feed gal/day", (e, k) => k.bioGpd == null ? "" : k.bioGpd.toFixed(2)],
-    ["Tank empty in days", (e, k) => k.days == null ? "" : k.days.toFixed(1)],
+  COLS.push(["Tank empty in days", (e, k) => k.days == null ? "" : k.days.toFixed(1)],
     ["Airflow CFM", (e, k) => k.cfm == null ? "" : String(Math.round(k.cfm))],
     ["Complete", (e) => e.complete ? "Yes" : ""]);
   const head = ["County/City", "Site", "Reading date", ...COLS.map(x => x[0])];
