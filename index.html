@@ -958,10 +958,10 @@ $("importFile").onchange = async (ev) => {
 
 // Rows for the spreadsheet export. f = { from, to, county, sites } — blank/null means "all".
 // Left out of the spreadsheet export: the dosing curve and its adjustments (the GPD column already uses them).
-const CSV_SKIP = new Set(["curve", ADJ_GLOBAL.key, ...ADJ_DAYS.map(f => f.key)]);
+const CSV_SKIP = new Set(["curve", ADJ_GLOBAL.key, ...ADJ_DAYS.map(f => f.key), "loc"]);
 function csvRows(f) {
   const COLS = ALL.filter(x => !CSV_SKIP.has(x.key));
-  const head = ["County/City", "Site", "Reading date", ...COLS.map(x => x.label), "Chem feed GPD", "Nutrient feed gal/day", "Tank empty in days", "Airflow CFM", "H2S removal %", "Complete"];
+  const head = ["County/City", "Site", "Reading date", ...COLS.map(x => x.label), "Chem feed GPD", "Nutrient feed gal/day", "Tank empty in days", "Airflow CFM", "Complete"];
   const rows = [head];
   const dated = !!(f.from || f.to);
   for (const c of counties()) {
@@ -977,8 +977,8 @@ function csvRows(f) {
         if (f.from && e.date < f.from) continue;
         if (f.to && e.date > f.to) continue;
         const k = calc(e);
-        rows.push([c, s, e.date, ...COLS.map(x => x.key === "loc" ? locText(e.loc) : e[x.key]), k.gpd == null ? "" : k.gpd.toFixed(2),
-          k.bioGpd == null ? "" : k.bioGpd.toFixed(2), k.days == null ? "" : k.days.toFixed(1), k.cfm == null ? "" : String(Math.round(k.cfm)), k.removal == null ? "" : k.removal.toFixed(1), e.complete ? "Yes" : ""]);
+        rows.push([c, s, e.date, ...COLS.map(x => e[x.key]), k.gpd == null ? "" : k.gpd.toFixed(2),
+          k.bioGpd == null ? "" : k.bioGpd.toFixed(2), k.days == null ? "" : k.days.toFixed(1), k.cfm == null ? "" : String(Math.round(k.cfm)), e.complete ? "Yes" : ""]);
       }
     }
   }
