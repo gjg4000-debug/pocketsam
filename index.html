@@ -486,7 +486,7 @@ $("countyBtn").onclick = () => guardUnsaved(() =>
 
 $("siteBtn").onclick = () => {
   if (!county) { toast("Pick a county / city first"); return; }
-  guardUnsaved(() => listDialog(`Sites in ${county}`, sites(county), "+ Add new site…", loadSite,
+  guardUnsaved(() => listDialog(`Sites in ${county}`, byDistance(sites(county)), "+ Add new site…", loadSite,
     () => askName("New site name", n => {
       if (db[county][n]) { loadSite(n); return; }
       site = n; fill(null); dirty = true; refreshUi(); toast("Fill in the fields, then SAVE");
@@ -709,8 +709,24 @@ function siteDist(s) {
   const m = distM(here, l), f = ft(m), mi = m / 1609.34;
   return f <= 150 ? "here" : m < 160 ? f + " ft" : (mi < 10 ? mi.toFixed(1) : Math.round(mi)) + " mi";
 }
+// Closest first; sites without a saved spot (or before your position is known) stay A–Z at the bottom.
+function siteMeters(s) { const l = parseLoc(((db[county] || {})[s] || {}).loc); return l && here ? distM(here, l) : null; }
+function byDistance(list) {
+  return list.slice().sort((a, b) => {
+    const da = siteMeters(a), dbb = siteMeters(b);
+    if (da != null && dbb != null) return da - dbb;
+    if (da != null) return -1; if (dbb != null) return 1;
+    return byName(a, b);
+  });
+}
 function updateListDistances() {
-  document.querySelectorAll("#dlgBody span[data-site]").forEach(sp => sp.textContent = siteDist(sp.dataset.site));
+  const spans = [...document.querySelectorAll("#dlgBody span[data-site]")];
+  if (!spans.length) return;
+  spans.forEach(sp => sp.textContent = siteDist(sp.dataset.site));
+  // Re-sort the open list now that distances are known
+  const box = spans[0].closest(".list"), add = box.querySelector("button.add");
+  const btn = {}; spans.forEach(sp => btn[sp.dataset.site] = sp.parentElement);
+  byDistance(Object.keys(btn)).forEach(n => box.insertBefore(btn[n], add));
 }
 function autoHere(anySite) {
   const want = anySite ? county && sites(county).some(x => parseLoc((db[county][x] || {}).loc)) : county && site && parseLoc(inputs.loc.value);
