@@ -946,22 +946,82 @@ $("importFile").onchange = async (ev) => {
   } }]);
 };
 
-$("csvBtn").onclick = () => {
-  const esc = (v) => { const s = String(v ?? ""); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
-  const head = ["County/City", "Site", "Reading date", ...ALL.map(f => f.label), "Chem feed GPD", "Nutrient feed gal/day", "Tank empty in days", "Airflow CFM", "H2S removal %", "Complete"];
+// Rows for the spreadsheet export. f = { from, to, county, sites } — blank/null means "all".
+function csvRows(f) {
+  const head = ["County/City", "Site", "Reading date", ...ALL.map(x => x.label), "Chem feed GPD", "Nutrient feed gal/day", "Tank empty in days", "Airflow CFM", "H2S removal %", "Complete"];
   const rows = [head];
-  for (const c of counties()) for (const s of sites(c)) {
-    const rec = db[c][s];
-    if (!(Array.isArray(rec[HIST]) && rec[HIST].length) && !ALL.some(f => rec[f.key])) continue;
-    const h = Array.isArray(rec[HIST]) && rec[HIST].length ? rec[HIST] : [{ ...rec, date: "(current)" }];
-    for (const e of h) {
-      const k = calc(e);
-      rows.push([c, s, e.date, ...ALL.map(f => f.key === "curve" ? curveSummary(e.curve) : f.key === "loc" ? locText(e.loc) : e[f.key]), k.gpd == null ? "" : k.gpd.toFixed(2),
-        k.bioGpd == null ? "" : k.bioGpd.toFixed(2), k.days == null ? "" : k.days.toFixed(1), k.cfm == null ? "" : String(Math.round(k.cfm)), k.removal == null ? "" : k.removal.toFixed(1), e.complete ? "Yes" : ""]);
+  const dated = !!(f.from || f.to);
+  for (const c of counties()) {
+    if (f.county && c !== f.county) continue;
+    for (const s of sites(c)) {
+      if (f.sites && !f.sites.has(s)) continue;
+      const rec = db[c][s];
+      if (!(Array.isArray(rec[HIST]) && rec[HIST].length) && !ALL.some(x => rec[x.key])) continue;
+      const hasHist = Array.isArray(rec[HIST]) && rec[HIST].length;
+      if (!hasHist && dated) continue;                         // undated "(current)" rows only in an all-dates export
+      const h = hasHist ? rec[HIST] : [{ ...rec, date: "(current)" }];
+      for (const e of h) {
+        if (f.from && e.date < f.from) continue;
+        if (f.to && e.date > f.to) continue;
+        const k = calc(e);
+        rows.push([c, s, e.date, ...ALL.map(x => x.key === "curve" ? curveSummary(e.curve) : x.key === "loc" ? locText(e.loc) : e[x.key]), k.gpd == null ? "" : k.gpd.toFixed(2),
+          k.bioGpd == null ? "" : k.bioGpd.toFixed(2), k.days == null ? "" : k.days.toFixed(1), k.cfm == null ? "" : String(Math.round(k.cfm)), k.removal == null ? "" : k.removal.toFixed(1), e.complete ? "Yes" : ""]);
+      }
     }
   }
-  const n = safeName(getName());
-  download(`${n ? n + "-" : ""}PocketSAM-${today()}.csv`, "﻿" + rows.map(r => r.map(esc).join(",")).join("\r\n"), "text/csv");
+  return rows;
+}
+$("csvBtn").onclick = () => {
+  const box = document.createElement("div");
+  const el = (tag, props, kids) => { const e = Object.assign(document.createElement(tag), props || {}); (kids || []).forEach(k => e.append(k)); return e; };
+  // Dates
+  const from = el("input", { type: "date" }), to = el("input", { type: "date" });
+  const ym = (d) => d.toISOString().slice(0, 7);
+  const monthRange = (offset) => {
+    const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() + offset);
+    const first = ym(d) + "-01", last = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+    return [first, `${last.getFullYear()}-${String(last.getMonth() + 1).padStart(2, "0")}-${String(last.getDate()).padStart(2, "0")}`];
+  };
+  const quick = el("div", { className: "btns" });
+  [["All", () => ["", ""]], ["This month", () => monthRange(0)], ["Last month", () => monthRange(-1)]].forEach(([t, fn]) =>
+    quick.append(el("button", { textContent: t, onclick: () => { [from.value, to.value] = fn(); update(); } })));
+  box.append(el("div", { className: "hint", textContent: "Dates (blank = all)" }), quick,
+    el("div", { className: "row" }, [el("label", { textContent: "From" }), from]),
+    el("div", { className: "row" }, [el("label", { textContent: "To" }), to]));
+  // Sites
+  const csel = el("select"); csel.style.cssText = "width:100%;font:inherit;padding:9px 10px;border-radius:8px;border:1px solid var(--line);background:var(--input);color:var(--text)";
+  csel.append(el("option", { value: "", textContent: "All counties / cities" }));
+  counties().forEach(c => csel.append(el("option", { value: c, textContent: c })));
+  const siteBox = el("div");
+  box.append(el("div", { className: "hint", textContent: "Job sites" }), csel, siteBox);
+  let checks = [];
+  const drawSites = () => {
+    siteBox.replaceChildren(); checks = [];
+    if (!csel.value) return;
+    const allBox = el("input", { type: "checkbox", checked: true });
+    const line = (cb, text) => { cb.style.cssText = "width:22px;height:22px;margin:0 10px 0 0;flex:none"; return el("label", { style: "display:flex;align-items:center;cursor:pointer" }, [cb, text]); };
+    const wrap = el("div", { style: "max-height:200px;overflow:auto;margin-top:6px" });
+    wrap.append(el("div", { style: "font-weight:700;padding:4px 0" }, [line(allBox, "All sites")]));
+    sites(csel.value).forEach(s => { const cb = el("input", { type: "checkbox", checked: true }); cb.dataset.site = s; checks.push(cb); wrap.append(el("div", { style: "padding:4px 0" }, [line(cb, s)])); cb.onchange = () => { allBox.checked = checks.every(x => x.checked); update(); }; });
+    allBox.onchange = () => { checks.forEach(x => x.checked = allBox.checked); update(); };
+    siteBox.append(wrap);
+  };
+  const count = el("p", { style: "font-weight:700" });
+  box.append(count);
+  const filter = () => ({ from: from.value, to: to.value, county: csel.value || null,
+    sites: csel.value && checks.some(x => !x.checked) ? new Set(checks.filter(x => x.checked).map(x => x.dataset.site)) : null });
+  const update = () => { const n = csvRows(filter()).length - 1; count.textContent = n === 1 ? "1 reading will be exported" : `${n} readings will be exported`; };
+  from.onchange = to.onchange = update; csel.onchange = () => { drawSites(); update(); };
+  update();
+  dialog("Export spreadsheet (CSV)", box, [{ text: "Cancel" }, { text: "Export", cls: "primary", fn: () => {
+    const f = filter(), rows = csvRows(f);
+    if (rows.length < 2) { toast("Nothing to export for that choice"); return false; }
+    if (f.from && f.to && f.from > f.to) { toast("From date is after To date"); return false; }
+    const esc = (v) => { const s = String(v ?? ""); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    const n = safeName(getName());
+    const tag = (f.county ? "-" + safeName(f.county) : "") + (f.from || f.to ? `-${f.from || "start"}_to_${f.to || today()}` : "");
+    download(`${n ? n + "-" : ""}PocketSAM${tag}-${today()}.csv`, "\ufeff" + rows.map(r => r.map(esc).join(",")).join("\r\n"), "text/csv");
+  } }]);
 };
 
 window.addEventListener("beforeunload", (e) => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
