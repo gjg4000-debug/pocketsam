@@ -454,7 +454,7 @@ function listDialog(title, items, addText, onPick, onAdd, decorate) {
     const d = decorate ? decorate(name) : {};
     b.textContent = (d.done ? "✓ " : "") + name;
     if (d.done) b.classList.add("done");
-    if (d.count) { const sp = document.createElement("span"); sp.className = "count"; sp.textContent = d.count; b.append(sp); }
+    if (d.count || d.distFor) { const sp = document.createElement("span"); sp.className = "count"; sp.textContent = d.count || ""; if (d.distFor) sp.dataset.site = d.distFor; b.append(sp); }
     b.onclick = () => { closeDlg(); onPick(name); }; box.append(b);
   });
   const a = document.createElement("button"); a.className = "add"; a.textContent = addText;
@@ -490,7 +490,8 @@ $("siteBtn").onclick = () => {
     () => askName("New site name", n => {
       if (db[county][n]) { loadSite(n); return; }
       site = n; fill(null); dirty = true; refreshUi(); toast("Fill in the fields, then SAVE");
-    }), s => ({ done: isDone(county, s) })));
+    }), s => ({ done: isDone(county, s), count: siteDist(s), distFor: s })));
+  autoHere(true);
 };
 
 function writeCurrent() {
@@ -696,13 +697,24 @@ function fetchHere() {
   if (!navigator.geolocation || hereBusy) return;
   hereBusy = true; updateLocUi();
   navigator.geolocation.getCurrentPosition(
-    p => { here = { lat: p.coords.latitude, lng: p.coords.longitude }; hereBusy = false; updateLocUi(); },
+    p => { here = { lat: p.coords.latitude, lng: p.coords.longitude }; hereBusy = false; updateLocUi(); updateListDistances(); },
     () => { hereBusy = false; updateLocUi(); },
     { enableHighAccuracy: false, maximumAge: 60000, timeout: 15000 });
 }
 // Check automatically only if location is already allowed (never pops a permission box by itself).
-function autoHere() {
-  if (!(county && site && parseLoc(inputs.loc.value)) || !navigator.permissions) return;
+// Short distance for the site list, e.g. "12 mi", "300 ft", "here"
+function siteDist(s) {
+  const l = parseLoc(((db[county] || {})[s] || {}).loc);
+  if (!l || !here) return "";
+  const m = distM(here, l), f = ft(m), mi = m / 1609.34;
+  return f <= 150 ? "here" : m < 160 ? f + " ft" : (mi < 10 ? mi.toFixed(1) : Math.round(mi)) + " mi";
+}
+function updateListDistances() {
+  document.querySelectorAll("#dlgBody span[data-site]").forEach(sp => sp.textContent = siteDist(sp.dataset.site));
+}
+function autoHere(anySite) {
+  const want = anySite ? county && sites(county).some(x => parseLoc((db[county][x] || {}).loc)) : county && site && parseLoc(inputs.loc.value);
+  if (!want || !navigator.permissions) return;
   navigator.permissions.query({ name: "geolocation" }).then(st => { if (st.state === "granted") fetchHere(); }).catch(() => {});
 }
 document.addEventListener("visibilitychange", () => { if (!document.hidden) autoHere(); });
