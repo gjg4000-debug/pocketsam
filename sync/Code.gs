@@ -12,8 +12,16 @@ const SITES = "Sites";        // one row per site: the full record the app uses
 const DELETED = "Deleted";    // sites/counties removed, so other phones remove them too
 const LOG = "Readings";       // easy-to-read list of every SAVE / CONFIRM
 
+// Opening the web app link in a browser shows this page, with a link to the sheet.
+// (Only people the sheet is shared with can open the sheet itself.)
 function doGet() {
-  return ContentService.createTextOutput("Pocket SAM sync is running.");
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const html = '<div style="font:18px/1.5 system-ui,sans-serif;padding:24px">'
+    + '<p><b>Pocket SAM sync is running.</b></p>'
+    + '<p>Syncing to the Google Sheet: <b>' + esc(ss.getName()) + '</b></p>'
+    + '<p><a href="' + esc(ss.getUrl()) + '" target="_blank" rel="noopener">Open the sheet</a></p></div>';
+  return HtmlService.createHtmlOutput(html).setTitle("Pocket SAM sync");
 }
 
 function doPost(e) {
