@@ -151,12 +151,15 @@
     </div>
     <input type="file" id="curveFile" accept=".csv,.txt,text/csv,text/plain" hidden>
     <div class="result" id="chemResult">CHEM FEED GPD: --</div>
+    <div class="latest" id="cpInfo" hidden></div>
     <div id="chemInfo"></div>
   </section>
 
   <section class="card">
     <h2>Sample Point</h2>
     <div id="sampleFields"></div>
+    <div class="row"><label for="treatBtn">Treated by (feed site)</label><button id="treatBtn" type="button" style="text-align:left"></button></div>
+    <div class="latest" id="treatInfo" hidden></div>
   </section>
 
   <section class="card">
@@ -254,7 +257,9 @@ const ADJ_GLOBAL = { key: "adjGlobal", label: "Global adjustment %", hint: "100"
 const ADJ_DAYS = DAYS.map(d => ({ key: "adj" + d.slice(0, 3), label: d + " adjustment %", hint: "100", num: true, short: d.slice(0, 2) }));
 // Site location for DIRECTIONS: "lat,lng,accuracy in meters" (accuracy blank when typed in).
 const LOC = { key: "loc", label: "Location", hint: "", num: false };
-const ALL = [CHEM_NAME, ...CHEM, CURVE, ADJ_GLOBAL, ...ADJ_DAYS, CHEM_INFO, ...SAMPLE, BIO_SYSTEM, ...BIO, BIO_INFO, LOC];
+// Control point link: the feed site whose chemical treats this sample point, stored as "County\u0001Site".
+const TREATED = { key: "treatedBy", label: "Treated by", hint: "", num: false };
+const ALL = [CHEM_NAME, ...CHEM, CURVE, ADJ_GLOBAL, ...ADJ_DAYS, CHEM_INFO, ...SAMPLE, TREATED, BIO_SYSTEM, ...BIO, BIO_INFO, LOC];
 const HIST = "_history";   // per-site list of dated readings
 
 /* ---------- Storage: IndexedDB, falling back to localStorage ---------- */
@@ -326,6 +331,7 @@ ADJ_DAYS.forEach(f => {
   cell.append(lab, el); $("adjGrid").append(cell); inputs[f.key] = el;
 });
 SAMPLE.forEach(f => addField($("sampleFields"), f));
+inputs.treatedBy = document.createElement("input"); inputs.treatedBy.type = "hidden"; $("treatBtn").after(inputs.treatedBy);
 BIO.forEach(f => addField($("bioFields"), f)); addField($("bioInfo"), BIO_INFO);
 
 /* ---------- Math (same as Android app) ---------- */
@@ -385,7 +391,7 @@ function compute() {
     if (hi - lo > 0.005) chem += `\nLowest ${DAYS[pd.indexOf(lo)].slice(0, 3)} ${lo.toFixed(2)} · Highest ${DAYS[pd.indexOf(hi)].slice(0, 3)} ${hi.toFixed(2)}`;
   }
   $("chemResult").textContent = chem;
-  updateCurveUi(); updateLocUi();
+  updateCurveUi(); updateLocUi(); updateLinkUi();
   $("bioResult").textContent = (c.bioGpd == null ? "Nutrient feed: enter pump GPH, speed % and stroke %"
     : "Nutrient feed: " + c.bioGpd.toFixed(2) + " gal/day"
       + (c.timer ? "\nPump runs about " + c.runMin.toFixed(1) + " min/day" : "\nNo timer entered, figured as running 24 hrs")
@@ -589,6 +595,7 @@ function showReading(e) {
   const add = (k, v) => { const a = document.createElement("div"); a.textContent = k; const b = document.createElement("div"); b.textContent = v || "—"; kv.append(a, b); };
   ALL.forEach(f => { if (f.key === "curve") { if (e.curve) add(f.label, curveSummary(e.curve)); }
     else if (f.key === "loc") { if (e.loc) add(f.label, locText(e.loc)); }
+    else if (f.key === "treatedBy") { if (e.treatedBy) add(f.label, linkName(e.treatedBy)); }
     else if (!f.key.startsWith("adj") || e.curve) add(f.label, e[f.key]); });
   add("CHEM FEED GPD", c.gpd == null ? "" : c.gpd.toFixed(2));
   add("Nutrient feed gal/day", c.bioGpd == null ? "" : c.bioGpd.toFixed(2));
@@ -678,6 +685,59 @@ function updateCurveUi() {
     }), "danger");
   }
 }
+
+/* ---------- Control point <-> feed site link ---------- */
+const LINK_SEP = "\u0001";
+const linkKey = (c, s) => c + LINK_SEP + s;
+function linkName(v) {
+  if (!v) return "";
+  const [c, s] = String(v).split(LINK_SEP);
+  return s == null ? c : (c === county ? s : `${s} (${c})`);
+}
+const linkRec = (v) => { const [c, s] = String(v || "").split(LINK_SEP); return (db[c] || {})[s] || null; };
+function latestEntry(rec) { const h = rec && Array.isArray(rec[HIST]) ? rec[HIST] : []; return h.length ? h[h.length - 1] : rec; }
+function updateLinkUi() {
+  // On a control point: which feed treats it, and that feed's chemical + GPD
+  const v = inputs.treatedBy.value, t = $("treatInfo");
+  $("treatBtn").textContent = v ? linkName(v) : "Pick feed site…";
+  const feed = v && linkRec(v);
+  if (feed) {
+    const e = latestEntry(feed), k = calc(e);
+    t.textContent = `Fed with ${e.chemName || "chemical"}` + (k.gpd != null ? ` · ${k.gpd.toFixed(2)} GPD` : "") + (e.date ? ` (as of ${fmtShort(e.date)})` : "");
+    t.hidden = false;
+  } else { t.textContent = v ? "That feed site isn't in the list anymore" : ""; t.hidden = !v; }
+  // On a feed site: its control point(s) and their latest results
+  const cp = $("cpInfo"), lines = [];
+  if (county && site) {
+    const me = linkKey(county, site);
+    for (const c of counties()) for (const s of sites(c)) {
+      const r = db[c][s]; const e = latestEntry(r);
+      if (!r || (e && e.treatedBy) !== me && r.treatedBy !== me) continue;
+      const bits = [["sulfide", "sulfide", "mg/L"], ["h2s", "H2S", "ppm"], ["nitrate", "nitrate", "mg/L"], ["peroxide", "peroxide", "mg/L"], ["ph", "pH", ""]]
+        .filter(([k]) => e && e[k] != null && e[k] !== "").map(([k, n, u]) => `${n} ${e[k]}${u ? " " + u : ""}`);
+      lines.push(`Control point ${c === county ? s : s + " (" + c + ")"}: ` + (bits.length ? bits.join(", ") : "no readings yet") + (e && e.date ? ` (${fmtShort(e.date)})` : ""));
+    }
+  }
+  cp.textContent = lines.join("\n"); cp.hidden = !lines.length; cp.style.whiteSpace = "pre-line";
+}
+$("treatBtn").onclick = () => {
+  if (!county || !site) { toast("Pick a site first"); return; }
+  const box = document.createElement("div"); box.className = "list";
+  const pick = (v) => { loading = true; inputs.treatedBy.value = v; loading = false; dirty = true; updateStatus(); updateLinkUi(); closeDlg(); toast(v ? "Feed site set — SAVE to keep it" : "Feed site cleared — SAVE to keep it"); };
+  const add = (text, v, cls) => { const b = document.createElement("button"); b.textContent = text; if (cls) b.className = cls; b.onclick = () => pick(v); box.append(b); };
+  // This county first, then the others; only sites that have a chemical feed entered, unless none do
+  const order = [county, ...counties().filter(c => c !== county)];
+  let n = 0;
+  for (const c of order) for (const s of sites(c)) {
+    if (c === county && s === site) continue;
+    const e = latestEntry(db[c][s]);
+    if (!(e && (e.chemName || e.p1Rate || e.p2Rate || e.curve))) continue;
+    add((c === county ? s : `${s} (${c})`) + (e.chemName ? ` — ${e.chemName}` : ""), linkKey(c, s)); n++;
+  }
+  if (!n) { const p = document.createElement("p"); p.className = "hint"; p.textContent = "No sites with a chemical feed saved yet."; box.append(p); }
+  if (inputs.treatedBy.value) add("None (not treated by a feed)", "", "danger");
+  dialog("Which feed site treats " + site + "?", box, [{ text: "Cancel" }]);
+};
 
 /* ---------- Site location / directions ---------- */
 function parseLoc(str) {
@@ -963,7 +1023,7 @@ function csvRows(f) {
   // Column list: each entry is [heading, value for one reading]. Chem feed GPD sits right after the pump boxes.
   const COLS = [];
   ALL.filter(x => !CSV_SKIP.has(x.key)).forEach(x => {
-    COLS.push([x.label, (e) => e[x.key]]);
+    COLS.push([x.label, x.key === "treatedBy" ? (e) => linkName(e.treatedBy) : (e) => e[x.key]]);
     if (x.key === "p2Hrs") COLS.push(["Chem feed GPD", (e, k) => k.gpd == null ? "" : k.gpd.toFixed(2)]);
   });
   COLS.push(["Tank empty in days", (e, k) => k.days == null ? "" : k.days.toFixed(1)],
@@ -1067,9 +1127,9 @@ function logFor(rec, date) {
   const k = calc(rec), lab = Object.fromEntries(ALL.map(f => [f.key, f.label]));
   const AIR = ["ductDia", "fpm"];
   const EXTRA = ["waterGpm", ...SAMPLE.map(f => f.key), "chemName", "bioSystem", "h2sIn", "h2sMid", "h2sOut"];   // added later, in the order they were added
-  const TAIL = ["vfdHz", "curve", ADJ_GLOBAL.key, ...ADJ_DAYS.map(f => f.key), "loc"];                            // added after "H2S removal %": always append new ones HERE
+  const TAIL = ["vfdHz", "curve", ADJ_GLOBAL.key, ...ADJ_DAYS.map(f => f.key), "loc", "treatedBy"];                            // added after "H2S removal %": always append new ones HERE
   const later = [...EXTRA, ...ALL.map(f => f.key).filter(x => !LOG_KEYS.includes(x) && !AIR.includes(x) && !EXTRA.includes(x) && !TAIL.includes(x))];
-  const val = x => x === "curve" ? curveSummary(rec.curve) : x === "loc" ? locText(rec.loc) : (rec[x] || "");
+  const val = x => x === "curve" ? curveSummary(rec.curve) : x === "loc" ? locText(rec.loc) : x === "treatedBy" ? linkName(rec.treatedBy) : (rec[x] || "");
   return { date, complete: rec.completeMonth === date.slice(0, 7),
     cols: [...LOG_KEYS.map(x => lab[x]), "Chem feed GPD", "Nutrient feed gal/day", "Tank empty in days", ...AIR.map(x => lab[x]), "Airflow CFM", ...later.map(x => lab[x]), "H2S removal %", ...TAIL.map(x => lab[x])],
     vals: [...LOG_KEYS.map(val), k.gpd == null ? "" : k.gpd.toFixed(2), k.bioGpd == null ? "" : k.bioGpd.toFixed(2), k.days == null ? "" : k.days.toFixed(1),
