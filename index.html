@@ -151,6 +151,7 @@
     </div>
     <input type="file" id="curveFile" accept=".csv,.txt,text/csv,text/plain" hidden>
     <div class="result" id="chemResult">CHEM FEED GPD: --</div>
+    <div class="row"><label for="cpBtn">Control Point</label><button id="cpBtn" type="button" style="text-align:left"></button></div>
     <div class="latest" id="cpInfo" hidden></div>
     <div id="chemInfo"></div>
   </section>
@@ -708,11 +709,11 @@ function updateLinkUi() {
   } else { t.textContent = v ? "That feed site isn't in the list anymore" : ""; t.hidden = !v; }
   // On a feed site: its control point(s) and their latest results
   const cp = $("cpInfo"), lines = [];
-  if (county && site) {
-    const me = linkKey(county, site);
-    for (const c of counties()) for (const s of sites(c)) {
-      const r = db[c][s]; const e = latestEntry(r);
-      if (!r || (e && e.treatedBy) !== me && r.treatedBy !== me) continue;
+  const cps = (county && site) ? controlPointsOf(county, site) : [];
+  $("cpBtn").textContent = cps.length ? cps.map(([c, s]) => c === county ? s : `${s} (${c})`).join(", ") : "Pick control point…";
+  {
+    for (const [c, s] of cps) {
+      const e = latestEntry(db[c][s]);
       const bits = [["sulfide", "sulfide", "mg/L"], ["h2s", "H2S", "ppm"], ["nitrate", "nitrate", "mg/L"], ["peroxide", "peroxide", "mg/L"], ["ph", "pH", ""]]
         .filter(([k]) => e && e[k] != null && e[k] !== "").map(([k, n, u]) => `${n} ${e[k]}${u ? " " + u : ""}`);
       lines.push(`Control point ${c === county ? s : s + " (" + c + ")"}: ` + (bits.length ? bits.join(", ") : "no readings yet") + (e && e.date ? ` (${fmtShort(e.date)})` : ""));
@@ -720,6 +721,41 @@ function updateLinkUi() {
   }
   cp.textContent = lines.join("\n"); cp.hidden = !lines.length; cp.style.whiteSpace = "pre-line";
 }
+// Control points whose "Treated by" is this feed site
+function controlPointsOf(fc, fs) {
+  const me = linkKey(fc, fs), out = [];
+  for (const c of counties()) for (const s of sites(c)) {
+    const r = db[c][s]; const e = latestEntry(r);
+    if (r && !(c === fc && s === fs) && ((e && e.treatedBy) === me || r.treatedBy === me)) out.push([c, s]);
+  }
+  return out;
+}
+// Set another site's "Treated by" right away (its record + latest reading) and send it to the sheet
+async function setTreatedBy(c, s, v) {
+  const r = (db[c] || {})[s]; if (!r) return;
+  const e = Array.isArray(r[HIST]) && r[HIST].length ? r[HIST][r[HIST].length - 1] : null;
+  if (v) { r.treatedBy = v; if (e) e.treatedBy = v; } else { delete r.treatedBy; if (e) delete e.treatedBy; }
+  await persist(); queue({ op: "put", c, s });
+}
+$("cpBtn").onclick = () => {
+  if (!county || !site) { toast("Pick a site first"); return; }
+  const fc = county, fs = site, me = linkKey(fc, fs);
+  const box = document.createElement("div"); box.className = "list";
+  const current = controlPointsOf(fc, fs);
+  const add = (text, fn, cls) => { const b = document.createElement("button"); b.textContent = text; if (cls) b.className = cls; b.onclick = fn; box.append(b); };
+  for (const c of [fc, ...counties().filter(x => x !== fc)]) for (const s of sites(c)) {
+    if (c === fc && s === fs) continue;
+    const linked = current.some(([a, b]) => a === c && b === s);
+    const e = latestEntry(db[c][s]), other = e && e.treatedBy && e.treatedBy !== me ? ` · now treated by ${linkName(e.treatedBy)}` : "";
+    add((linked ? "✓ " : "") + (c === fc ? s : `${s} (${c})`) + other, async () => {
+      closeDlg(); await setTreatedBy(c, s, me); updateLinkUi(); toast(`${s} is now a control point for ${fs}`);
+    }, linked ? "done" : "");
+  }
+  if (current.length) add("None (remove control point)", async () => {
+    closeDlg(); for (const [c, s] of current) await setTreatedBy(c, s, ""); updateLinkUi(); toast("Control point removed");
+  }, "danger");
+  dialog("Control point for " + fs, box, [{ text: "Cancel" }]);
+};
 $("treatBtn").onclick = () => {
   if (!county || !site) { toast("Pick a site first"); return; }
   const box = document.createElement("div"); box.className = "list";
