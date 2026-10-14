@@ -761,16 +761,18 @@ $("treatBtn").onclick = () => {
   const box = document.createElement("div"); box.className = "list";
   const pick = (v) => { loading = true; inputs.treatedBy.value = v; loading = false; dirty = true; updateStatus(); updateLinkUi(); closeDlg(); toast(v ? "Feed site set — SAVE to keep it" : "Feed site cleared — SAVE to keep it"); };
   const add = (text, v, cls) => { const b = document.createElement("button"); b.textContent = text; if (cls) b.className = cls; b.onclick = () => pick(v); box.append(b); };
-  // This county first, then the others; only sites that have a chemical feed entered, unless none do
   const order = [county];                                      // same county only
-  let n = 0;
+  // Every site in the county: ones with a chemical feed saved first (with the chemical), then the rest A-Z
+  const list = [];
   for (const c of order) for (const s of sites(c)) {
     if (c === county && s === site) continue;
     const e = latestEntry(db[c][s]);
-    if (!(e && (e.chemName || e.p1Rate || e.p2Rate || e.curve))) continue;
-    add((c === county ? s : `${s} (${c})`) + (e.chemName ? ` — ${e.chemName}` : ""), linkKey(c, s)); n++;
+    const feed = !!(e && (e.chemName || e.p1Rate || e.p2Rate || e.curve));
+    list.push({ c, s, feed, chem: e && e.chemName });
   }
-  if (!n) { const p = document.createElement("p"); p.className = "hint"; p.textContent = "No sites with a chemical feed saved yet."; box.append(p); }
+  list.sort((a, b) => (b.feed - a.feed) || byName(a.s, b.s));
+  list.forEach(x => add(x.s + (x.chem ? ` — ${x.chem}` : ""), linkKey(x.c, x.s)));
+  if (!list.length) { const p = document.createElement("p"); p.className = "hint"; p.textContent = "No other sites in this county yet."; box.append(p); }
   if (inputs.treatedBy.value) add("None (not treated by a feed)", "", "danger");
   dialog("Which feed site treats " + site + "?", box, [{ text: "Cancel" }]);
 };
