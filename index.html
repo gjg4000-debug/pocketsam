@@ -743,7 +743,7 @@ $("cpBtn").onclick = () => {
   const box = document.createElement("div"); box.className = "list";
   const current = controlPointsOf(fc, fs);
   const add = (text, fn, cls) => { const b = document.createElement("button"); b.textContent = text; if (cls) b.className = cls; b.onclick = fn; box.append(b); };
-  for (const c of [fc, ...counties().filter(x => x !== fc)]) for (const s of sites(c)) {
+  for (const c of [fc]) for (const s of sites(c)) {          // same county only
     if (c === fc && s === fs) continue;
     const linked = current.some(([a, b]) => a === c && b === s);
     const e = latestEntry(db[c][s]), other = e && e.treatedBy && e.treatedBy !== me ? ` · now treated by ${linkName(e.treatedBy)}` : "";
@@ -762,7 +762,7 @@ $("treatBtn").onclick = () => {
   const pick = (v) => { loading = true; inputs.treatedBy.value = v; loading = false; dirty = true; updateStatus(); updateLinkUi(); closeDlg(); toast(v ? "Feed site set — SAVE to keep it" : "Feed site cleared — SAVE to keep it"); };
   const add = (text, v, cls) => { const b = document.createElement("button"); b.textContent = text; if (cls) b.className = cls; b.onclick = () => pick(v); box.append(b); };
   // This county first, then the others; only sites that have a chemical feed entered, unless none do
-  const order = [county, ...counties().filter(c => c !== county)];
+  const order = [county];                                      // same county only
   let n = 0;
   for (const c of order) for (const s of sites(c)) {
     if (c === county && s === site) continue;
