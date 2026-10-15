@@ -126,14 +126,20 @@ function removeDeleted(del, c, s) {
 }
 
 function logReading(c, s, by, log) {
-  const header = ["Saved", "By", "County/City", "Site", "Date", "Complete"].concat(log.cols || []);
+  const FIXED = ["Saved", "By", "County/City", "Site", "Date", "Complete", "ID"];
+  const header = FIXED.concat(log.cols || []);
   const sh = sheet(LOG, header);
-  // When the app adds new boxes, add their column headings too
+  // One-time: older sheets have no ID column yet. Insert it as column G so every old row moves over with it.
+  const g = String(sh.getRange(1, 7).getValue());
+  if (g !== "ID") { sh.insertColumnBefore(7); sh.getRange(1, 7).setValue("ID"); }
+  // Already logged this exact SAVE/CONFIRM (a resend after a lost reply)? Then skip it.
+  const n = sh.getLastRow();
+  if (log.id && n > 1 && sh.getRange(2, 7, n - 1, 1).createTextFinder(String(log.id)).matchEntireCell(true).findNext()) return;
   // The tab needs enough columns first, or Google stops with an error
   if (sh.getMaxColumns() < header.length) sh.insertColumnsAfter(sh.getMaxColumns(), header.length - sh.getMaxColumns() + 10);
   const current = sh.getRange(1, 1, 1, Math.max(sh.getLastColumn(), 1)).getValues()[0];
   if (header.length > current.length || header.some((h, i) => h !== current[i])) sh.getRange(1, 1, 1, header.length).setValues([header]);
-  sh.appendRow([new Date(), by, c, s, log.date || "", log.complete ? "Yes" : ""].concat(log.vals || []));
+  sh.appendRow([new Date(), by, c, s, log.date || "", log.complete ? "Yes" : "", log.id || ""].concat(log.vals || []));
 }
 
 /* Same rules as the app:
@@ -149,7 +155,7 @@ function mergeSite(local, inc, takeIncomingComplete) {
   if (h.length) {
     const latest = h[h.length - 1];
     merged = {};
-    Object.keys(latest).forEach(k => { if (k !== "date" && k !== "savedAt" && k !== "by" && k !== "complete") merged[k] = latest[k]; });
+    Object.keys(latest).forEach(k => { if (k !== "date" && k !== "savedAt" && k !== "by" && k !== "complete" && k !== "id") merged[k] = latest[k]; });
     merged[HIST] = h;
   } else {
     merged = Object.assign({}, local, inc);
