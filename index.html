@@ -1277,7 +1277,7 @@ $("refreshBtn").onclick = () => syncNow(true);
    The link stays on this device (never in the app's code). Empty = off, nothing else changes. */
 const DYN_KEY = "pocketsam-dyn";
 let dynUrl = lsGet(DYN_KEY, "");
-const isTestCounty = c => /^zz/i.test(String(c).trim());   // only test counties (names starting with ZZ) are ever sent
+const isTestCounty = c => /^zz|\btest\b/i.test(String(c).trim());   // only test counties (name starts with ZZ or has the word "test") are ever sent
 function showDyn() { $("dynLink").textContent = dynUrl ? "Dynamics test: ON" : "Dynamics test: off"; }
 function dynReading(rec, c, s, date, id, complete) {
   const n = k => num(rec[k]);
@@ -1302,7 +1302,7 @@ async function sendDyn(body) {
 $("dynLink").onclick = e => {
   e.preventDefault();
   const box = document.createElement("div");
-  box.innerHTML = `<p>Paste the HTTP link from your Power Automate flow. Each SAVE in a county whose name starts with <b>ZZ</b> (like ZZ TEST) will also send that reading there.
+  box.innerHTML = `<p>Paste the HTTP link from your Power Automate flow. Each SAVE in a test county (name starts with <b>ZZ</b> or has the word <b>test</b>, like "Dynamics test") will also send that reading there.
     Real counties are never sent. This link stays on this phone.</p>
     <label class="hint" for="dynUrl">Flow link</label><input id="dynUrl" type="url" placeholder="https://…powerplatform.com/…" autocomplete="off">
     <p class="hint" id="dynErr"></p>`;
