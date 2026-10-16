@@ -549,7 +549,7 @@ $("saveBtn").onclick = async () => {
   await persist(); dirty = false; setComplete(rec); refreshUi();
   queue({ op: "put", c: county, s: site, log: { ...logFor(rec, date), id: saveId } });
   toast(`Saved ${site} (${fmtDate(date)})` + (rec.completeMonth === thisMonth() ? " · Complete" : ""));
-  if (dynUrl && ALL.some(f => rec[f.key])) sendDyn(dynReading(rec, county, site, date, saveId, $("completeChk").checked));
+  if (dynUrl && ALL.some(f => rec[f.key]) && isTestCounty(county)) sendDyn(dynReading(rec, county, site, date, saveId, $("completeChk").checked));
 };
 
 // CONFIRM: saves just the Complete status. If any boxes have data, it saves those too (same as SAVE).
@@ -1277,6 +1277,7 @@ $("refreshBtn").onclick = () => syncNow(true);
    The link stays on this device (never in the app's code). Empty = off, nothing else changes. */
 const DYN_KEY = "pocketsam-dyn";
 let dynUrl = lsGet(DYN_KEY, "");
+const isTestCounty = c => /^zz/i.test(String(c).trim());   // only test counties (names starting with ZZ) are ever sent
 function showDyn() { $("dynLink").textContent = dynUrl ? "Dynamics test: ON" : "Dynamics test: off"; }
 function dynReading(rec, c, s, date, id, complete) {
   const n = k => num(rec[k]);
@@ -1301,8 +1302,8 @@ async function sendDyn(body) {
 $("dynLink").onclick = e => {
   e.preventDefault();
   const box = document.createElement("div");
-  box.innerHTML = `<p>Paste the HTTP link from your Power Automate flow. Each SAVE will also send that reading there.
-    Test data only. This stays on this phone.</p>
+  box.innerHTML = `<p>Paste the HTTP link from your Power Automate flow. Each SAVE in a county whose name starts with <b>ZZ</b> (like ZZ TEST) will also send that reading there.
+    Real counties are never sent. This link stays on this phone.</p>
     <label class="hint" for="dynUrl">Flow link</label><input id="dynUrl" type="url" placeholder="https://…powerplatform.com/…" autocomplete="off">
     <p class="hint" id="dynErr"></p>`;
   const inp = box.querySelector("#dynUrl"), err = box.querySelector("#dynErr");
