@@ -64,6 +64,7 @@
   .pickers { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .pickers button { text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .pickers small { display: block; font-weight: 400; color: var(--muted); font-size: 12px; }
+  .pickers .wide { grid-column: 1 / -1; }
   .hint { color: var(--muted); font-size: 13px; }
   .latest { color: var(--muted); font-size: 14px; margin-top: 6px; }
   .locbar { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
@@ -125,6 +126,7 @@
   <div class="pickers">
     <button id="countyBtn"><small>County / City</small><span>1. Select County</span></button>
     <button id="siteBtn"><small>Site</small><span>2. Select Site</span></button>
+    <button id="equipBtn" class="wide"><small>Equipment</small><span>3. Select Equipment</span></button>
   </div>
   <div class="latest" id="latest"></div>
   <div class="locbar" id="locBar" hidden>
@@ -138,7 +140,7 @@
     <button class="primary quick" id="quickSaveBtn">CONFIRM</button>
   </div>
 
-  <section class="card">
+  <section class="card" id="chemCard">
     <h2 class="titled"><label for="f_chemName">Chemical feed:</label><input type="text" id="f_chemName" placeholder="chemical name" autocomplete="off" autocapitalize="words"></h2>
     <div id="chemFields"></div>
     <div id="curveBox">
@@ -156,14 +158,14 @@
     <div id="chemInfo"></div>
   </section>
 
-  <section class="card">
+  <section class="card" id="sampleCard">
     <h2>Sample Point</h2>
     <div id="sampleFields"></div>
     <div class="row"><label for="treatBtn">Treated by (feed site)</label><button id="treatBtn" type="button" style="text-align:left"></button></div>
     <div class="latest" id="treatInfo" hidden></div>
   </section>
 
-  <section class="card">
+  <section class="card" id="bioCard">
     <h2 class="titled"><label for="f_bioSystem" class="pencil" title="Tap to change the system type">✎</label><input type="text" id="f_bioSystem" placeholder="Biofilter" aria-label="System type (Biofilter, Scrubber, Carbon…)" autocomplete="off" autocapitalize="words"></h2>
     <div id="bioFields"></div>
     <div class="result" id="bioResult"></div>
@@ -335,6 +337,7 @@ ADJ_DAYS.forEach(f => {
 SAMPLE.forEach(f => addField($("sampleFields"), f));
 inputs.treatedBy = document.createElement("input"); inputs.treatedBy.type = "hidden"; $("treatBtn").after(inputs.treatedBy);
 BIO.forEach(f => addField($("bioFields"), f)); addField($("bioInfo"), BIO_INFO);
+inputs.equip = document.createElement("input"); inputs.equip.type = "hidden"; $("equipBtn").after(inputs.equip);
 
 /* ---------- Math (same as Android app) ---------- */
 const num = (v) => { const s = String(v ?? "").trim(); if (!s) return null; const n = Number(s); return isFinite(n) ? n : null; };
@@ -419,7 +422,7 @@ function refreshUi() {
   const on = !!(county && site);
   ["historyBtn", "saveBtn", "quickSaveBtn"].forEach(id => $(id).disabled = !on);
   $("historyBtn").disabled = !h.length;
-  updateStatus(); updateLocUi();
+  updateStatus(); updateLocUi(); applyEquip();
 }
 function updateStatus() {
   $("status").textContent = !county ? "Pick or add a county / city to start."
@@ -476,7 +479,7 @@ function guardUnsaved(action) {
 }
 
 /* ---------- Data ops ---------- */
-function fill(rec) { loading = true; ALL.forEach(f => inputs[f.key].value = rec ? (rec[f.key] ?? "") : ""); loading = false; compute(); setComplete(rec); }
+function fill(rec) { loading = true; ALL.forEach(f => inputs[f.key].value = rec ? (rec[f.key] ?? "") : ""); inputs.equip.value = (rec && rec.equip) || ""; loading = false; compute(); setComplete(rec); }
 function setComplete(rec) {
   const done = !!(rec && rec.completeMonth === thisMonth());
   $("completeChk").checked = done;
@@ -486,6 +489,69 @@ $("completeChk").addEventListener("change", () => { if (!loading) { dirty = true
 function selectCounty(c) { county = c; site = null; fill(null); dirty = false; refreshUi(); }
 function loadSite(s) { site = s; fill((db[county] || {})[s]); dirty = false; refreshUi(); autoHere(); }
 async function persist() { await store.save(db); }
+
+/* ---------- Equipment type ----------
+   Each site has one type, and only that section shows. "All" shows everything (for sites that mix types).
+   Stored as rec.equip (and on the latest reading, so it survives sync). Sites without one get a guess from what's filled in.
+   To add a type later (Carbon, Scrubber…): add it here with the card it shows. */
+const EQUIP_TYPES = [
+  { id: "chem",   name: "Chemical feed", cards: ["chemCard"] },
+  { id: "sample", name: "Sample point",  cards: ["sampleCard"] },
+  { id: "bio",    name: "Biofilter",     cards: ["bioCard"] },
+  { id: "all",    name: "All (show everything)", cards: ["chemCard", "sampleCard", "bioCard"] },
+];
+const EQUIP_CARDS = ["chemCard", "sampleCard", "bioCard"];
+const equipType = id => EQUIP_TYPES.find(t => t.id === id);
+function guessEquip(rec) {
+  if (!rec) return "";
+  const has = keys => keys.some(k => String(rec[k] ?? "").trim());
+  const found = [];
+  if (has(["chemName", ...CHEM.map(f => f.key), "curve", "chemInfo"])) found.push("chem");
+  if (has([...SAMPLE.map(f => f.key), "treatedBy"])) found.push("sample");
+  if (has(["bioSystem", ...BIO.map(f => f.key), "bioInfo"])) found.push("bio");
+  return found.length === 1 ? found[0] : found.length > 1 ? "all" : "";
+}
+function applyEquip() {
+  const btn = $("equipBtn"), label = btn.querySelector("span");
+  btn.disabled = !site;
+  const saved = inputs.equip.value, guess = saved ? "" : guessEquip(siteRec());
+  const t = equipType(saved || guess);
+  label.textContent = !site ? "3. Select Equipment" : t ? t.name + (guess ? "  (guess, tap to confirm)" : "") : "3. Select Equipment";
+  const show = site && t ? t.cards : EQUIP_CARDS;           // nothing picked yet: show everything
+  EQUIP_CARDS.forEach(id => $(id).hidden = !show.includes(id));
+}
+// Save the type right away (no SAVE needed) and send it to the sheet, like Treated by
+async function setEquip(v) {
+  inputs.equip.value = v;
+  const r = siteRec();
+  if (r) {
+    r.equip = v;
+    const e = Array.isArray(r[HIST]) && r[HIST].length ? r[HIST][r[HIST].length - 1] : null;
+    if (e) e.equip = v;
+    await persist(); queue({ op: "put", c: county, s: site });
+  }
+  applyEquip();
+}
+function pickEquip(isNew) {
+  if (!county || !site) { toast("Pick a site first"); return; }
+  const cur = inputs.equip.value, guess = cur ? "" : guessEquip(siteRec());
+  const box = document.createElement("div"); box.className = "list";
+  if (isNew) { const p = document.createElement("p"); p.className = "hint"; p.textContent = "What is " + site + "? You only pick this once."; box.append(p); }
+  EQUIP_TYPES.forEach(t => {
+    const b = document.createElement("button");
+    b.textContent = (t.id === cur ? "✓ " : "") + t.name + (t.id === guess ? "  (best guess)" : ""); if (t.id === cur) b.className = "done";
+    b.onclick = () => {
+      closeDlg();
+      if (t.id === cur) return;
+      const go = () => setEquip(t.id).then(() => toast(`${site}: ${t.name}` + (isNew ? " · fill in the fields, then SAVE" : "")));
+      if (cur) confirmBox(`Change ${site} from ${equipType(cur).name} to ${t.name}? Nothing is deleted. The other boxes are just hidden.`, "Change", () => { go(); });
+      else go();
+    };
+    box.append(b);
+  });
+  dialog(isNew ? "Equipment type" : `Equipment at ${site}`, box, [{ text: isNew ? "Later" : "Cancel" }]);
+}
+$("equipBtn").onclick = () => pickEquip(false);
 
 $("countyBtn").onclick = () => guardUnsaved(() =>
   listDialog("Select county / city", counties(), "+ Add new county / city…", selectCounty,
@@ -497,7 +563,7 @@ $("siteBtn").onclick = () => {
   guardUnsaved(() => listDialog(`Sites in ${county}`, byDistance(sites(county)), "+ Add new site…", loadSite,
     () => askName("New site name", n => {
       if (db[county][n]) { loadSite(n); return; }
-      site = n; fill(null); dirty = true; refreshUi(); toast("Fill in the fields, then SAVE");
+      site = n; fill(null); dirty = true; refreshUi(); pickEquip(true);
     }), s => ({ done: isDone(county, s), count: siteDist(s), distFor: s })));
   // Not sure where you are yet (common on iPhone): offer a button to get distances
   if (!here && sites(county).some(x => parseLoc((db[county][x] || {}).loc))) {
@@ -524,6 +590,7 @@ function writeCurrent() {
   for (const key of Object.keys(rec)) if (rec[key] === "") delete rec[key];
   if (old.completeMonth) { rec.completeMonth = old.completeMonth; rec.completedOn = old.completedOn; }
   if (Array.isArray(old[HIST])) rec[HIST] = old[HIST];
+  const eq = inputs.equip.value || old.equip; if (eq) rec.equip = eq;
   (db[county] ||= {})[site] = rec;
   return rec;
 }
@@ -542,7 +609,7 @@ $("saveBtn").onclick = async () => {
   // Only add a dated reading when some numbers or notes are filled in; a blank save just marks Complete.
   if (ALL.some(f => rec[f.key])) {
     const entry = { id: saveId, date, savedAt: new Date().toISOString(), complete: $("completeChk").checked };
-    [...ALL.map(f => f.key), "chemGpd", "bioGalPerDay", "tankDaysLeft", "cfm", "h2sRemoval"].forEach(key => { if (rec[key] != null && rec[key] !== "") entry[key] = rec[key]; });
+    [...ALL.map(f => f.key), "chemGpd", "bioGalPerDay", "tankDaysLeft", "cfm", "h2sRemoval", "equip"].forEach(key => { if (rec[key] != null && rec[key] !== "") entry[key] = rec[key]; });
     const h = (rec[HIST] || []).filter(e => e.date !== date);
     h.push(entry); h.sort((a, b) => a.date.localeCompare(b.date)); rec[HIST] = h;
   }
