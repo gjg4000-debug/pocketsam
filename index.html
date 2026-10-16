@@ -203,6 +203,7 @@
     <input type="file" id="importFile" accept=".json,.txt,.csv,application/json,text/plain,text/csv" hidden>
   </section>
   <p class="hint version">Pocket SAM version <span id="appVersion">2026-10-03 (v20)</span></p>
+  <p class="hint version"><a href="#" id="dynLink">Dynamics test: off</a></p>
 </main>
 
 <dialog id="dlg">
@@ -548,6 +549,7 @@ $("saveBtn").onclick = async () => {
   await persist(); dirty = false; setComplete(rec); refreshUi();
   queue({ op: "put", c: county, s: site, log: { ...logFor(rec, date), id: saveId } });
   toast(`Saved ${site} (${fmtDate(date)})` + (rec.completeMonth === thisMonth() ? " · Complete" : ""));
+  if (dynUrl && ALL.some(f => rec[f.key])) sendDyn(dynReading(rec, county, site, date, saveId, $("completeChk").checked));
 };
 
 // CONFIRM: saves just the Complete status. If any boxes have data, it saves those too (same as SAVE).
@@ -1269,6 +1271,52 @@ function setupSync(problem) {
   if (syncCfg) box.querySelector("#syncUrl").value = syncCfg.url;
 }
 $("refreshBtn").onclick = () => syncNow(true);
+
+/* ---------- Dynamics test (optional, this phone only) ----------
+   If a test link is set, each SAVE also sends that reading to a Power Automate flow.
+   The link stays on this device (never in the app's code). Empty = off, nothing else changes. */
+const DYN_KEY = "pocketsam-dyn";
+let dynUrl = lsGet(DYN_KEY, "");
+function showDyn() { $("dynLink").textContent = dynUrl ? "Dynamics test: ON" : "Dynamics test: off"; }
+function dynReading(rec, c, s, date, id, complete) {
+  const n = k => num(rec[k]);
+  const hrs = (rate, h) => n(rate) != null && n(h) == null ? 24 : n(h);      // blank timer = 24 hrs, same as the app's math
+  const body = { readingId: id, county: c, site: s, date, tech: safeName(getName()), chemical: rec.chemName || "",
+    pump1Rate: n("p1Rate"), pump1Hrs: hrs("p1Rate", "p1Hrs"), pump2Rate: n("p2Rate"), pump2Hrs: hrs("p2Rate", "p2Hrs"),
+    chemGpd: n("chemGpd"), ph: n("ph"), temp: n("tempC"), sulfide: n("sulfide"), h2s: n("h2s"),
+    nitrate: n("nitrate"), peroxide: n("peroxide"), h2sIn: n("h2sIn"), h2sOut: n("h2sOut"), complete: !!complete };
+  for (const k of Object.keys(body)) if (body[k] == null || body[k] === "") delete body[k];   // leave empty boxes out
+  return body;
+}
+async function sendDyn(body) {
+  try {
+    const r = await fetch(dynUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    toast(r.ok ? "Sent to Dynamics test ✓" : `Dynamics test didn't take it (error ${r.status})`);
+    return r.ok;
+  } catch (e) {
+    toast(navigator.onLine ? "Dynamics test: blocked by the browser" : "Dynamics test: no signal, not sent");
+    return false;
+  }
+}
+$("dynLink").onclick = e => {
+  e.preventDefault();
+  const box = document.createElement("div");
+  box.innerHTML = `<p>Paste the HTTP link from your Power Automate flow. Each SAVE will also send that reading there.
+    Test data only. This stays on this phone.</p>
+    <label class="hint" for="dynUrl">Flow link</label><input id="dynUrl" type="url" placeholder="https://…powerplatform.com/…" autocomplete="off">
+    <p class="hint" id="dynErr"></p>`;
+  const inp = box.querySelector("#dynUrl"), err = box.querySelector("#dynErr");
+  if (dynUrl) inp.value = dynUrl;
+  const save = () => {
+    const u = inp.value.trim();
+    if (!/^https:\/\//.test(u)) { err.textContent = "That doesn't look like the flow link. It starts with https://"; return false; }
+    dynUrl = u; lsSet(DYN_KEY, dynUrl); showDyn(); toast("Dynamics test is ON"); return true;
+  };
+  const buttons = [{ text: "Cancel" }, { text: "SAVE", cls: "primary", fn: save }];
+  if (dynUrl) buttons.unshift({ text: "Turn off", cls: "danger", fn: () => { dynUrl = ""; lsSet(DYN_KEY, ""); showDyn(); toast("Dynamics test is off"); } });
+  dialog("Dynamics test", box, buttons);
+};
+showDyn();
 window.addEventListener("online", () => { if (syncCfg) syncNow(); });
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && syncCfg && Date.now() - (syncCfg.last || 0) > 60000) syncNow();
