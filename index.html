@@ -1638,6 +1638,9 @@ function dayMenu() {
     }, "danger");
   }
   add("📋 Today", () => showToday(t));
+  add("↺ Start today over", () => confirmBox("Clear today's check in, lunch and check out? (Site arrived / left times stay.)", "Clear", () => {
+    delete days[t]; saveDays(); showDay(); toast("Today cleared");
+  }));
   dialog("Day", box, [{ text: "Close" }]);
 }
 $("dayChip").onclick = dayMenu;
