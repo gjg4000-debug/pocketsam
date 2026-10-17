@@ -46,6 +46,7 @@
   .wd button { padding: 4px 10px; font-size: 14px; }
   .tl { font-size: 15px; line-height: 1.5; margin-top: 10px; }
   .tl .travel { color: var(--muted); padding-left: 14px; }
+  .tl button.rm { padding: 0 8px; font-size: 13px; color: var(--muted); border-radius: 6px; }
   .tl .tot { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 6px; font-weight: 700; }
   main { max-width: 640px; margin: 0 auto; padding: 12px 16px calc(env(safe-area-inset-bottom) + 32px); }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
@@ -632,9 +633,15 @@ function editTime(which) {
   const date = $("readingDate").value || today(), k = visitKey(county, site, date);
   const v = visits[k] || {};
   const inp = document.createElement("input"); inp.type = "time"; inp.value = v[which] || nowHM();
-  const box = document.createElement("div"); box.append(inp);
-  const ok = async () => {
+  const err = document.createElement("p"); err.className = "hint"; err.style.color = "var(--danger)";
+  const box = document.createElement("div"); box.append(inp, err);
+  const ok = () => {
     if (!/^\d\d:\d\d$/.test(inp.value)) return false;
+    if (which === "l" && v.a && inp.value < v.a) { err.textContent = `Left can't be before Arrived (${fmtTime(v.a)}). Check AM / PM.`; return false; }
+    if (which === "a" && v.l && inp.value > v.l) { err.textContent = `Arrived can't be after Left (${fmtTime(v.l)}). Check AM / PM.`; return false; }
+    saveTime();
+  };
+  const saveTime = async () => {
     (visits[k] ||= {})[which] = inp.value; saveVisits();
     if (k === liveVisit && which === "l") liveVisit = null;        // a time you typed in isn't overwritten by the next tap
     const r = siteRec(), e = r && (r[HIST] || []).find(x => x.date === date);
@@ -1592,7 +1599,7 @@ function workday(d) {
   if (!d || !d.in) return null;
   const inM = hm2m(d.in), outM = hm2m(d.out);
   let ms = hm2m(d.ls), me = hm2m(d.le), added = false, repOut = outM;
-  if (ms == null || me == null) {
+  if (ms == null || me == null || me <= ms) {
     ms = me = null;
     const la = hm2m(dayCfg.lunchAt), len = Number(dayCfg.lunchMin) || 30;
     if (dayCfg.autoLunch && outM != null && la != null && inM < la && outM > la) { ms = la; me = la + len; repOut = outM + len; added = true; }
@@ -1614,11 +1621,26 @@ function showDay() {
 }
 setInterval(() => { if (dayCfg.on) showDay(); }, 30000);
 // Ask for a time (prefilled), then do something with it
-function askTime(title, note, hm, fn, okText) {
+function askTime(title, note, hm, fn, okText, check) {
   const box = document.createElement("div");
   if (note) { const p = document.createElement("p"); p.className = "hint"; p.textContent = note; box.append(p); }
   const inp = document.createElement("input"); inp.type = "time"; inp.value = hm || nowHM(); box.append(inp);
-  dialog(title, box, [{ text: "Cancel" }, { text: okText || "OK", cls: "primary", fn: () => { if (!/^\d\d:\d\d$/.test(inp.value)) return false; fn(inp.value); } }]);
+  const err = document.createElement("p"); err.className = "hint"; err.style.color = "var(--danger)"; box.append(err);
+  dialog(title, box, [{ text: "Cancel" }, { text: okText || "OK", cls: "primary", fn: () => {
+    if (!/^\d\d:\d\d$/.test(inp.value)) return false;
+    const bad = check && check(inp.value); if (bad) { err.textContent = bad + " Check AM / PM."; return false; }
+    fn(inp.value);
+  } }]);
+}
+// Times in a day must go in order: in < lunch start < lunch end, in < out
+function dayCheck(d, key, v) {
+  const after = (a, label) => a && v <= a ? `Must be after ${label} (${fmtTime(a)}).` : "";
+  const before = (b, label) => b && v >= b ? `Must be before ${label} (${fmtTime(b)}).` : "";
+  if (key === "in") return before(d.ls, "lunch") || before(d.out, "check out");
+  if (key === "ls") return after(d.in, "check in") || before(d.le, "lunch end") || before(d.out, "check out");
+  if (key === "le") return after(d.ls || d.in, d.ls ? "lunch start" : "check in") || before(d.out, "check out");
+  if (key === "out") return after(d.le || d.ls || d.in, d.le ? "lunch end" : d.ls ? "lunch start" : "check in");
+  return "";
 }
 function checkIn(after) {
   askTime("Check in", "Start of your day. Change the time if you started earlier.", nowHM(), v => {
@@ -1632,11 +1654,11 @@ function dayMenu() {
   const add = (text, fn, cls) => { const b = document.createElement("button"); b.textContent = text; if (cls) b.className = cls; b.onclick = () => { closeDlg(); setTimeout(fn, 0); }; box.append(b); };
   if (!d.out) {
     if (!d.ls) add("☕ Start lunch", () => askTime("Lunch", "Start of your real lunch break.", nowHM(), v => { d.ls = v; delete d.le; saveDays(); showDay(); toast("Lunch started " + fmtTime(v)); }));
-    else if (!d.le) add("▶ Back from lunch", () => askTime("Back from lunch", "", nowHM(), v => { d.le = v; saveDays(); showDay(); toast("Back " + fmtTime(v)); }));
+    else if (!d.le) add("▶ Back from lunch", () => askTime("Back from lunch", "", nowHM(), v => { d.le = v; saveDays(); showDay(); toast("Back " + fmtTime(v)); }, "OK", v => dayCheck(d, "le", v)));
     add("■ Check out", () => {
       const w = workday({ ...d, out: nowHM() });
       const note = w && w.added ? `No lunch taken: adds meal ${fmtTime(m2hm(w.ms))}–${fmtTime(m2hm(w.me))}, so Workday Out is ${dayCfg.lunchMin} min after your real out time.` : "End of your day.";
-      askTime("Check out", note, nowHM(), v => { d.out = v; saveDays(); showDay(); const w2 = workday(d); toast("Workday Out " + fmtTime(m2hm(w2.repOut))); }, "CHECK OUT");
+      askTime("Check out", note, nowHM(), v => { d.out = v; saveDays(); showDay(); const w2 = workday(d); toast("Workday Out " + fmtTime(m2hm(w2.repOut))); }, "CHECK OUT", v => dayCheck(d, "out", v));
     }, "danger");
   }
   add("📋 Today", () => showToday(t));
@@ -1664,7 +1686,7 @@ function showToday(date) {
         const dd = (days[date] ||= {});
         if ((key === "ls" || key === "le") && w && w.added) { dd.ls = m2hm(w.ms); dd.le = m2hm(w.me); }   // editing an added meal makes it a real one
         dd[key] = v; saveDays(); showDay(); setTimeout(() => showToday(date), 0);
-      }), 0); };
+      }, "OK", v => dayCheck({ ...(days[date] || {}), ...(w && w.added && (key === "ls" || key === "le") ? { ls: m2hm(w.ms), le: m2hm(w.me) } : {}) }, key, v)), 0); };
     grid.append(a, b, c);
   };
   row("In", w && w.inM, "in");
@@ -1676,8 +1698,10 @@ function showToday(date) {
   grid.append(ta, tb, document.createElement("div"));
   box.append(grid);
   // Sites visited that day, from the Arrived / Left times
-  const stops = Object.entries(visits).filter(([k, v]) => k.split("\u0001")[2] === date && v.a)
-    .map(([k, v]) => ({ c: k.split("\u0001")[0], s: k.split("\u0001")[1], a: hm2m(v.a), l: hm2m(v.l) })).sort((x, y) => x.a - y.a);
+  const dayVisits = Object.entries(visits).filter(([k, v]) => k.split("\u0001")[2] === date && v.a);
+  const opened = dayVisits.filter(([k, v]) => !v.l).length;          // opened but never saved: just looking, not a visit
+  const stops = dayVisits.filter(([k, v]) => v.l)
+    .map(([k, v]) => ({ k, c: k.split("\u0001")[0], s: k.split("\u0001")[1], a: hm2m(v.a), l: hm2m(v.l) })).sort((x, y) => x.a - y.a);
   const t = document.createElement("div"); t.className = "tl";
   const line = (txt, cls) => { const e = document.createElement("div"); e.textContent = txt; if (cls) e.className = cls; t.append(e); };
   let prev = w ? w.inM : null, onSite = 0, travel = 0;
@@ -1686,16 +1710,22 @@ function showToday(date) {
     if (prev != null && x.a >= prev) { line("🚗 travel " + dur(x.a - prev), "travel"); travel += x.a - prev; }
     const m = x.l != null && x.l >= x.a ? x.l - x.a : null; if (m != null) onSite += m;
     line(`📍 ${x.s} (${x.c})  ${fmtTime(m2hm(x.a))} – ${x.l != null ? fmtTime(m2hm(x.l)) : "--"}  ${m != null ? dur(m) : ""}`);
+    const rm = document.createElement("button"); rm.textContent = "✕"; rm.className = "rm"; rm.setAttribute("aria-label", "Remove " + x.s + " from this day");
+    rm.onclick = () => { closeDlg(); setTimeout(() => confirmBox(`Remove ${x.s} from ${fmtDate(date)}? (Only its times. Readings stay.)`, "Remove", () => {
+      delete visits[x.k]; saveVisits(); updateTimes(); setTimeout(() => showToday(date), 0);
+    }), 0); };
+    t.lastChild.append(" ", rm);
     prev = x.l != null ? x.l : x.a;
   }
-  if (d.ls && d.le) line(`☕ Lunch  ${fmtTime(d.ls)} – ${fmtTime(d.le)}  ${dur(hm2m(d.le) - hm2m(d.ls))}`);
+  if (d.ls && d.le && hm2m(d.le) > hm2m(d.ls)) line(`☕ Lunch  ${fmtTime(d.ls)} – ${fmtTime(d.le)}  ${dur(hm2m(d.le) - hm2m(d.ls))}`);
   if (w && w.outM != null) line("■ Check out  " + fmtTime(m2hm(w.outM)));
   if (!stops.length && !w) line("Nothing recorded for this day.");
   if (stops.length) line(`On site ${dur(onSite)} · Travel ${dur(travel)} · ${stops.length} site(s)`, "tot");
+  if (opened) line(`${opened} other site(s) opened but not saved: not counted.`, "travel");
   box.append(t);
   const f = m => m == null ? "--" : fmtTime(m2hm(m));
   const copyText = () => [`Workday ${date}`, `In ${f(w && w.inM)}`, `Out (Meal) ${f(w && w.ms)}`, `In ${f(w && w.me)}`, `Out ${f(w && w.repOut)}`,
-    `Total ${w && w.total != null ? hrs(w.total) : "--"}`, "", ...[...t.children].map(e => e.textContent)].join("\n");
+    `Total ${w && w.total != null ? hrs(w.total) : "--"}`, "", ...[...t.children].map(e => e.textContent.replace(/ ✕$/, ""))].join("\n");
   const note = document.createElement("p"); note.className = "hint"; note.hidden = true; box.append(note);
   dialog("Today", box, [{ text: "→ Dynamics", cls: "soon", fn: () => {
     // Placeholder until Pocket SAM is approved: nothing is sent yet
