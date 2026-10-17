@@ -1580,6 +1580,7 @@ let days = lsGet(DAY_KEY, {});
 let dayCfg = Object.assign({ on: false, lunchAt: "12:00", lunchMin: 30, autoLunch: true }, lsGet(DAYCFG_KEY, {}));
 const hm2m = hm => { if (!hm) return null; const [h, m] = String(hm).split(":").map(Number); return isFinite(h) && isFinite(m) ? h * 60 + m : null; };
 const m2hm = m => String(Math.floor(m / 60) % 24).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
+const hrs = m => m == null ? "--" : (m / 60).toFixed(2) + " hrs";   // decimal hours, like Workday
 const dur = m => m == null ? "--" : m >= 60 ? Math.floor(m / 60) + " h " + String(m % 60).padStart(2, "0") : m + " min";
 function saveDays() {
   const cutoff = new Date(Date.now() - 60 * 864e5).toISOString().slice(0, 10);
@@ -1602,7 +1603,7 @@ function workday(d) {
 function dayChipText() {
   const d = days[today()];
   if (!d || !d.in) return "▶ Check in";
-  if (d.out) { const w = workday(d); return "✓ Done · " + dur(w && w.total); }
+  if (d.out) { const w = workday(d); return "✓ Done · " + hrs(w && w.total); }
   if (d.ls && !d.le) return "☕ Lunch " + fmtTime(d.ls);
   return "🕘 In " + fmtTime(d.in);                              // hours only show after check out
 }
@@ -1671,7 +1672,7 @@ function showToday(date) {
   row("In", w && w.me, "le", w && w.added ? "(added)" : "");
   row("Out", w && w.repOut, "out", w && w.added && w.outM != null ? `(real ${fmtTime(m2hm(w.outM))})` : "");
   const ta = document.createElement("div"); ta.textContent = "Total"; ta.style.fontWeight = "700";
-  const tb = document.createElement("div"); tb.className = "t"; tb.textContent = w && w.total != null ? dur(w.total) : "--";
+  const tb = document.createElement("div"); tb.className = "t"; tb.textContent = w && w.total != null ? hrs(w.total) : "--";
   grid.append(ta, tb, document.createElement("div"));
   box.append(grid);
   // Sites visited that day, from the Arrived / Left times
@@ -1694,7 +1695,7 @@ function showToday(date) {
   box.append(t);
   const f = m => m == null ? "--" : fmtTime(m2hm(m));
   const copyText = () => [`Workday ${date}`, `In ${f(w && w.inM)}`, `Out (Meal) ${f(w && w.ms)}`, `In ${f(w && w.me)}`, `Out ${f(w && w.repOut)}`,
-    `Total ${w && w.total != null ? dur(w.total) : "--"}`, "", ...[...t.children].map(e => e.textContent)].join("\n");
+    `Total ${w && w.total != null ? hrs(w.total) : "--"}`, "", ...[...t.children].map(e => e.textContent)].join("\n");
   const note = document.createElement("p"); note.className = "hint"; note.hidden = true; box.append(note);
   dialog("Today", box, [{ text: "→ Dynamics", cls: "soon", fn: () => {
     // Placeholder until Pocket SAM is approved: nothing is sent yet
