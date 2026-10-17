@@ -1655,7 +1655,7 @@ function dayMenu() {
     else if (!d.le) add("▶ Back from lunch", () => askTime("Back from lunch", "", nowHM(), v => { d.le = v; saveDays(); showDay(); toast("Back " + fmtTime(v)); }, "OK", v => dayCheck(d, "le", v)));
     add("■ Check out", () => {
       const w = workday({ ...d, out: nowHM() });
-      const note = w && w.added ? `No lunch taken: adds meal ${fmtTime(m2hm(w.ms))}–${fmtTime(m2hm(w.me))}, so Workday Out is ${dayCfg.lunchMin} min after your real out time.` : "End of your day.";
+      const note = w && w.added ? `You didn't take lunch, so Workday will show Meal ${fmtTime(m2hm(w.ms))}–${fmtTime(m2hm(w.me))} and your Out time ${dayCfg.lunchMin} min later than this.` : "End of your day.";
       askTime("Check out", note, nowHM(), v => { d.out = v; saveDays(); showDay(); const w2 = workday(d); toast("Workday Out " + fmtTime(m2hm(w2.repOut))); }, "CHECK OUT", v => dayCheck(d, "out", v));
     }, "danger");
   }
@@ -1764,10 +1764,10 @@ function dayForgot() {
 }
 function lunchSettings() {
   const box = document.createElement("div");
-  box.innerHTML = `<p class="hint">Used when you check out without taking a lunch, to match Workday.</p>
+  box.innerHTML = `<p class="hint">For your Workday timesheet. Example: work 7:00 to 3:00 with no lunch → Workday shows Meal 12:00–12:30 and Out 3:30.</p>
     <div class="row"><label for="dcAt">Usual lunch time</label><input id="dcAt" type="time"></div>
     <div class="row"><label for="dcMin">Lunch length (min)</label><input id="dcMin" type="text" inputmode="numeric"></div>
-    <label class="complete-lbl" style="margin:8px 0"><input id="dcAuto" type="checkbox" style="width:22px;height:22px;flex:none"> No lunch taken: add it and move Out later</label>`;
+    <label class="complete-lbl" style="margin:8px 0;font-weight:400"><input id="dcAuto" type="checkbox" style="width:22px;height:22px;flex:none"> If I skip lunch, still put it on my timesheet and add the lunch time to my Out time (so I get my full hours)</label>`;
   box.querySelector("#dcAt").value = dayCfg.lunchAt; box.querySelector("#dcMin").value = dayCfg.lunchMin; box.querySelector("#dcAuto").checked = dayCfg.autoLunch;
   const save = () => {
     dayCfg = { on: true, lunchAt: box.querySelector("#dcAt").value || "12:00", lunchMin: Math.max(0, parseInt(box.querySelector("#dcMin").value, 10) || 30), autoLunch: box.querySelector("#dcAuto").checked };
