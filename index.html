@@ -42,6 +42,7 @@
   header button.daychip { background: transparent; color: var(--brand-ink); border: 1.5px solid var(--brand-ink); padding: 6px 10px; font-size: 14px; font-weight: 700; white-space: nowrap; }
   .wd { display: grid; grid-template-columns: 1fr auto auto; gap: 6px 10px; align-items: center; font-size: 16px; }
   .wd .t { font-weight: 700; text-align: right; }
+  button.soon { opacity: .5; }
   .wd button { padding: 4px 10px; font-size: 14px; }
   .tl { font-size: 15px; line-height: 1.5; margin-top: 10px; }
   .tl .travel { color: var(--muted); padding-left: 14px; }
@@ -1694,7 +1695,13 @@ function showToday(date) {
   const f = m => m == null ? "--" : fmtTime(m2hm(m));
   const copyText = () => [`Workday ${date}`, `In ${f(w && w.inM)}`, `Out (Meal) ${f(w && w.ms)}`, `In ${f(w && w.me)}`, `Out ${f(w && w.repOut)}`,
     `Total ${w && w.total != null ? dur(w.total) : "--"}`, "", ...[...t.children].map(e => e.textContent)].join("\n");
-  dialog("Today", box, [{ text: "Copy", fn: () => {
+  const note = document.createElement("p"); note.className = "hint"; note.hidden = true; box.append(note);
+  dialog("Today", box, [{ text: "→ Dynamics", cls: "soon", fn: () => {
+    // Placeholder until Pocket SAM is approved: nothing is sent yet
+    note.textContent = "Not connected to Dynamics yet. Once Pocket SAM is approved, this button will send your day's times.";
+    note.hidden = false; note.scrollIntoView({ block: "nearest" });
+    return false;
+  } }, { text: "Copy", fn: () => {
     const txt = copyText();
     (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(() => toast("Copied"), () => toast("Couldn't copy on this phone"));
     return false;
