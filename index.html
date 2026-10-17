@@ -1723,6 +1723,13 @@ function showToday(date) {
   if (stops.length) line(`On site ${dur(onSite)} · Travel ${dur(travel)} · ${stops.length} site(s)`, "tot");
   if (opened) line(`${opened} other site(s) opened but not saved: not counted.`, "travel");
   box.append(t);
+  if (dayVisits.length) {
+    const clr = document.createElement("button"); clr.className = "danger"; clr.style.marginTop = "10px"; clr.textContent = "✕ Clear all sites from this day";
+    clr.onclick = () => { closeDlg(); setTimeout(() => confirmBox(`Clear the arrived / left times of all ${dayVisits.length} site(s) on ${fmtDate(date)}? Readings stay. Check in / out stay.`, "Clear", () => {
+      for (const [k] of dayVisits) delete visits[k]; saveVisits(); liveVisit = null; updateTimes(); setTimeout(() => showToday(date), 0);
+    }), 0); };
+    box.append(clr);
+  }
   const f = m => m == null ? "--" : fmtTime(m2hm(m));
   const copyText = () => [`Workday ${date}`, `In ${f(w && w.inM)}`, `Out (Meal) ${f(w && w.ms)}`, `In ${f(w && w.me)}`, `Out ${f(w && w.repOut)}`,
     `Total ${w && w.total != null ? hrs(w.total) : "--"}`, "", ...[...t.children].map(e => e.textContent.replace(/ ✕$/, ""))].join("\n");
