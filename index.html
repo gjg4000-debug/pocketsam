@@ -563,37 +563,43 @@ $("arrBtn").onclick = () => editTime("a");
 $("leftBtn").onclick = () => editTime("l");
 $("readingDate").addEventListener("change", updateTimes);
 
-/* ---------- Equipment type ----------
-   Each site has one type, and only that section shows. "All" shows everything (for sites that mix types).
-   Stored as rec.equip (and on the latest reading, so it survives sync). Sites without one get a guess from what's filled in.
+/* ---------- Equipment ----------
+   Each site has one or more equipment types (checkmarks), and only those sections show.
+   Stored as rec.equip, a comma list like "chem,sample" (and on the latest reading, so it survives sync).
+   Sites without one get a guess from what's filled in. Older "all" means every type.
    To add a type later (Carbon, Scrubber…): add it here with the card it shows. */
 const EQUIP_TYPES = [
   { id: "chem",   name: "Chemical feed", cards: ["chemCard"] },
   { id: "sample", name: "Sample point",  cards: ["sampleCard"] },
   { id: "bio",    name: "Biofilter",     cards: ["bioCard"] },
-  { id: "all",    name: "All (show everything)", cards: ["chemCard", "sampleCard", "bioCard"] },
 ];
 const EQUIP_CARDS = ["chemCard", "sampleCard", "bioCard"];
-const equipType = id => EQUIP_TYPES.find(t => t.id === id);
+const equipIds = v => v === "all" ? EQUIP_TYPES.map(t => t.id) : String(v || "").split(",").filter(id => EQUIP_TYPES.some(t => t.id === id));
+const equipNames = ids => EQUIP_TYPES.filter(t => ids.includes(t.id)).map(t => t.name).join(" + ");
 function guessEquip(rec) {
-  if (!rec) return "";
+  if (!rec) return [];
   const has = keys => keys.some(k => String(rec[k] ?? "").trim());
   const found = [];
   if (has(["chemName", ...CHEM.map(f => f.key), "curve", "chemInfo"])) found.push("chem");
   if (has([...SAMPLE.map(f => f.key), "treatedBy"])) found.push("sample");
   if (has(["bioSystem", ...BIO.map(f => f.key), "bioInfo"])) found.push("bio");
-  return found.length === 1 ? found[0] : found.length > 1 ? "all" : "";
+  return found;
+}
+function currentEquip() {
+  const saved = inputs.equip.value;
+  if (saved === "all") { const g = guessEquip(siteRec()); return { ids: g.length ? g : equipIds("all"), guess: true }; }   // old "All": narrow it down
+  if (saved) return { ids: equipIds(saved), guess: false };
+  return { ids: guessEquip(siteRec()), guess: true };
 }
 function applyEquip() {
   const btn = $("equipBtn"), label = btn.querySelector("span");
   btn.disabled = !site;
-  const saved = inputs.equip.value, guess = saved ? "" : guessEquip(siteRec());
-  const t = equipType(saved || guess);
-  label.textContent = !site ? "3. Select Equipment" : t ? t.name + (guess ? "  (guess, tap to confirm)" : "") : "3. Select Equipment";
-  const show = site && t ? t.cards : EQUIP_CARDS;           // nothing picked yet: show everything
+  const { ids, guess } = currentEquip();
+  label.textContent = !site || !ids.length ? "3. Select Equipment" : equipNames(ids) + (guess ? "  (guess)" : "");
+  const show = site && ids.length ? EQUIP_TYPES.filter(t => ids.includes(t.id)).flatMap(t => t.cards) : EQUIP_CARDS;   // nothing picked yet: show everything
   EQUIP_CARDS.forEach(id => $(id).hidden = !show.includes(id));
 }
-// Save the type right away (no SAVE needed) and send it to the sheet, like Treated by
+// Save the types right away (no SAVE needed) and send them to the sheet, like Treated by
 async function setEquip(v) {
   inputs.equip.value = v;
   const r = siteRec();
@@ -607,22 +613,24 @@ async function setEquip(v) {
 }
 function pickEquip(isNew) {
   if (!county || !site) { toast("Pick a site first"); return; }
-  const cur = inputs.equip.value, guess = cur ? "" : guessEquip(siteRec());
+  const { ids } = currentEquip();
+  const picked = new Set(ids);
   const box = document.createElement("div"); box.className = "list";
-  if (isNew) { const p = document.createElement("p"); p.className = "hint"; p.textContent = "What is " + site + "? You only pick this once."; box.append(p); }
+  const p = document.createElement("p"); p.className = "hint";
+  p.textContent = (isNew ? `What's at ${site}? ` : "") + "Tap to check one or more, then DONE.";
+  box.append(p);
   EQUIP_TYPES.forEach(t => {
     const b = document.createElement("button");
-    b.textContent = (t.id === cur ? "✓ " : "") + t.name + (t.id === guess ? "  (best guess)" : ""); if (t.id === cur) b.className = "done";
-    b.onclick = () => {
-      closeDlg();
-      if (t.id === cur) return;
-      const go = () => setEquip(t.id).then(() => toast(`${site}: ${t.name}` + (isNew ? " · fill in the fields, then SAVE" : "")));
-      if (cur) confirmBox(`Change ${site} from ${equipType(cur).name} to ${t.name}? Nothing is deleted. The other boxes are just hidden.`, "Change", () => { go(); });
-      else go();
-    };
-    box.append(b);
+    const show = () => { const on = picked.has(t.id); b.textContent = (on ? "✓ " : "☐ ") + t.name; b.className = on ? "done" : ""; };
+    b.onclick = () => { picked.has(t.id) ? picked.delete(t.id) : picked.add(t.id); show(); };
+    show(); box.append(b);
   });
-  dialog(isNew ? "Equipment type" : `Equipment at ${site}`, box, [{ text: isNew ? "Later" : "Cancel" }]);
+  const done = () => {
+    if (!picked.size) { p.textContent = "Check at least one."; return false; }
+    const v = EQUIP_TYPES.map(t => t.id).filter(id => picked.has(id)).join(",");
+    setEquip(v).then(() => toast(`${site}: ${equipNames(equipIds(v))}` + (isNew ? " · fill in the fields, then SAVE" : "")));
+  };
+  dialog(isNew ? "Equipment" : `Equipment at ${site}`, box, [{ text: isNew ? "Later" : "Cancel" }, { text: "DONE", cls: "primary", fn: done }]);
 }
 $("equipBtn").onclick = () => pickEquip(false);
 
