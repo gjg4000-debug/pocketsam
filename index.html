@@ -92,6 +92,7 @@
   .complete .when { font-weight: 400; color: var(--muted); font-size: 13px; margin-left: auto; text-align: right; }
   .complete .crow { flex-basis: 100%; display: flex; align-items: center; gap: 10px; }
   .complete .times { flex-basis: 100%; display: flex; gap: 6px; flex-wrap: wrap; font-weight: 400; font-size: 14px; color: var(--muted); }
+  .complete .times .worked { margin-left: auto; align-self: center; font-weight: 700; color: var(--text); }
   .complete .times button { padding: 4px 10px; font-size: 14px; font-weight: 600; }
   .kv { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; font-size: 15px; }
   .kv div:nth-child(odd) { color: var(--muted); }
@@ -138,7 +139,7 @@
     <button id="locSetBtn">SET</button>
   </div>
   <div class="complete">
-    <div class="times" id="timesRow" hidden>🕘 Arrived <button id="arrBtn" type="button">--</button> Left <button id="leftBtn" type="button">--</button></div>
+    <div class="times" id="timesRow" hidden>🕘 Arrived <button id="arrBtn" type="button">--</button> Left <button id="leftBtn" type="button">--</button><span class="worked" id="workedTxt"></span></div>
     <div class="crow">
     <label class="complete-lbl" for="completeChk"><input type="checkbox" id="completeChk"> Complete</label>
     <span class="when" id="completeWhen"></span>
@@ -537,6 +538,8 @@ function updateTimes() {
   row.hidden = false;
   $("arrBtn").textContent = (v.a ? fmtTime(v.a) : "--") + " ✎";
   $("leftBtn").textContent = (v.l ? fmtTime(v.l) : "--") + " ✎";
+  const m = visitMinutes(v.a, v.l);
+  $("workedTxt").textContent = m == null ? "" : "Worked " + (m >= 60 ? Math.floor(m / 60) + " h " + String(m % 60).padStart(2, "0") + " min" : m + " min");
 }
 function editTime(which) {
   if (!county || !site) return;
