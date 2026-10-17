@@ -49,10 +49,10 @@
   .card h2.titled input { flex: 1; min-width: 0; font-size: 17px; font-weight: 700; padding: 6px 8px; }
   .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: center; padding: 5px 0; }
   .row label { font-weight: 600; font-size: 15px; }
-  input, textarea { width: 100%; font: inherit; color: var(--text); background: var(--input);
+  input, textarea, select { width: 100%; font: inherit; color: var(--text); background: var(--input);
     border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; }
   textarea { resize: vertical; min-height: 42px; }
-  input:focus, textarea:focus { outline: 2px solid var(--brand); outline-offset: 0; border-color: transparent; }
+  input:focus, textarea:focus, select:focus { outline: 2px solid var(--brand); outline-offset: 0; border-color: transparent; }
   .result { font-weight: 700; margin: 8px 0 4px; padding: 10px 12px; background: var(--accent);
     border-radius: 8px; white-space: pre-line; }
   .btns { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); margin: 10px 0; }
@@ -179,6 +179,20 @@
     <div id="bioInfo"></div>
   </section>
 
+  <section class="card" id="scrubCard">
+    <h2 class="titled"><label for="f_scrubSystem" class="pencil" title="Tap to change the name">✎</label><input type="text" id="f_scrubSystem" placeholder="Scrubber" aria-label="Scrubber name (LoPro…)" autocomplete="off" autocapitalize="words"></h2>
+    <div id="scrubFields"></div>
+    <div class="result" id="scrubResult"></div>
+    <div id="scrubInfo"></div>
+  </section>
+
+  <section class="card" id="carbCard">
+    <h2 class="titled"><label for="f_carbSystem" class="pencil" title="Tap to change the name">✎</label><input type="text" id="f_carbSystem" placeholder="Carbon Adsorber" aria-label="Carbon adsorber name" autocomplete="off" autocapitalize="words"></h2>
+    <div id="carbFields"></div>
+    <div class="result" id="carbResult"></div>
+    <div id="carbInfo"></div>
+  </section>
+
   <section class="card">
     <div class="row">
       <label for="readingDate">Date</label>
@@ -270,7 +284,41 @@ const ADJ_DAYS = DAYS.map(d => ({ key: "adj" + d.slice(0, 3), label: d + " adjus
 const LOC = { key: "loc", label: "Location", hint: "", num: false };
 // Control point link: the feed site whose chemical treats this sample point, stored as "County\u0001Site".
 const TREATED = { key: "treatedBy", label: "Treated by", hint: "", num: false };
-const ALL = [CHEM_NAME, ...CHEM, CURVE, ADJ_GLOBAL, ...ADJ_DAYS, CHEM_INFO, ...SAMPLE, TREATED, BIO_SYSTEM, ...BIO, BIO_INFO, LOC];
+// Scrubber (LoPro: Stage 1 sump = caustic, Stage 2(/3) sump = caustic + bleach, shared by packing stages 2 and 3).
+// "col" is the column name in the sheet / CSV / HISTORY, so it doesn't clash with the biofilter's boxes.
+const SCRUB_SYSTEM = { key: "scrubSystem", label: "Scrubber", col: "Scrubber name", hint: "Scrubber", num: false };
+const SCRUB = [
+  { key: "s1Ph",    label: "Stage 1 sump pH", col: "Scrubber Stage 1 sump pH", hint: "pH", num: true },
+  { key: "s2Ph",    label: "Stage 2(/3) sump pH", col: "Scrubber Stage 2(/3) sump pH", hint: "pH", num: true },
+  { key: "s2Orp",   label: "Stage 2(/3) sump ORP (mV)", col: "Scrubber Stage 2(/3) ORP mV", hint: "mV", num: true },
+  { key: "naohGal", label: "NaOH (caustic) tank level (gal)", col: "Scrubber NaOH tank gal", hint: "gal", num: true },
+  { key: "naoclGal", label: "NaOCl (bleach) tank level (gal)", col: "Scrubber NaOCl tank gal", hint: "gal", num: true },
+  { key: "rp1",     label: "Recirc pump Stage 1 running?", col: "Scrubber recirc pump Stage 1", hint: "", yn: true },
+  { key: "rp2",     label: "Recirc pump Stage 2(/3) running?", col: "Scrubber recirc pump Stage 2(/3)", hint: "", yn: true },
+  { key: "scWater", label: "Make Up Water GPM", col: "Scrubber make up water GPM", hint: "GPM", num: true },
+  { key: "scHz",    label: "Fan VFD (Hz)", col: "Scrubber fan VFD Hz", hint: "Hz", num: true },
+  { key: "scDuct",  label: "Air duct diameter (inches)", col: "Scrubber duct diameter in", hint: "e.g. 8", num: true },
+  { key: "scFpm",   label: "Airflow FPM", col: "Scrubber airflow FPM", hint: "e.g. 600", num: true },
+  { key: "scDp",    label: "Pressure drop (in. w.c.)", col: "Scrubber pressure drop in wc", hint: "in. w.c.", num: true },
+  { key: "scIn",    label: "H2S In ppm", col: "Scrubber H2S In ppm", hint: "ppm", num: true },
+  { key: "scOut",   label: "H2S Out ppm", col: "Scrubber H2S Out ppm", hint: "ppm", num: true },
+];
+const SCRUB_INFO = { key: "scrubInfo", label: "Scrubber info", hint: "e.g. LoPro 3-stage, nozzles, notes", num: false };
+const CARB_SYSTEM = { key: "carbSystem", label: "Carbon Adsorber", col: "Carbon adsorber name", hint: "Carbon Adsorber", num: false };
+const CARB = [
+  { key: "cbHz",    label: "Fan VFD (Hz)", col: "Carbon fan VFD Hz", hint: "Hz", num: true },
+  { key: "cbDuct",  label: "Air duct diameter (inches)", col: "Carbon duct diameter in", hint: "e.g. 8", num: true },
+  { key: "cbFpm",   label: "Airflow FPM", col: "Carbon airflow FPM", hint: "e.g. 600", num: true },
+  { key: "cbDp",    label: "Pressure drop (in. w.c.)", col: "Carbon pressure drop in wc", hint: "in. w.c.", num: true },
+  { key: "cbIn",    label: "H2S In ppm", col: "Carbon H2S In ppm", hint: "ppm", num: true },
+  { key: "cbOut",   label: "H2S Out ppm", col: "Carbon H2S Out ppm", hint: "ppm", num: true },
+  { key: "cbChange", label: "Last carbon change-out", col: "Carbon last change-out", hint: "", date: true },
+];
+const CARB_INFO = { key: "carbInfo", label: "Carbon info", hint: "e.g. vessel size, carbon type, notes", num: false };
+const SCRUB_KEYS = [SCRUB_SYSTEM, ...SCRUB, SCRUB_INFO].map(f => f.key), CARB_KEYS = [CARB_SYSTEM, ...CARB, CARB_INFO].map(f => f.key);
+const colOf = f => f.col || f.label;
+const ALL = [CHEM_NAME, ...CHEM, CURVE, ADJ_GLOBAL, ...ADJ_DAYS, CHEM_INFO, ...SAMPLE, TREATED, BIO_SYSTEM, ...BIO, BIO_INFO, LOC,
+  SCRUB_SYSTEM, ...SCRUB, SCRUB_INFO, CARB_SYSTEM, ...CARB, CARB_INFO];
 const HIST = "_history";   // per-site list of dated readings
 
 /* ---------- Storage: IndexedDB, falling back to localStorage ---------- */
@@ -317,11 +365,15 @@ function addField(parent, f) {
   const row = document.createElement("div"); row.className = "row";
   const id = "f_" + f.key;
   const lab = document.createElement("label"); lab.htmlFor = id; lab.textContent = f.label;
-  const el = document.createElement(f.num ? "input" : "textarea");
-  el.id = id; el.placeholder = f.hint;
+  let el;
+  if (f.yn) { el = document.createElement("select"); for (const o of ["", "Yes", "No"]) { const op = document.createElement("option"); op.value = o; op.textContent = o || "—"; el.append(op); } }
+  else if (f.date) { el = document.createElement("input"); el.type = "date"; }
+  else { el = document.createElement(f.num ? "input" : "textarea"); el.placeholder = f.hint; }
+  el.id = id;
   if (f.num) { el.type = "text"; el.inputMode = "decimal"; el.autocomplete = "off"; }
-  else { el.rows = 3; }
-  el.addEventListener("input", () => { if (!loading) { dirty = true; updateStatus(); compute(); } });
+  else if (!f.yn && !f.date) { el.rows = 3; }
+  const changed = () => { if (!loading) { dirty = true; updateStatus(); compute(); } };
+  el.addEventListener("input", changed); if (f.yn || f.date) el.addEventListener("change", changed);
   row.append(lab, el); parent.append(row); inputs[f.key] = el;
 }
 // Chemical name lives in the "Chemical feed:" title
@@ -344,6 +396,11 @@ ADJ_DAYS.forEach(f => {
 SAMPLE.forEach(f => addField($("sampleFields"), f));
 inputs.treatedBy = document.createElement("input"); inputs.treatedBy.type = "hidden"; $("treatBtn").after(inputs.treatedBy);
 BIO.forEach(f => addField($("bioFields"), f)); addField($("bioInfo"), BIO_INFO);
+for (const [k, id] of [["scrubSystem", "f_scrubSystem"], ["carbSystem", "f_carbSystem"]]) {
+  inputs[k] = $(id); inputs[k].addEventListener("input", () => { if (!loading) { dirty = true; updateStatus(); } });
+}
+SCRUB.forEach(f => addField($("scrubFields"), f)); addField($("scrubInfo"), SCRUB_INFO);
+CARB.forEach(f => addField($("carbFields"), f)); addField($("carbInfo"), CARB_INFO);
 inputs.equip = document.createElement("input"); inputs.equip.type = "hidden"; $("equipBtn").after(inputs.equip);
 
 /* ---------- Math (same as Android app) ---------- */
@@ -393,6 +450,13 @@ function calc(rec) {
   const removal = (hin != null && hout != null && hin > 0) ? (hin - hout) / hin * 100 : null;
   return { gpd, bioGpd, days, runMin: runHrs * 60, timer, cfm, removal, curve: cv };
 }
+// Airflow and H2S removal for one unit (scrubber or carbon): same math as the biofilter
+function airCalc(rec, d, f, i, o) {
+  const dia = num(rec[d]), fpm = num(rec[f]), hin = num(rec[i]), hout = num(rec[o]);
+  return { cfm: (dia != null && fpm != null && dia > 0) ? fpm * Math.PI * Math.pow(dia / 12, 2) / 4 : null,
+           removal: (hin != null && hout != null && hin > 0) ? (hin - hout) / hin * 100 : null };
+}
+const airText = a => "Airflow: " + (a.cfm == null ? "enter duct diameter and FPM" : Math.round(a.cfm) + " CFM") + (a.removal == null ? "" : "\nH2S removal: " + a.removal.toFixed(1) + "%");
 const currentRecord = () => { const r = {}; ALL.forEach(f => r[f.key] = inputs[f.key].value.trim()); return r; };
 function compute() {
   const c = calc(currentRecord());
@@ -410,6 +474,9 @@ function compute() {
       + (c.days != null ? "\nTank empty in about " + c.days.toFixed(1) + " days" : ""))
     + "\nAirflow: " + (c.cfm == null ? "enter duct diameter and FPM" : Math.round(c.cfm) + " CFM")
     + (c.removal == null ? "" : "\nH2S removal: " + c.removal.toFixed(1) + "%");
+  const cr = currentRecord();
+  $("scrubResult").textContent = airText(airCalc(cr, "scDuct", "scFpm", "scIn", "scOut"));
+  $("carbResult").textContent = airText(airCalc(cr, "cbDuct", "cbFpm", "cbIn", "cbOut"));
 }
 
 /* ---------- UI helpers ---------- */
@@ -572,8 +639,10 @@ const EQUIP_TYPES = [
   { id: "chem",   name: "Chemical feed", cards: ["chemCard"] },
   { id: "sample", name: "Sample point",  cards: ["sampleCard"] },
   { id: "bio",    name: "Biofilter",     cards: ["bioCard"] },
+  { id: "scrub",  name: "Scrubber",      cards: ["scrubCard"] },
+  { id: "carb",   name: "Carbon adsorber", cards: ["carbCard"] },
 ];
-const EQUIP_CARDS = ["chemCard", "sampleCard", "bioCard"];
+const EQUIP_CARDS = ["chemCard", "sampleCard", "bioCard", "scrubCard", "carbCard"];
 const equipIds = v => v === "all" ? EQUIP_TYPES.map(t => t.id) : String(v || "").split(",").filter(id => EQUIP_TYPES.some(t => t.id === id));
 const equipNames = ids => EQUIP_TYPES.filter(t => ids.includes(t.id)).map(t => t.name).join(" + ");
 function guessEquip(rec) {
@@ -583,6 +652,8 @@ function guessEquip(rec) {
   if (has(["chemName", ...CHEM.map(f => f.key), "curve", "chemInfo"])) found.push("chem");
   if (has([...SAMPLE.map(f => f.key), "treatedBy"])) found.push("sample");
   if (has(["bioSystem", ...BIO.map(f => f.key), "bioInfo"])) found.push("bio");
+  if (has(SCRUB_KEYS)) found.push("scrub");
+  if (has(CARB_KEYS)) found.push("carb");
   return found;
 }
 function currentEquip() {
@@ -756,7 +827,7 @@ function showReading(e) {
   ALL.forEach(f => { if (f.key === "curve") { if (e.curve) add(f.label, curveSummary(e.curve)); }
     else if (f.key === "loc") { if (e.loc) add(f.label, locText(e.loc)); }
     else if (f.key === "treatedBy") { if (e.treatedBy) add(f.label, linkName(e.treatedBy)); }
-    else if (!f.key.startsWith("adj") || e.curve) add(f.label, e[f.key]); });
+    else if (!f.key.startsWith("adj") || e.curve) add(colOf(f), e[f.key]); });
   if (e.arrived || e.left) {
     add("Arrived", e.arrived ? fmtTime(e.arrived) : ""); add("Left", e.left ? fmtTime(e.left) : "");
     const m = visitMinutes(e.arrived, e.left); if (m != null) add("On site", m + " min");
@@ -1224,7 +1295,7 @@ function csvRows(f) {
   // Column list: each entry is [heading, value for one reading]. Chem feed GPD sits right after the pump boxes.
   const COLS = [["Arrived", (e) => e.arrived ? fmtTime(e.arrived) : ""], ["Left", (e) => e.left ? fmtTime(e.left) : ""]];
   ALL.filter(x => !CSV_SKIP.has(x.key)).forEach(x => {
-    COLS.push([x.label, x.key === "treatedBy" ? (e) => linkName(e.treatedBy) : (e) => e[x.key]]);
+    COLS.push([colOf(x), x.key === "treatedBy" ? (e) => linkName(e.treatedBy) : (e) => e[x.key]]);
     if (x.key === "p2Hrs") COLS.push(["Chem feed GPD", (e, k) => k.gpd == null ? "" : k.gpd.toFixed(2)]);
   });
   COLS.push(["Tank empty in days", (e, k) => k.days == null ? "" : k.days.toFixed(1)],
@@ -1325,17 +1396,22 @@ let syncing = false, syncAgain = false, askedAgain = false;
 // Readings tab column order: original columns first, newer fields added at the end so old rows stay lined up.
 const LOG_KEYS = ["p1Rate", "p1Hrs", "p2Rate", "p2Hrs", "chemInfo", "tankGal", "jugs", "bioGph", "speed", "stroke", "onSec", "offMin", "bioInfo"];
 function logFor(rec, date, times) {
-  const k = calc(rec), lab = Object.fromEntries(ALL.map(f => [f.key, f.label]));
+  const k = calc(rec), lab = Object.fromEntries(ALL.map(f => [f.key, colOf(f)]));
+  const NEWER = [...SCRUB_KEYS, ...CARB_KEYS];   // added after Arrived / Left
+  const sa = airCalc(rec, "scDuct", "scFpm", "scIn", "scOut"), ca = airCalc(rec, "cbDuct", "cbFpm", "cbIn", "cbOut");
+  const r1 = (x, d) => x == null ? "" : x.toFixed(d);
   const AIR = ["ductDia", "fpm"];
   const EXTRA = ["waterGpm", ...SAMPLE.map(f => f.key), "chemName", "bioSystem", "h2sIn", "h2sMid", "h2sOut"];   // added later, in the order they were added
   const TAIL = ["vfdHz", "curve", ADJ_GLOBAL.key, ...ADJ_DAYS.map(f => f.key), "loc", "treatedBy"];                            // added after "H2S removal %" (then Arrived / Left at the very end: add any newer columns after Left)
-  const later = [...EXTRA, ...ALL.map(f => f.key).filter(x => !LOG_KEYS.includes(x) && !AIR.includes(x) && !EXTRA.includes(x) && !TAIL.includes(x))];
+  const later = [...EXTRA, ...ALL.map(f => f.key).filter(x => !LOG_KEYS.includes(x) && !AIR.includes(x) && !EXTRA.includes(x) && !TAIL.includes(x) && !NEWER.includes(x))];
   const val = x => x === "curve" ? curveSummary(rec.curve) : x === "loc" ? locText(rec.loc) : x === "treatedBy" ? linkName(rec.treatedBy) : (rec[x] || "");
   return { date, complete: rec.completeMonth === date.slice(0, 7),
-    cols: [...LOG_KEYS.map(x => lab[x]), "Chem feed GPD", "Nutrient feed gal/day", "Tank empty in days", ...AIR.map(x => lab[x]), "Airflow CFM", ...later.map(x => lab[x]), "H2S removal %", ...TAIL.map(x => lab[x]), "Arrived", "Left"],
+    cols: [...LOG_KEYS.map(x => lab[x]), "Chem feed GPD", "Nutrient feed gal/day", "Tank empty in days", ...AIR.map(x => lab[x]), "Airflow CFM", ...later.map(x => lab[x]), "H2S removal %", ...TAIL.map(x => lab[x]), "Arrived", "Left",
+      ...NEWER.map(x => lab[x]), "Scrubber CFM", "Scrubber H2S removal %", "Carbon CFM", "Carbon H2S removal %"],
     vals: [...LOG_KEYS.map(val), k.gpd == null ? "" : k.gpd.toFixed(2), k.bioGpd == null ? "" : k.bioGpd.toFixed(2), k.days == null ? "" : k.days.toFixed(1),
       ...AIR.map(val), k.cfm == null ? "" : String(Math.round(k.cfm)), ...later.map(val), k.removal == null ? "" : k.removal.toFixed(1), ...TAIL.map(val),
-      (times && times.a) || "", (times && times.l) || ""] };
+      (times && times.a) || "", (times && times.l) || "",
+      ...NEWER.map(val), r1(sa.cfm, 0), r1(sa.removal, 1), r1(ca.cfm, 0), r1(ca.removal, 1)] };
 }
 function queue(op, noSend) {
   if (!syncCfg) return;                                  // not connected: nothing to send
