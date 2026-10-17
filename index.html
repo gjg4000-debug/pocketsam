@@ -240,7 +240,6 @@
   </section>
   <p class="hint version">Pocket SAM version <span id="appVersion">2026-10-03 (v20)</span></p>
   <p class="hint version"><a href="#" id="dynLink">Dynamics test: off</a></p>
-  <p class="hint version"><a href="#" id="dayLink">Day times: off</a></p>
 </main>
 
 <dialog id="dlg">
@@ -1584,7 +1583,7 @@ showDyn();
    so In / Out (Meal) / In / Out match what goes into Workday. */
 const DAY_KEY = "pocketsam-days", DAYCFG_KEY = "pocketsam-daycfg";
 let days = lsGet(DAY_KEY, {});
-let dayCfg = Object.assign({ on: false, lunchAt: "12:00", lunchMin: 30, autoLunch: true }, lsGet(DAYCFG_KEY, {}));
+let dayCfg = Object.assign({ lunchAt: "12:00", lunchMin: 30, autoLunch: true }, lsGet(DAYCFG_KEY, {}), { on: true });   // always on now
 const hm2m = hm => { if (!hm) return null; const [h, m] = String(hm).split(":").map(Number); return isFinite(h) && isFinite(m) ? h * 60 + m : null; };
 const m2hm = m => String(Math.floor(m / 60) % 24).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
 const hrs = m => m == null ? "--" : (m / 60).toFixed(2) + " hrs";   // decimal hours, like Workday
@@ -1615,7 +1614,6 @@ function dayChipText() {
   return "🕘 In " + fmtTime(d.in);                              // hours only show after check out
 }
 function showDay() {
-  $("dayLink").textContent = dayCfg.on ? "Day times: ON" : "Day times: off";
   const chip = $("dayChip"); chip.hidden = !dayCfg.on;
   if (dayCfg.on) chip.textContent = dayChipText();
 }
@@ -1662,6 +1660,7 @@ function dayMenu() {
     }, "danger");
   }
   add("📋 Today", () => showToday(t));
+  add("⚙ Lunch settings", lunchSettings);
   add("↺ Start today over", () => confirmBox("Clear today's check in, lunch and check out? (Site arrived / left times stay.)", "Clear", () => {
     delete days[t]; saveDays(); showDay(); toast("Today cleared");
   }));
@@ -1763,21 +1762,19 @@ function dayForgot() {
     days[past].out = v; saveDays(); toast("Saved " + fmtDate(past));
   });
 }
-$("dayLink").onclick = e => {
-  e.preventDefault();
+function lunchSettings() {
   const box = document.createElement("div");
-  box.innerHTML = `<p>Check in, lunch and check out from the header, and a Today page that matches Workday. Times stay on this phone.</p>
+  box.innerHTML = `<p class="hint">Used when you check out without taking a lunch, to match Workday.</p>
     <div class="row"><label for="dcAt">Usual lunch time</label><input id="dcAt" type="time"></div>
     <div class="row"><label for="dcMin">Lunch length (min)</label><input id="dcMin" type="text" inputmode="numeric"></div>
     <label class="complete-lbl" style="margin:8px 0"><input id="dcAuto" type="checkbox" style="width:22px;height:22px;flex:none"> No lunch taken: add it and move Out later</label>`;
   box.querySelector("#dcAt").value = dayCfg.lunchAt; box.querySelector("#dcMin").value = dayCfg.lunchMin; box.querySelector("#dcAuto").checked = dayCfg.autoLunch;
-  const save = on => {
-    dayCfg = { on, lunchAt: box.querySelector("#dcAt").value || "12:00", lunchMin: Math.max(0, parseInt(box.querySelector("#dcMin").value, 10) || 30), autoLunch: box.querySelector("#dcAuto").checked };
-    lsSet(DAYCFG_KEY, dayCfg); showDay(); toast(on ? "Day times ON" : "Day times off");
+  const save = () => {
+    dayCfg = { on: true, lunchAt: box.querySelector("#dcAt").value || "12:00", lunchMin: Math.max(0, parseInt(box.querySelector("#dcMin").value, 10) || 30), autoLunch: box.querySelector("#dcAuto").checked };
+    lsSet(DAYCFG_KEY, dayCfg); showDay(); toast("Lunch settings saved");
   };
-  dialog("Day times", box, dayCfg.on ? [{ text: "Turn off", cls: "danger", fn: () => save(false) }, { text: "Cancel" }, { text: "SAVE", cls: "primary", fn: () => save(true) }]
-    : [{ text: "Cancel" }, { text: "TURN ON", cls: "primary", fn: () => save(true) }]);
-};
+  dialog("Lunch settings", box, [{ text: "Cancel" }, { text: "SAVE", cls: "primary", fn: save }]);
+}
 showDay();
 
 window.addEventListener("online", () => { if (syncCfg) syncNow(); });
