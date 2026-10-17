@@ -1698,7 +1698,7 @@ function showToday(date) {
   const note = document.createElement("p"); note.className = "hint"; note.hidden = true; box.append(note);
   dialog("Today", box, [{ text: "→ Dynamics", cls: "soon", fn: () => {
     // Placeholder until Pocket SAM is approved: nothing is sent yet
-    note.textContent = "Not connected to Dynamics yet. Once Pocket SAM is approved, this button will send your day's times.";
+    note.textContent = "Not connected to Dynamics yet. Once Pocket SAM is approved, this button will send your day's times and readings.";
     note.hidden = false; note.scrollIntoView({ block: "nearest" });
     return false;
   } }, { text: "Copy", fn: () => {
