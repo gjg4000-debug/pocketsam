@@ -310,11 +310,15 @@ const CARB = [
   { key: "cbDuct",  label: "Air duct diameter (inches)", col: "Carbon duct diameter in", hint: "e.g. 8", num: true },
   { key: "cbFpm",   label: "Airflow FPM", col: "Carbon airflow FPM", hint: "e.g. 600", num: true },
   { key: "cbDp",    label: "Pressure drop (in. w.c.)", col: "Carbon pressure drop in wc", hint: "in. w.c.", num: true },
-  { key: "cbIn",    label: "H2S In ppm", col: "Carbon H2S In ppm", hint: "ppm", num: true },
-  { key: "cbOut",   label: "H2S Out ppm", col: "Carbon H2S Out ppm", hint: "ppm", num: true },
+  { key: "cbIn",    label: "H2S Inlet ppm", col: "Carbon H2S In ppm", hint: "ppm", num: true },
+  { key: "cbP1",    label: "Sample port 1 H2S ppm", col: "Carbon port 1 H2S ppm", hint: "ppm", num: true },
+  { key: "cbP2",    label: "Sample port 2 H2S ppm", col: "Carbon port 2 H2S ppm", hint: "ppm", num: true },
+  { key: "cbP3",    label: "Sample port 3 H2S ppm", col: "Carbon port 3 H2S ppm", hint: "ppm", num: true },
+  { key: "cbOut",   label: "H2S Outlet ppm", col: "Carbon H2S Out ppm", hint: "ppm", num: true },
   { key: "cbChange", label: "Last carbon change-out", col: "Carbon last change-out", hint: "", date: true },
 ];
 const CARB_INFO = { key: "carbInfo", label: "Carbon info", hint: "e.g. vessel size, carbon type, notes", num: false };
+const CARB_PORTS = ["cbP1", "cbP2", "cbP3"];
 const SCRUB_KEYS = [SCRUB_SYSTEM, ...SCRUB, SCRUB_INFO].map(f => f.key), CARB_KEYS = [CARB_SYSTEM, ...CARB, CARB_INFO].map(f => f.key);
 const colOf = f => f.col || f.label;
 const ALL = [CHEM_NAME, ...CHEM, CURVE, ADJ_GLOBAL, ...ADJ_DAYS, CHEM_INFO, ...SAMPLE, TREATED, BIO_SYSTEM, ...BIO, BIO_INFO, LOC,
@@ -456,6 +460,8 @@ function airCalc(rec, d, f, i, o) {
   return { cfm: (dia != null && fpm != null && dia > 0) ? fpm * Math.PI * Math.pow(dia / 12, 2) / 4 : null,
            removal: (hin != null && hout != null && hin > 0) ? (hin - hout) / hin * 100 : null };
 }
+// Carbon removal: inlet vs outlet; with no outlet reading, the deepest sample port filled in
+const carbOutKey = rec => num(rec.cbOut) != null ? "cbOut" : ["cbP3", "cbP2", "cbP1"].find(k => num(rec[k]) != null) || "cbOut";
 const airText = a => "Airflow: " + (a.cfm == null ? "enter duct diameter and FPM" : Math.round(a.cfm) + " CFM") + (a.removal == null ? "" : "\nH2S removal: " + a.removal.toFixed(1) + "%");
 const currentRecord = () => { const r = {}; ALL.forEach(f => r[f.key] = inputs[f.key].value.trim()); return r; };
 function compute() {
@@ -476,7 +482,7 @@ function compute() {
     + (c.removal == null ? "" : "\nH2S removal: " + c.removal.toFixed(1) + "%");
   const cr = currentRecord();
   $("scrubResult").textContent = airText(airCalc(cr, "scDuct", "scFpm", "scIn", "scOut"));
-  $("carbResult").textContent = airText(airCalc(cr, "cbDuct", "cbFpm", "cbIn", "cbOut"));
+  $("carbResult").textContent = airText(airCalc(cr, "cbDuct", "cbFpm", "cbIn", carbOutKey(cr))) + (carbOutKey(cr) !== "cbOut" ? " (to port " + carbOutKey(cr).slice(-1) + ")" : "");
 }
 
 /* ---------- UI helpers ---------- */
@@ -1397,21 +1403,21 @@ let syncing = false, syncAgain = false, askedAgain = false;
 const LOG_KEYS = ["p1Rate", "p1Hrs", "p2Rate", "p2Hrs", "chemInfo", "tankGal", "jugs", "bioGph", "speed", "stroke", "onSec", "offMin", "bioInfo"];
 function logFor(rec, date, times) {
   const k = calc(rec), lab = Object.fromEntries(ALL.map(f => [f.key, colOf(f)]));
-  const NEWER = [...SCRUB_KEYS, ...CARB_KEYS];   // added after Arrived / Left
-  const sa = airCalc(rec, "scDuct", "scFpm", "scIn", "scOut"), ca = airCalc(rec, "cbDuct", "cbFpm", "cbIn", "cbOut");
+  const NEWER = [...SCRUB_KEYS, ...CARB_KEYS.filter(x => !CARB_PORTS.includes(x))];   // added after Arrived / Left (carbon ports at the very end)
+  const sa = airCalc(rec, "scDuct", "scFpm", "scIn", "scOut"), ca = airCalc(rec, "cbDuct", "cbFpm", "cbIn", carbOutKey(rec));
   const r1 = (x, d) => x == null ? "" : x.toFixed(d);
   const AIR = ["ductDia", "fpm"];
   const EXTRA = ["waterGpm", ...SAMPLE.map(f => f.key), "chemName", "bioSystem", "h2sIn", "h2sMid", "h2sOut"];   // added later, in the order they were added
   const TAIL = ["vfdHz", "curve", ADJ_GLOBAL.key, ...ADJ_DAYS.map(f => f.key), "loc", "treatedBy"];                            // added after "H2S removal %" (then Arrived / Left at the very end: add any newer columns after Left)
-  const later = [...EXTRA, ...ALL.map(f => f.key).filter(x => !LOG_KEYS.includes(x) && !AIR.includes(x) && !EXTRA.includes(x) && !TAIL.includes(x) && !NEWER.includes(x))];
+  const later = [...EXTRA, ...ALL.map(f => f.key).filter(x => !LOG_KEYS.includes(x) && !AIR.includes(x) && !EXTRA.includes(x) && !TAIL.includes(x) && !NEWER.includes(x) && !CARB_PORTS.includes(x))];
   const val = x => x === "curve" ? curveSummary(rec.curve) : x === "loc" ? locText(rec.loc) : x === "treatedBy" ? linkName(rec.treatedBy) : (rec[x] || "");
   return { date, complete: rec.completeMonth === date.slice(0, 7),
     cols: [...LOG_KEYS.map(x => lab[x]), "Chem feed GPD", "Nutrient feed gal/day", "Tank empty in days", ...AIR.map(x => lab[x]), "Airflow CFM", ...later.map(x => lab[x]), "H2S removal %", ...TAIL.map(x => lab[x]), "Arrived", "Left",
-      ...NEWER.map(x => lab[x]), "Scrubber CFM", "Scrubber H2S removal %", "Carbon CFM", "Carbon H2S removal %"],
+      ...NEWER.map(x => lab[x]), "Scrubber CFM", "Scrubber H2S removal %", "Carbon CFM", "Carbon H2S removal %", ...CARB_PORTS.map(x => lab[x])],
     vals: [...LOG_KEYS.map(val), k.gpd == null ? "" : k.gpd.toFixed(2), k.bioGpd == null ? "" : k.bioGpd.toFixed(2), k.days == null ? "" : k.days.toFixed(1),
       ...AIR.map(val), k.cfm == null ? "" : String(Math.round(k.cfm)), ...later.map(val), k.removal == null ? "" : k.removal.toFixed(1), ...TAIL.map(val),
       (times && times.a) || "", (times && times.l) || "",
-      ...NEWER.map(val), r1(sa.cfm, 0), r1(sa.removal, 1), r1(ca.cfm, 0), r1(ca.removal, 1)] };
+      ...NEWER.map(val), r1(sa.cfm, 0), r1(sa.removal, 1), r1(ca.cfm, 0), r1(ca.removal, 1), ...CARB_PORTS.map(val)] };
 }
 function queue(op, noSend) {
   if (!syncCfg) return;                                  // not connected: nothing to send
