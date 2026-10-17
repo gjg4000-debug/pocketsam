@@ -38,6 +38,14 @@
   header .syncline { font-size: 12px; opacity: .85; min-height: 1em; }
   header button.refresh { background: var(--brand-ink); color: var(--brand); border: none; padding: 10px 14px; font-weight: 800; }
   header button.refresh:disabled { opacity: .6; }
+  header .hside { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
+  header button.daychip { background: transparent; color: var(--brand-ink); border: 1.5px solid var(--brand-ink); padding: 6px 10px; font-size: 14px; font-weight: 700; white-space: nowrap; }
+  .wd { display: grid; grid-template-columns: 1fr auto auto; gap: 6px 10px; align-items: center; font-size: 16px; }
+  .wd .t { font-weight: 700; text-align: right; }
+  .wd button { padding: 4px 10px; font-size: 14px; }
+  .tl { font-size: 15px; line-height: 1.5; margin-top: 10px; }
+  .tl .travel { color: var(--muted); padding-left: 14px; }
+  .tl .tot { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 6px; font-weight: 700; }
   main { max-width: 640px; margin: 0 auto; padding: 12px 16px calc(env(safe-area-inset-bottom) + 32px); }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
     padding: 12px 14px; margin: 12px 0; }
@@ -122,7 +130,10 @@
       <div class="status" id="status"></div>
       <div class="syncline" id="syncStatus"></div>
     </div>
-    <button id="refreshBtn" class="refresh">REFRESH</button>
+    <div class="hside">
+      <button id="refreshBtn" class="refresh">REFRESH</button>
+      <button id="dayChip" class="daychip" type="button" hidden></button>
+    </div>
   </div>
 </header>
 
@@ -227,6 +238,7 @@
   </section>
   <p class="hint version">Pocket SAM version <span id="appVersion">2026-10-03 (v20)</span></p>
   <p class="hint version"><a href="#" id="dynLink">Dynamics test: off</a></p>
+  <p class="hint version"><a href="#" id="dayLink">Day times: off</a></p>
 </main>
 
 <dialog id="dlg">
@@ -567,7 +579,7 @@ function setComplete(rec) {
 }
 $("completeChk").addEventListener("change", () => { if (!loading) { dirty = true; updateStatus(); } });
 function selectCounty(c) { county = c; site = null; fill(null); dirty = false; refreshUi(); }
-function loadSite(s) { site = s; startVisit(); fill((db[county] || {})[s]); dirty = false; refreshUi(); autoHere(); }
+function loadSite(s) { site = s; startVisit(); dayNudge(); fill((db[county] || {})[s]); dirty = false; refreshUi(); autoHere(); }
 async function persist() { await store.save(db); }
 
 /* ---------- Arrival / departure times ----------
@@ -1558,6 +1570,169 @@ $("dynLink").onclick = e => {
   dialog("Dynamics test", box, buttons);
 };
 showDyn();
+/* ---------- Day times (check in / lunch / check out), optional, this phone only ----------
+   A chip in the header: ▶ Check in → 🕘 7:00 · 4h20 → tap for Lunch / Out / Today.
+   Workday style: if no real lunch was taken, Out adds the usual meal (12:00-12:30) and moves Out 30 min later,
+   so In / Out (Meal) / In / Out match what goes into Workday. */
+const DAY_KEY = "pocketsam-days", DAYCFG_KEY = "pocketsam-daycfg";
+let days = lsGet(DAY_KEY, {});
+let dayCfg = Object.assign({ on: false, lunchAt: "12:00", lunchMin: 30, autoLunch: true }, lsGet(DAYCFG_KEY, {}));
+const hm2m = hm => { if (!hm) return null; const [h, m] = String(hm).split(":").map(Number); return isFinite(h) && isFinite(m) ? h * 60 + m : null; };
+const m2hm = m => String(Math.floor(m / 60) % 24).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
+const dur = m => m == null ? "--" : m >= 60 ? Math.floor(m / 60) + " h " + String(m % 60).padStart(2, "0") : m + " min";
+function saveDays() {
+  const cutoff = new Date(Date.now() - 60 * 864e5).toISOString().slice(0, 10);
+  for (const d of Object.keys(days)) if (d < cutoff) delete days[d];
+  lsSet(DAY_KEY, days);
+}
+// What goes into Workday for one day
+function workday(d) {
+  if (!d || !d.in) return null;
+  const inM = hm2m(d.in), outM = hm2m(d.out);
+  let ms = hm2m(d.ls), me = hm2m(d.le), added = false, repOut = outM;
+  if (ms == null || me == null) {
+    ms = me = null;
+    const la = hm2m(dayCfg.lunchAt), len = Number(dayCfg.lunchMin) || 30;
+    if (dayCfg.autoLunch && outM != null && la != null && inM < la && outM > la) { ms = la; me = la + len; repOut = outM + len; added = true; }
+  }
+  const total = repOut == null ? null : repOut - inM - (ms != null ? me - ms : 0);
+  return { inM, ms, me, outM, repOut, added, total };
+}
+function dayChipText() {
+  const d = days[today()];
+  if (!d || !d.in) return "▶ Check in";
+  if (d.out) { const w = workday(d); return "✓ Done · " + dur(w && w.total); }
+  if (d.ls && !d.le) return "☕ Lunch " + fmtTime(d.ls);
+  const now = hm2m(nowHM()), lunch = d.ls && d.le ? hm2m(d.le) - hm2m(d.ls) : 0;
+  return "🕘 " + fmtTime(d.in) + " · " + dur(Math.max(0, now - hm2m(d.in) - lunch));
+}
+function showDay() {
+  $("dayLink").textContent = dayCfg.on ? "Day times: ON" : "Day times: off";
+  const chip = $("dayChip"); chip.hidden = !dayCfg.on;
+  if (dayCfg.on) chip.textContent = dayChipText();
+}
+setInterval(() => { if (dayCfg.on) showDay(); }, 30000);
+// Ask for a time (prefilled), then do something with it
+function askTime(title, note, hm, fn, okText) {
+  const box = document.createElement("div");
+  if (note) { const p = document.createElement("p"); p.className = "hint"; p.textContent = note; box.append(p); }
+  const inp = document.createElement("input"); inp.type = "time"; inp.value = hm || nowHM(); box.append(inp);
+  dialog(title, box, [{ text: "Cancel" }, { text: okText || "OK", cls: "primary", fn: () => { if (!/^\d\d:\d\d$/.test(inp.value)) return false; fn(inp.value); } }]);
+}
+function checkIn(after) {
+  askTime("Check in", "Start of your day. Change the time if you started earlier.", nowHM(), v => {
+    (days[today()] ||= {}).in = v; saveDays(); showDay(); toast("Checked in " + fmtTime(v)); if (after) after();
+  }, "CHECK IN");
+}
+function dayMenu() {
+  const t = today(), d = days[t];
+  if (!d || !d.in) { checkIn(); return; }
+  const box = document.createElement("div"); box.className = "list";
+  const add = (text, fn, cls) => { const b = document.createElement("button"); b.textContent = text; if (cls) b.className = cls; b.onclick = () => { closeDlg(); setTimeout(fn, 0); }; box.append(b); };
+  if (!d.out) {
+    if (!d.ls) add("☕ Start lunch", () => askTime("Lunch", "Start of your real lunch break.", nowHM(), v => { d.ls = v; delete d.le; saveDays(); showDay(); toast("Lunch started " + fmtTime(v)); }));
+    else if (!d.le) add("▶ Back from lunch", () => askTime("Back from lunch", "", nowHM(), v => { d.le = v; saveDays(); showDay(); toast("Back " + fmtTime(v)); }));
+    add("■ Check out", () => {
+      const w = workday({ ...d, out: nowHM() });
+      const note = w && w.added ? `No lunch taken: adds meal ${fmtTime(m2hm(w.ms))}–${fmtTime(m2hm(w.me))}, so Workday Out is ${dayCfg.lunchMin} min after your real out time.` : "End of your day.";
+      askTime("Check out", note, nowHM(), v => { d.out = v; saveDays(); showDay(); const w2 = workday(d); toast("Workday Out " + fmtTime(m2hm(w2.repOut))); }, "CHECK OUT");
+    }, "danger");
+  }
+  add("📋 Today", () => showToday(t));
+  dialog("Day", box, [{ text: "Close" }]);
+}
+$("dayChip").onclick = dayMenu;
+// The Today page: Workday punches on top, the site-by-site timeline below
+function showToday(date) {
+  const d = days[date] || {}, w = workday(d);
+  const box = document.createElement("div");
+  const pick = document.createElement("input"); pick.type = "date"; pick.value = date;
+  pick.onchange = () => { if (pick.value) { closeDlg(); setTimeout(() => showToday(pick.value), 0); } };
+  box.append(pick);
+  const h = document.createElement("h3"); h.textContent = "WORKDAY"; h.style.margin = "12px 0 6px"; box.append(h);
+  const grid = document.createElement("div"); grid.className = "wd";
+  const row = (label, m, key, note) => {
+    const a = document.createElement("div"); a.textContent = label + (note ? " " + note : "");
+    const b = document.createElement("div"); b.className = "t"; b.textContent = m == null ? "--" : fmtTime(m2hm(m));
+    const c = document.createElement("button"); c.textContent = "✎"; c.setAttribute("aria-label", "Change " + label);
+    c.onclick = () => { closeDlg(); setTimeout(() => askTime(label, key === "out" ? "Your real out time. If lunch was added at the end, Workday Out is moved later for you." : "",
+      key === "out" ? (w && w.outM != null ? m2hm(w.outM) : "") : (m == null ? "" : m2hm(m)), v => {
+        const dd = (days[date] ||= {});
+        if ((key === "ls" || key === "le") && w && w.added) { dd.ls = m2hm(w.ms); dd.le = m2hm(w.me); }   // editing an added meal makes it a real one
+        dd[key] = v; saveDays(); showDay(); setTimeout(() => showToday(date), 0);
+      }), 0); };
+    grid.append(a, b, c);
+  };
+  row("In", w && w.inM, "in");
+  row("Out (Meal)", w && w.ms, "ls", w && w.added ? "(added)" : "");
+  row("In", w && w.me, "le", w && w.added ? "(added)" : "");
+  row("Out", w && w.repOut, "out", w && w.added && w.outM != null ? `(real ${fmtTime(m2hm(w.outM))})` : "");
+  const ta = document.createElement("div"); ta.textContent = "Total"; ta.style.fontWeight = "700";
+  const tb = document.createElement("div"); tb.className = "t"; tb.textContent = w && w.total != null ? dur(w.total) : "--";
+  grid.append(ta, tb, document.createElement("div"));
+  box.append(grid);
+  // Sites visited that day, from the Arrived / Left times
+  const stops = Object.entries(visits).filter(([k, v]) => k.split("\u0001")[2] === date && v.a)
+    .map(([k, v]) => ({ c: k.split("\u0001")[0], s: k.split("\u0001")[1], a: hm2m(v.a), l: hm2m(v.l) })).sort((x, y) => x.a - y.a);
+  const t = document.createElement("div"); t.className = "tl";
+  const line = (txt, cls) => { const e = document.createElement("div"); e.textContent = txt; if (cls) e.className = cls; t.append(e); };
+  let prev = w ? w.inM : null, onSite = 0, travel = 0;
+  if (w) line("▶ Check in  " + fmtTime(d.in));
+  for (const x of stops) {
+    if (prev != null && x.a >= prev) { line("🚗 travel " + dur(x.a - prev), "travel"); travel += x.a - prev; }
+    const m = x.l != null && x.l >= x.a ? x.l - x.a : null; if (m != null) onSite += m;
+    line(`📍 ${x.s} (${x.c})  ${fmtTime(m2hm(x.a))} – ${x.l != null ? fmtTime(m2hm(x.l)) : "--"}  ${m != null ? dur(m) : ""}`);
+    prev = x.l != null ? x.l : x.a;
+  }
+  if (d.ls && d.le) line(`☕ Lunch  ${fmtTime(d.ls)} – ${fmtTime(d.le)}  ${dur(hm2m(d.le) - hm2m(d.ls))}`);
+  if (w && w.outM != null) line("■ Check out  " + fmtTime(m2hm(w.outM)));
+  if (!stops.length && !w) line("Nothing recorded for this day.");
+  if (stops.length) line(`On site ${dur(onSite)} · Travel ${dur(travel)} · ${stops.length} site(s)`, "tot");
+  box.append(t);
+  const f = m => m == null ? "--" : fmtTime(m2hm(m));
+  const copyText = () => [`Workday ${date}`, `In ${f(w && w.inM)}`, `Out (Meal) ${f(w && w.ms)}`, `In ${f(w && w.me)}`, `Out ${f(w && w.repOut)}`,
+    `Total ${w && w.total != null ? dur(w.total) : "--"}`, "", ...[...t.children].map(e => e.textContent)].join("\n");
+  dialog("Today", box, [{ text: "Copy", fn: () => {
+    const txt = copyText();
+    (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(() => toast("Copied"), () => toast("Couldn't copy on this phone"));
+    return false;
+  } }, { text: "Close", cls: "primary" }]);
+}
+// Opening a site before checking in: offer it once a day
+let nudged = "";
+function dayNudge() {
+  if (!dayCfg.on || nudged === today()) return;
+  const d = days[today()];
+  if (d && d.in) return;
+  nudged = today();
+  setTimeout(() => confirmBox("You haven't checked in today. Check in now?", "CHECK IN", () => { setTimeout(() => checkIn(), 0); }), 300);
+}
+// Forgot to check out on an earlier day: ask once when the app opens
+function dayForgot() {
+  if (!dayCfg.on) return;
+  const past = Object.keys(days).filter(x => x < today() && days[x].in && !days[x].out).sort().pop();
+  if (!past) return;
+  askTime("Forgot to check out?", `You checked in on ${fmtDate(past)} but never checked out. What time did you finish?`, "15:00", v => {
+    days[past].out = v; saveDays(); toast("Saved " + fmtDate(past));
+  });
+}
+$("dayLink").onclick = e => {
+  e.preventDefault();
+  const box = document.createElement("div");
+  box.innerHTML = `<p>Check in, lunch and check out from the header, and a Today page that matches Workday. Times stay on this phone.</p>
+    <div class="row"><label for="dcAt">Usual lunch time</label><input id="dcAt" type="time"></div>
+    <div class="row"><label for="dcMin">Lunch length (min)</label><input id="dcMin" type="text" inputmode="numeric"></div>
+    <label class="complete-lbl" style="margin:8px 0"><input id="dcAuto" type="checkbox" style="width:22px;height:22px;flex:none"> No lunch taken: add it and move Out later</label>`;
+  box.querySelector("#dcAt").value = dayCfg.lunchAt; box.querySelector("#dcMin").value = dayCfg.lunchMin; box.querySelector("#dcAuto").checked = dayCfg.autoLunch;
+  const save = on => {
+    dayCfg = { on, lunchAt: box.querySelector("#dcAt").value || "12:00", lunchMin: Math.max(0, parseInt(box.querySelector("#dcMin").value, 10) || 30), autoLunch: box.querySelector("#dcAuto").checked };
+    lsSet(DAYCFG_KEY, dayCfg); showDay(); toast(on ? "Day times ON" : "Day times off");
+  };
+  dialog("Day times", box, dayCfg.on ? [{ text: "Turn off", cls: "danger", fn: () => save(false) }, { text: "Cancel" }, { text: "SAVE", cls: "primary", fn: () => save(true) }]
+    : [{ text: "Cancel" }, { text: "TURN ON", cls: "primary", fn: () => save(true) }]);
+};
+showDay();
+
 window.addEventListener("online", () => { if (syncCfg) syncNow(); });
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && syncCfg && Date.now() - (syncCfg.last || 0) > 60000) syncNow();
@@ -1569,6 +1744,7 @@ document.addEventListener("visibilitychange", () => {
   db = await store.load();
   compute(); refreshUi(); showSync();
   if (syncCfg) syncNow();
+  dayForgot();
   if ("serviceWorker" in navigator && location.protocol.startsWith("http")) navigator.serviceWorker.register("sw.js").catch(() => {});
 })();
 </script>
