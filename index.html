@@ -83,13 +83,16 @@
   .list button.add { color: var(--brand); font-weight: 700; }
   .list button.done { color: var(--ok); font-weight: 700; border-color: var(--ok); }
   .list button .count { float: right; color: var(--muted); font-weight: 400; font-size: 14px; }
-  .complete { display: flex; align-items: center; gap: 10px; margin: 10px 0 0; padding: 8px 8px 8px 14px;
+  .complete { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 10px 0 0; padding: 8px 8px 8px 14px;
     background: var(--card); border: 1px solid var(--line); border-radius: 12px; font-weight: 700; }
   .complete-lbl { display: flex; align-items: center; gap: 10px; cursor: pointer; }
   .complete button.quick { margin-left: auto; padding: 8px 16px; }
   .complete .when + button.quick { margin-left: 0; }
   .complete input { width: 24px; height: 24px; accent-color: var(--ok); margin: 0; }
   .complete .when { font-weight: 400; color: var(--muted); font-size: 13px; margin-left: auto; text-align: right; }
+  .complete .crow { flex-basis: 100%; display: flex; align-items: center; gap: 10px; }
+  .complete .times { flex-basis: 100%; display: flex; gap: 6px; flex-wrap: wrap; font-weight: 400; font-size: 14px; color: var(--muted); }
+  .complete .times button { padding: 4px 10px; font-size: 14px; font-weight: 600; }
   .kv { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; font-size: 15px; }
   .kv div:nth-child(odd) { color: var(--muted); }
   .version { text-align: center; margin-top: 16px; }
@@ -135,9 +138,12 @@
     <button id="locSetBtn">SET</button>
   </div>
   <div class="complete">
+    <div class="times" id="timesRow" hidden>🕘 Arrived <button id="arrBtn" type="button">--</button> Left <button id="leftBtn" type="button">--</button></div>
+    <div class="crow">
     <label class="complete-lbl" for="completeChk"><input type="checkbox" id="completeChk"> Complete</label>
     <span class="when" id="completeWhen"></span>
     <button class="primary quick" id="quickSaveBtn">CONFIRM</button>
+    </div>
   </div>
 
   <section class="card" id="chemCard">
@@ -422,7 +428,7 @@ function refreshUi() {
   const on = !!(county && site);
   ["historyBtn", "saveBtn", "quickSaveBtn"].forEach(id => $(id).disabled = !on);
   $("historyBtn").disabled = !h.length;
-  updateStatus(); updateLocUi(); applyEquip();
+  updateStatus(); updateLocUi(); applyEquip(); updateTimes();
 }
 function updateStatus() {
   $("status").textContent = !county ? "Pick or add a county / city to start."
@@ -487,8 +493,72 @@ function setComplete(rec) {
 }
 $("completeChk").addEventListener("change", () => { if (!loading) { dirty = true; updateStatus(); } });
 function selectCounty(c) { county = c; site = null; fill(null); dirty = false; refreshUi(); }
-function loadSite(s) { site = s; fill((db[county] || {})[s]); dirty = false; refreshUi(); autoHere(); }
+function loadSite(s) { site = s; startVisit(); fill((db[county] || {})[s]); dirty = false; refreshUi(); autoHere(); }
 async function persist() { await store.save(db); }
+
+/* ---------- Arrival / departure times ----------
+   Opening a site = arrived. SAVE or CONFIRM = left (the last one while the site is still open counts).
+   Opening the site again later in the day keeps the times already recorded. Tap a time to fix it.
+   Times stay on this phone (each tech's own), go out with the reading to the sheet, and show in HISTORY / CSV. */
+const VISIT_KEY = "pocketsam-visits";
+let visits = (() => { try { return JSON.parse(localStorage.getItem(VISIT_KEY) || "{}") || {}; } catch (e) { return {}; } })();
+let liveVisit = null;                                           // the visit that's open right now (site opened, not left yet)
+const nowHM = () => { const d = new Date(); return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"); };
+const fmtTime = hm => { const [h, m] = String(hm).split(":").map(Number); if (!isFinite(h) || !isFinite(m)) return hm; return new Date(2000, 0, 1, h, m).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); };
+const visitMinutes = (a, l) => { if (!a || !l) return null; const t = x => { const [h, m] = x.split(":").map(Number); return h * 60 + m; }; const d = t(l) - t(a); return d >= 0 ? d : null; };
+const visitKey = (c, s, d) => [c, s, d].join("\u0001");
+function saveVisits() {
+  const cutoff = new Date(Date.now() - 60 * 864e5).toISOString().slice(0, 10);   // keep 60 days
+  for (const k of Object.keys(visits)) if (k.split("\u0001")[2] < cutoff) delete visits[k];
+  lsSet(VISIT_KEY, visits);
+}
+function startVisit() {
+  liveVisit = null;
+  if (!county || !site) return;
+  const k = visitKey(county, site, today()), v = visits[k];
+  if (!v) { visits[k] = { a: nowHM() }; saveVisits(); liveVisit = k; }
+  else if (!v.l) liveVisit = k;                                 // came back before leaving: same visit
+}
+function endVisit(date) {
+  const k = visitKey(county, site, date);
+  if (date === today()) {
+    const v = (visits[k] ||= {});
+    if (!v.a) v.a = nowHM();
+    if (liveVisit === k || !v.l) v.l = nowHM();
+    saveVisits();
+  }
+  return visits[k] || {};
+}
+function updateTimes() {
+  const row = $("timesRow");
+  if (!county || !site) { row.hidden = true; return; }
+  const date = $("readingDate").value || today();
+  const v = visits[visitKey(county, site, date)] || (siteRec() && (siteRec()[HIST] || []).find(e => e.date === date) ? (() => { const e = siteRec()[HIST].find(e => e.date === date); return { a: e.arrived, l: e.left }; })() : {});
+  row.hidden = false;
+  $("arrBtn").textContent = (v.a ? fmtTime(v.a) : "--") + " ✎";
+  $("leftBtn").textContent = (v.l ? fmtTime(v.l) : "--") + " ✎";
+}
+function editTime(which) {
+  if (!county || !site) return;
+  const date = $("readingDate").value || today(), k = visitKey(county, site, date);
+  const v = visits[k] || {};
+  const inp = document.createElement("input"); inp.type = "time"; inp.value = v[which] || nowHM();
+  const box = document.createElement("div"); box.append(inp);
+  const ok = async () => {
+    if (!/^\d\d:\d\d$/.test(inp.value)) return false;
+    (visits[k] ||= {})[which] = inp.value; saveVisits();
+    if (k === liveVisit && which === "l") liveVisit = null;        // a time you typed in isn't overwritten by the next tap
+    const r = siteRec(), e = r && (r[HIST] || []).find(x => x.date === date);
+    if (e) { e[which === "a" ? "arrived" : "left"] = inp.value; await persist(); queue({ op: "put", c: county, s: site }); }
+    updateTimes(); toast((which === "a" ? "Arrived " : "Left ") + fmtTime(inp.value));
+  };
+  const clear = () => { if (visits[k]) { delete visits[k][which]; saveVisits(); } updateTimes(); };
+  dialog(which === "a" ? `Arrived at ${site}` : `Left ${site}`, box, [{ text: "Clear", cls: "danger", fn: clear }, { text: "Cancel" }, { text: "OK", cls: "primary", fn: ok }]);
+  setTimeout(() => inp.focus(), 50);
+}
+$("arrBtn").onclick = () => editTime("a");
+$("leftBtn").onclick = () => editTime("l");
+$("readingDate").addEventListener("change", updateTimes);
 
 /* ---------- Equipment type ----------
    Each site has one type, and only that section shows. "All" shows everything (for sites that mix types).
@@ -563,7 +633,7 @@ $("siteBtn").onclick = () => {
   guardUnsaved(() => listDialog(`Sites in ${county}`, byDistance(sites(county)), "+ Add new site…", loadSite,
     () => askName("New site name", n => {
       if (db[county][n]) { loadSite(n); return; }
-      site = n; fill(null); dirty = true; refreshUi(); pickEquip(true);
+      site = n; startVisit(); fill(null); dirty = true; refreshUi(); pickEquip(true);
     }), s => ({ done: isDone(county, s), count: siteDist(s), distFor: s })));
   // Not sure where you are yet (common on iPhone): offer a button to get distances
   if (!here && sites(county).some(x => parseLoc((db[county][x] || {}).loc))) {
@@ -603,18 +673,20 @@ $("saveBtn").onclick = async () => {
   const date = $("readingDate").value || today();
   const saveId = newId();
   const rec = writeCurrent();
+  const times = endVisit(date);
   const month = date.slice(0, 7);
   if ($("completeChk").checked) { rec.completeMonth = month; rec.completedOn = date; }
   else if (rec.completeMonth === month) { delete rec.completeMonth; delete rec.completedOn; }
   // Only add a dated reading when some numbers or notes are filled in; a blank save just marks Complete.
   if (ALL.some(f => rec[f.key])) {
     const entry = { id: saveId, date, savedAt: new Date().toISOString(), complete: $("completeChk").checked };
+    if (times.a) entry.arrived = times.a; if (times.l) entry.left = times.l;
     [...ALL.map(f => f.key), "chemGpd", "bioGalPerDay", "tankDaysLeft", "cfm", "h2sRemoval", "equip"].forEach(key => { if (rec[key] != null && rec[key] !== "") entry[key] = rec[key]; });
     const h = (rec[HIST] || []).filter(e => e.date !== date);
     h.push(entry); h.sort((a, b) => a.date.localeCompare(b.date)); rec[HIST] = h;
   }
   await persist(); dirty = false; setComplete(rec); refreshUi();
-  queue({ op: "put", c: county, s: site, log: { ...logFor(rec, date), id: saveId } });
+  queue({ op: "put", c: county, s: site, log: { ...logFor(rec, date, times), id: saveId } });
   toast(`Saved ${site} (${fmtDate(date)})` + (rec.completeMonth === thisMonth() ? " · Complete" : ""));
   if (dynUrl && ALL.some(f => rec[f.key]) && isTestCounty(county)) sendDyn(dynReading(rec, county, site, date, saveId, $("completeChk").checked));
 };
@@ -625,10 +697,13 @@ $("quickSaveBtn").onclick = async () => {
   if (ALL.some(f => inputs[f.key].value.trim())) { $("saveBtn").onclick(); return; }
   const date = $("readingDate").value || today(), month = date.slice(0, 7);
   const rec = ((db[county] ||= {})[site] ||= {});
+  const times = endVisit(date);
+  const he = (rec[HIST] || []).find(e => e.date === date);            // a reading already saved today: keep its times current
+  if (he) { if (times.a) he.arrived = times.a; if (times.l) he.left = times.l; }
   if ($("completeChk").checked) { rec.completeMonth = month; rec.completedOn = date; }
   else if (rec.completeMonth === month) { delete rec.completeMonth; delete rec.completedOn; }
   await persist(); dirty = false; setComplete(rec); refreshUi();
-  queue({ op: "put", c: county, s: site, log: { ...logFor(rec, date), id: newId() } });
+  queue({ op: "put", c: county, s: site, log: { ...logFor(rec, date, times), id: newId() } });
   toast(rec.completeMonth === thisMonth() ? `${site} marked Complete` : `${site} not marked complete`);
 };
 
@@ -671,6 +746,10 @@ function showReading(e) {
     else if (f.key === "loc") { if (e.loc) add(f.label, locText(e.loc)); }
     else if (f.key === "treatedBy") { if (e.treatedBy) add(f.label, linkName(e.treatedBy)); }
     else if (!f.key.startsWith("adj") || e.curve) add(f.label, e[f.key]); });
+  if (e.arrived || e.left) {
+    add("Arrived", e.arrived ? fmtTime(e.arrived) : ""); add("Left", e.left ? fmtTime(e.left) : "");
+    const m = visitMinutes(e.arrived, e.left); if (m != null) add("On site", m + " min");
+  }
   add("CHEM FEED GPD", c.gpd == null ? "" : c.gpd.toFixed(2));
   add("Nutrient feed gal/day", c.bioGpd == null ? "" : c.bioGpd.toFixed(2));
   add("Tank empty in (days)", c.days == null ? "" : c.days.toFixed(1));
@@ -1132,7 +1211,7 @@ $("importFile").onchange = async (ev) => {
 const CSV_SKIP = new Set(["curve", ADJ_GLOBAL.key, ...ADJ_DAYS.map(f => f.key), "loc"]);
 function csvRows(f) {
   // Column list: each entry is [heading, value for one reading]. Chem feed GPD sits right after the pump boxes.
-  const COLS = [];
+  const COLS = [["Arrived", (e) => e.arrived ? fmtTime(e.arrived) : ""], ["Left", (e) => e.left ? fmtTime(e.left) : ""]];
   ALL.filter(x => !CSV_SKIP.has(x.key)).forEach(x => {
     COLS.push([x.label, x.key === "treatedBy" ? (e) => linkName(e.treatedBy) : (e) => e[x.key]]);
     if (x.key === "p2Hrs") COLS.push(["Chem feed GPD", (e, k) => k.gpd == null ? "" : k.gpd.toFixed(2)]);
@@ -1234,17 +1313,18 @@ let syncing = false, syncAgain = false, askedAgain = false;
 
 // Readings tab column order: original columns first, newer fields added at the end so old rows stay lined up.
 const LOG_KEYS = ["p1Rate", "p1Hrs", "p2Rate", "p2Hrs", "chemInfo", "tankGal", "jugs", "bioGph", "speed", "stroke", "onSec", "offMin", "bioInfo"];
-function logFor(rec, date) {
+function logFor(rec, date, times) {
   const k = calc(rec), lab = Object.fromEntries(ALL.map(f => [f.key, f.label]));
   const AIR = ["ductDia", "fpm"];
   const EXTRA = ["waterGpm", ...SAMPLE.map(f => f.key), "chemName", "bioSystem", "h2sIn", "h2sMid", "h2sOut"];   // added later, in the order they were added
-  const TAIL = ["vfdHz", "curve", ADJ_GLOBAL.key, ...ADJ_DAYS.map(f => f.key), "loc", "treatedBy"];                            // added after "H2S removal %": always append new ones HERE
+  const TAIL = ["vfdHz", "curve", ADJ_GLOBAL.key, ...ADJ_DAYS.map(f => f.key), "loc", "treatedBy"];                            // added after "H2S removal %" (then Arrived / Left at the very end: add any newer columns after Left)
   const later = [...EXTRA, ...ALL.map(f => f.key).filter(x => !LOG_KEYS.includes(x) && !AIR.includes(x) && !EXTRA.includes(x) && !TAIL.includes(x))];
   const val = x => x === "curve" ? curveSummary(rec.curve) : x === "loc" ? locText(rec.loc) : x === "treatedBy" ? linkName(rec.treatedBy) : (rec[x] || "");
   return { date, complete: rec.completeMonth === date.slice(0, 7),
-    cols: [...LOG_KEYS.map(x => lab[x]), "Chem feed GPD", "Nutrient feed gal/day", "Tank empty in days", ...AIR.map(x => lab[x]), "Airflow CFM", ...later.map(x => lab[x]), "H2S removal %", ...TAIL.map(x => lab[x])],
+    cols: [...LOG_KEYS.map(x => lab[x]), "Chem feed GPD", "Nutrient feed gal/day", "Tank empty in days", ...AIR.map(x => lab[x]), "Airflow CFM", ...later.map(x => lab[x]), "H2S removal %", ...TAIL.map(x => lab[x]), "Arrived", "Left"],
     vals: [...LOG_KEYS.map(val), k.gpd == null ? "" : k.gpd.toFixed(2), k.bioGpd == null ? "" : k.bioGpd.toFixed(2), k.days == null ? "" : k.days.toFixed(1),
-      ...AIR.map(val), k.cfm == null ? "" : String(Math.round(k.cfm)), ...later.map(val), k.removal == null ? "" : k.removal.toFixed(1), ...TAIL.map(val)] };
+      ...AIR.map(val), k.cfm == null ? "" : String(Math.round(k.cfm)), ...later.map(val), k.removal == null ? "" : k.removal.toFixed(1), ...TAIL.map(val),
+      (times && times.a) || "", (times && times.l) || ""] };
 }
 function queue(op, noSend) {
   if (!syncCfg) return;                                  // not connected: nothing to send
