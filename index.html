@@ -1765,9 +1765,12 @@ function setupSync(problem) {
   const buttons = [{ text: "Cancel" }, { text: "CONNECT", cls: "primary", fn: connect }];
   if (syncCfg) buttons.unshift({ text: "Turn off sync", cls: "danger", fn: () => { syncCfg = null; pending = []; lsSet(SYNC_KEY, null); lsSet(QUEUE_KEY, []); showSync(); toast("Sync turned off on this device"); } });
   dialog(problem === "Wrong password" ? "New password needed" : problem === "Bad link" ? "New link needed" : "Connect to the shared sheet", box, buttons);
-  if (syncCfg) box.querySelector("#syncUrl").value = syncCfg.url;
+  if (syncCfg) { box.querySelector("#syncUrl").value = syncCfg.url; if (!problem) box.querySelector("#syncPass").value = syncCfg.pass; }
 }
 $("refreshBtn").onclick = () => syncNow(true);
+// Tap the "Synced …" line to see or change the sync link and password
+$("syncStatus").onclick = () => { if (syncCfg) setupSync(); };
+$("syncStatus").style.cursor = "pointer";
 
 /* ---------- Dynamics test (optional, this phone only) ----------
    If a test link is set, each SAVE also sends that reading to a Power Automate flow.
