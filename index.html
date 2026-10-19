@@ -259,6 +259,7 @@ const CHEM = [
   { key: "p2Rate", label: "Pump2 rate mL/min", hint: "Pump2 mL/min", num: true },
   { key: "p2Hrs",  label: "Pump2 timer hrs/day", hint: "blank = 24", num: true },
 ];
+const CHEM_TANK = { key: "chemTank", label: "Chem tank level (gal)", col: "Chem tank gal", hint: "gal", num: true };
 const CHEM_NAME = { key: "chemName", label: "Chemical", hint: "chemical name", num: false };
 const BIO_SYSTEM = { key: "bioSystem", label: "System type", hint: "Biofilter", num: false };
 const CHEM_INFO = { key: "chemInfo", label: "Chem feed info", hint: "Pump type/size/brand, tank level", num: false };
@@ -334,7 +335,7 @@ const CARB_INFO = { key: "carbInfo", label: "Carbon info", hint: "e.g. vessel si
 const CARB_PORTS = ["cbP1", "cbP2", "cbP3"];
 const SCRUB_KEYS = [SCRUB_SYSTEM, ...SCRUB, SCRUB_INFO].map(f => f.key), CARB_KEYS = [CARB_SYSTEM, ...CARB, CARB_INFO].map(f => f.key);
 const colOf = f => f.col || f.label;
-const ALL = [CHEM_NAME, ...CHEM, CURVE, ADJ_GLOBAL, ...ADJ_DAYS, CHEM_INFO, ...SAMPLE, TREATED, BIO_SYSTEM, ...BIO, BIO_INFO, LOC,
+const ALL = [CHEM_NAME, ...CHEM, CHEM_TANK, CURVE, ADJ_GLOBAL, ...ADJ_DAYS, CHEM_INFO, ...SAMPLE, TREATED, BIO_SYSTEM, ...BIO, BIO_INFO, LOC,
   SCRUB_SYSTEM, ...SCRUB, SCRUB_INFO, CARB_SYSTEM, ...CARB, CARB_INFO];
 const HIST = "_history";   // per-site list of dated readings
 
@@ -398,7 +399,7 @@ inputs.chemName = $("f_chemName");
 inputs.chemName.addEventListener("input", () => { if (!loading) { dirty = true; updateStatus(); } });
 inputs.bioSystem = $("f_bioSystem");
 inputs.bioSystem.addEventListener("input", () => { if (!loading) { dirty = true; updateStatus(); } });
-CHEM.forEach(f => addField($("chemFields"), f)); addField($("chemInfo"), CHEM_INFO);
+CHEM.forEach(f => addField($("chemFields"), f)); addField($("chemFields"), CHEM_TANK); addField($("chemInfo"), CHEM_INFO);
 inputs.curve = document.createElement("input"); inputs.curve.type = "hidden"; $("curveBox").append(inputs.curve);
 inputs.loc = document.createElement("input"); inputs.loc.type = "hidden"; $("locBar").append(inputs.loc);
 addField($("adjGlobalRow"), ADJ_GLOBAL);
@@ -485,6 +486,8 @@ function compute() {
     const pd = c.curve.perDay, lo = Math.min(...pd), hi = Math.max(...pd);
     if (hi - lo > 0.005) chem += `\nLowest ${DAYS[pd.indexOf(lo)].slice(0, 3)} ${lo.toFixed(2)} · Highest ${DAYS[pd.indexOf(hi)].slice(0, 3)} ${hi.toFixed(2)}`;
   }
+  const ct = num(currentRecord().chemTank);
+  if (ct != null && c.gpd != null && c.gpd > 0) chem += "\nTank empty in about " + (ct / c.gpd).toFixed(1) + " days";
   $("chemResult").textContent = chem;
   updateCurveUi(); updateLocUi(); updateLinkUi();
   $("bioResult").textContent = (c.bioGpd == null ? "Nutrient feed: enter pump GPH, speed % and stroke %"
@@ -674,7 +677,7 @@ function guessEquip(rec) {
   if (!rec) return [];
   const has = keys => keys.some(k => String(rec[k] ?? "").trim());
   const found = [];
-  if (has(["chemName", ...CHEM.map(f => f.key), "curve", "chemInfo"])) found.push("chem");
+  if (has(["chemName", ...CHEM.map(f => f.key), "chemTank", "curve", "chemInfo"])) found.push("chem");
   if (has([...SAMPLE.map(f => f.key), "treatedBy"])) found.push("sample");
   if (has(["bioSystem", ...BIO.map(f => f.key), "bioInfo"])) found.push("bio");
   if (has(SCRUB_KEYS)) found.push("scrub");
@@ -1428,15 +1431,16 @@ function logFor(rec, date, times) {
   const AIR = ["ductDia", "fpm"];
   const EXTRA = ["waterGpm", ...SAMPLE.map(f => f.key), "chemName", "bioSystem", "h2sIn", "h2sMid", "h2sOut"];   // added later, in the order they were added
   const TAIL = ["vfdHz", "curve", ADJ_GLOBAL.key, ...ADJ_DAYS.map(f => f.key), "loc", "treatedBy"];                            // added after "H2S removal %" (then Arrived / Left at the very end: add any newer columns after Left)
-  const later = [...EXTRA, ...ALL.map(f => f.key).filter(x => !LOG_KEYS.includes(x) && !AIR.includes(x) && !EXTRA.includes(x) && !TAIL.includes(x) && !NEWER.includes(x) && !CARB_PORTS.includes(x))];
+  const later = [...EXTRA, ...ALL.map(f => f.key).filter(x => !LOG_KEYS.includes(x) && !AIR.includes(x) && !EXTRA.includes(x) && !TAIL.includes(x) && !NEWER.includes(x) && !CARB_PORTS.includes(x) && x !== "chemTank")];
   const val = x => x === "curve" ? curveSummary(rec.curve) : x === "loc" ? locText(rec.loc) : x === "treatedBy" ? linkName(rec.treatedBy) : (rec[x] || "");
   return { date, complete: rec.completeMonth === date.slice(0, 7),
     cols: [...LOG_KEYS.map(x => lab[x]), "Chem feed GPD", "Nutrient feed gal/day", "Tank empty in days", ...AIR.map(x => lab[x]), "Airflow CFM", ...later.map(x => lab[x]), "H2S removal %", ...TAIL.map(x => lab[x]), "Arrived", "Left",
-      ...NEWER.map(x => lab[x]), "Scrubber CFM", "Scrubber H2S removal %", "Carbon CFM", "Carbon H2S removal %", ...CARB_PORTS.map(x => lab[x])],
+      ...NEWER.map(x => lab[x]), "Scrubber CFM", "Scrubber H2S removal %", "Carbon CFM", "Carbon H2S removal %", ...CARB_PORTS.map(x => lab[x]), lab.chemTank, "Chem tank empty in days"],
     vals: [...LOG_KEYS.map(val), k.gpd == null ? "" : k.gpd.toFixed(2), k.bioGpd == null ? "" : k.bioGpd.toFixed(2), k.days == null ? "" : k.days.toFixed(1),
       ...AIR.map(val), k.cfm == null ? "" : String(Math.round(k.cfm)), ...later.map(val), k.removal == null ? "" : k.removal.toFixed(1), ...TAIL.map(val),
       (times && times.a) || "", (times && times.l) || "",
-      ...NEWER.map(val), r1(sa.cfm, 0), r1(sa.removal, 1), r1(ca.cfm, 0), r1(ca.removal, 1), ...CARB_PORTS.map(val)] };
+      ...NEWER.map(val), r1(sa.cfm, 0), r1(sa.removal, 1), r1(ca.cfm, 0), r1(ca.removal, 1), ...CARB_PORTS.map(val),
+      val("chemTank"), num(rec.chemTank) != null && k.gpd > 0 ? (num(rec.chemTank) / k.gpd).toFixed(1) : ""] };
 }
 function queue(op, noSend) {
   if (!syncCfg) return;                                  // not connected: nothing to send
