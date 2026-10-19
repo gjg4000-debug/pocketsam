@@ -42,6 +42,23 @@
   header button.daychip { background: transparent; color: var(--brand-ink); border: 1.5px solid var(--brand-ink); padding: 6px 10px; font-size: 14px; font-weight: 700; white-space: nowrap; }
   .wd { display: grid; grid-template-columns: 1fr auto auto; gap: 6px 10px; align-items: center; font-size: 16px; }
   .wd .t { font-weight: 700; text-align: right; }
+  .hrswrap { display: flex; gap: 6px; align-items: center; }
+  .hrswrap input { flex: 1; min-width: 0; }
+  button.tbtn { padding: 8px 10px; font-size: 18px; line-height: 1; }
+  button.tbtn.on { border-color: var(--brand); background: var(--brand); color: var(--brand-ink); }
+  .tnote { margin: -2px 0 4px; text-align: right; }
+  .tmr .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .tmr .tabs button { padding: 6px 10px; font-size: 14px; }
+  .tmr .tsum { font-weight: 700; margin: 10px 0 0; }
+  .pins { touch-action: none; user-select: none; -webkit-user-select: none; display: grid; gap: 6px; margin: 6px 0; }
+  .prow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .phour span { display: block; font-size: 11px; color: var(--muted); }
+  .pgrp { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; }
+  .pin { height: 26px; border: 1.5px solid var(--line); border-radius: 4px; background: var(--card); cursor: pointer; }
+  .pin.on { background: var(--brand); border-color: var(--brand); }
+  .onoff { display: flex; align-items: center; gap: 6px; margin: 6px 0; font-size: 14px; font-weight: 700; }
+  .onoff input { flex: 1; min-width: 0; padding: 6px; }
+  .onoff button { padding: 4px 8px; }
   button.soon { opacity: .5; }
   .wd button { padding: 4px 10px; font-size: 14px; }
   .tl { font-size: 15px; line-height: 1.5; margin-top: 10px; }
@@ -259,6 +276,8 @@ const CHEM = [
   { key: "p2Rate", label: "Pump2 rate mL/min", hint: "Pump2 mL/min", num: true },
   { key: "p2Hrs",  label: "Pump2 timer hrs/day", hint: "blank = 24", num: true },
 ];
+const P1_TIMER = { key: "p1Timer", label: "Pump1 timer", hint: "", num: false };
+const P2_TIMER = { key: "p2Timer", label: "Pump2 timer", hint: "", num: false };
 const CHEM_TANK = { key: "chemTank", label: "Chem tank level (gal)", col: "Chem tank gal", hint: "gal", num: true };
 const CHEM_NAME = { key: "chemName", label: "Chemical", hint: "chemical name", num: false };
 const BIO_SYSTEM = { key: "bioSystem", label: "System type", hint: "Biofilter", num: false };
@@ -335,7 +354,7 @@ const CARB_INFO = { key: "carbInfo", label: "Carbon info", hint: "e.g. vessel si
 const CARB_PORTS = ["cbP1", "cbP2", "cbP3"];
 const SCRUB_KEYS = [SCRUB_SYSTEM, ...SCRUB, SCRUB_INFO].map(f => f.key), CARB_KEYS = [CARB_SYSTEM, ...CARB, CARB_INFO].map(f => f.key);
 const colOf = f => f.col || f.label;
-const ALL = [CHEM_NAME, ...CHEM, CHEM_TANK, CURVE, ADJ_GLOBAL, ...ADJ_DAYS, CHEM_INFO, ...SAMPLE, TREATED, BIO_SYSTEM, ...BIO, BIO_INFO, LOC,
+const ALL = [CHEM_NAME, ...CHEM, P1_TIMER, P2_TIMER, CHEM_TANK, CURVE, ADJ_GLOBAL, ...ADJ_DAYS, CHEM_INFO, ...SAMPLE, TREATED, BIO_SYSTEM, ...BIO, BIO_INFO, LOC,
   SCRUB_SYSTEM, ...SCRUB, SCRUB_INFO, CARB_SYSTEM, ...CARB, CARB_INFO];
 const HIST = "_history";   // per-site list of dated readings
 
@@ -399,7 +418,16 @@ inputs.chemName = $("f_chemName");
 inputs.chemName.addEventListener("input", () => { if (!loading) { dirty = true; updateStatus(); } });
 inputs.bioSystem = $("f_bioSystem");
 inputs.bioSystem.addEventListener("input", () => { if (!loading) { dirty = true; updateStatus(); } });
-CHEM.forEach(f => addField($("chemFields"), f)); addField($("chemFields"), CHEM_TANK); addField($("chemInfo"), CHEM_INFO);
+CHEM.forEach(f => addField($("chemFields"), f)); addField($("chemFields"), CHEM_TANK);
+for (const n of [1, 2]) {
+  const hrs = inputs[`p${n}Hrs`], row = hrs.parentElement;
+  const wrap = document.createElement("div"); wrap.className = "hrswrap"; hrs.replaceWith(wrap);
+  const btn = document.createElement("button"); btn.type = "button"; btn.id = `timerBtn${n}`; btn.className = "tbtn"; btn.textContent = "⏱"; btn.title = `Set pump ${n} timer`;
+  btn.onclick = () => openTimer(n);
+  wrap.append(hrs, btn);
+  const note = document.createElement("div"); note.className = "hint tnote"; note.id = `timerNote${n}`; note.hidden = true; row.after(note);
+  const t = document.createElement("input"); t.type = "hidden"; inputs[`p${n}Timer`] = t; wrap.append(t);
+} addField($("chemInfo"), CHEM_INFO);
 inputs.curve = document.createElement("input"); inputs.curve.type = "hidden"; $("curveBox").append(inputs.curve);
 inputs.loc = document.createElement("input"); inputs.loc.type = "hidden"; $("locBar").append(inputs.loc);
 addField($("adjGlobalRow"), ADJ_GLOBAL);
@@ -498,6 +526,7 @@ function compute() {
     if (since > 0) { const est = Math.max(0, ct - c.gpd * since); chem += "\nEstimated tank today: about " + Math.round(est) + " gal" + (est === 0 ? " (probably empty!)" : "") + ` (${since} day${since > 1 ? "s" : ""} since it read ${Math.round(ct)} gal)`; }
   }
   $("chemResult").textContent = chem;
+  updateTimerUi();
   updateCurveUi(); updateLocUi(); updateLinkUi();
   $("bioResult").textContent = (c.bioGpd == null ? "Nutrient feed: enter pump GPH, speed % and stroke %"
     : "Nutrient feed: " + c.bioGpd.toFixed(2) + " gal/day"
@@ -594,6 +623,137 @@ $("completeChk").addEventListener("change", () => { if (!loading) { dirty = true
 function selectCounty(c) { county = c; site = null; fill(null); dirty = false; refreshUi(); }
 function loadSite(s) { site = s; dirty = false; startVisit(); dayNudge(); fill((db[county] || {})[s]); dirty = false; refreshUi(); autoHere(); }
 async function persist() { await store.save(db); }
+
+/* ---------- Pump timers (⏱ next to each pump's hrs/day) ----------
+   Stored on the reading as text: "pins:<96 x 0/1>" (15-min pins from 12 AM), "cycle:<on sec>,<off min>",
+   "onoff:HH:MM-HH:MM;…", "hand" or "off". DONE fills the pump's hrs/day box, so the GPD follows. */
+const TIMER_TYPES = [["pins", "96-pin"], ["cycle", "Cycle"], ["onoff", "On / Off times"], ["hand", "Hand"], ["off", "Off"]];
+const pinTime = i => fmtTime(m2hmT(i * 15));
+const m2hmT = m => String(Math.floor(m / 60) % 24).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
+const hmT = hm => { const [h, m] = String(hm || "").split(":").map(Number); return isFinite(h) && isFinite(m) ? h * 60 + m : null; };
+function parseTimer(t) {
+  t = String(t || "");
+  if (t === "hand" || t === "off") return { type: t };
+  if (t.startsWith("pins:")) { const p = t.slice(5).padEnd(96, "0").slice(0, 96).split("").map(c => c === "1"); return { type: "pins", pins: p }; }
+  if (t.startsWith("cycle:")) { const [on, off] = t.slice(6).split(",").map(Number); return { type: "cycle", on, off }; }
+  if (t.startsWith("onoff:")) return { type: "onoff", ranges: t.slice(6).split(";").filter(Boolean).map(r => r.split("-")) };
+  return null;
+}
+function packTimer(x) {
+  if (!x) return "";
+  if (x.type === "pins") return "pins:" + x.pins.map(b => b ? "1" : "0").join("");
+  if (x.type === "cycle") return `cycle:${x.on || 0},${x.off || 0}`;
+  if (x.type === "onoff") return "onoff:" + x.ranges.filter(r => r[0] && r[1]).map(r => r.join("-")).join(";");
+  return x.type;
+}
+function timerHours(x) {
+  if (!x) return null;
+  if (x.type === "hand") return 24;
+  if (x.type === "off") return 0;
+  if (x.type === "pins") return x.pins.filter(Boolean).length / 4;
+  if (x.type === "cycle") { const on = Number(x.on) || 0, off = (Number(x.off) || 0) * 60; return on + off > 0 ? 24 * on / (on + off) : null; }
+  if (x.type === "onoff") { let m = 0; for (const [a, b] of x.ranges) { const s = hmT(a), e = hmT(b); if (s == null || e == null) continue; m += e > s ? e - s : e + 1440 - s; } return Math.min(24, m / 60); }
+  return null;
+}
+// On-blocks of a pin timer, e.g. "5:00 AM–10:15 PM"
+function pinBlocks(p) {
+  const out = []; let i = 0;
+  while (i < 96) { if (!p[i]) { i++; continue; } let j = i; while (j < 96 && p[j]) j++; out.push(pinTime(i) + "–" + pinTime(j % 96)); i = j; }
+  return out;
+}
+function timerSummary(t) {
+  const x = parseTimer(t); if (!x) return "";
+  const h = timerHours(x), hs = h == null ? "" : ` · ${+h.toFixed(2)} hrs`;
+  if (x.type === "hand") return "Hand · 24 hrs";
+  if (x.type === "off") return "Off · 0 hrs";
+  if (x.type === "pins") { const b = pinBlocks(x.pins); return (b.length ? "96-pin: " + b.join(", ") : "96-pin: all off") + hs; }
+  if (x.type === "cycle") return `Cycle: ON ${x.on || 0} sec / OFF ${x.off || 0} min` + hs;
+  if (x.type === "onoff") return "On/Off: " + x.ranges.map(([a, b]) => fmtTime(a) + "–" + fmtTime(b)).join(", ") + hs;
+  return "";
+}
+function updateTimerUi() {
+  for (const n of [1, 2]) {
+    const t = inputs[`p${n}Timer`].value, note = $(`timerNote${n}`), btn = $(`timerBtn${n}`);
+    note.textContent = timerSummary(t); note.hidden = !t;
+    btn.classList.toggle("on", !!t);
+  }
+}
+function openTimer(n) {
+  const other = n === 1 ? 2 : 1;
+  let x = parseTimer(inputs[`p${n}Timer`].value) || { type: "pins", pins: Array(96).fill(false) };
+  const keep = { pins: x.type === "pins" ? x.pins.slice() : Array(96).fill(false), on: x.on ?? "", off: x.off ?? "", ranges: x.ranges ? x.ranges.map(r => r.slice()) : [["", ""]] };
+  let type = x.type;
+  const box = document.createElement("div"); box.className = "tmr";
+  const tabs = document.createElement("div"); tabs.className = "tabs";
+  const body = document.createElement("div");
+  const sum = document.createElement("p"); sum.className = "tsum";
+  box.append(tabs, body, sum);
+  const current = () => type === "pins" ? { type, pins: keep.pins } : type === "cycle" ? { type, on: keep.on, off: keep.off } : type === "onoff" ? { type, ranges: keep.ranges } : { type };
+  const showSum = () => { const c = current(), h = timerHours(c); sum.textContent = (h == null ? "--" : +h.toFixed(2) + " hrs/day") + (c.type === "pins" ? "  ·  " + (pinBlocks(c.pins).join(", ") || "all off") : ""); };
+  const render = () => {
+    tabs.replaceChildren(...TIMER_TYPES.map(([id, name]) => { const b = document.createElement("button"); b.type = "button"; b.textContent = name; if (id === type) b.className = "primary"; b.onclick = () => { type = id; render(); }; return b; }));
+    body.replaceChildren();
+    if (type === "pins") {
+      const grid = document.createElement("div"); grid.className = "pins";
+      const cells = [];
+      for (let r = 0; r < 6; r++) {                                   // 6 rows of 4 hours, 4 pins per hour
+        const row = document.createElement("div"); row.className = "prow";
+        for (let hh = 0; hh < 4; hh++) {
+          const hour = r * 4 + hh, g = document.createElement("div"); g.className = "phour";
+          const lab = document.createElement("span"); lab.textContent = (hour % 12 || 12) + (hour < 12 ? "a" : "p"); g.append(lab);
+          const pins = document.createElement("div"); pins.className = "pgrp";
+          for (let q = 0; q < 4; q++) { const i = hour * 4 + q, c = document.createElement("div"); c.className = "pin" + (keep.pins[i] ? " on" : ""); c.dataset.i = i; pins.append(c); cells[i] = c; }
+          g.append(pins); row.append(g);
+        }
+        grid.append(row);
+      }
+      // Glide a finger (or drag the mouse) across the pins: start on an empty pin = turn on, on a filled pin = turn off
+      let paint = null;
+      const set = el => { if (!el || !el.classList || !el.classList.contains("pin")) return; const i = +el.dataset.i; if (keep.pins[i] === paint) return; keep.pins[i] = paint; el.classList.toggle("on", paint); showSum(); };
+      grid.addEventListener("pointerdown", e => { const el = e.target.closest(".pin"); if (!el) return; e.preventDefault(); paint = !keep.pins[+el.dataset.i]; set(el); });
+      grid.addEventListener("pointermove", e => { if (paint === null) return; set(document.elementFromPoint(e.clientX, e.clientY)); });
+      const stop = () => { paint = null; };
+      grid.addEventListener("pointerup", stop); grid.addEventListener("pointercancel", stop); grid.addEventListener("pointerleave", e => { if (e.pointerType === "mouse") stop(); });
+      const quick = document.createElement("div"); quick.className = "tabs";
+      const qb = (text, fn) => { const b = document.createElement("button"); b.type = "button"; b.textContent = text; b.onclick = () => { fn(); render(); }; quick.append(b); };
+      qb("All on", () => keep.pins.fill(true)); qb("All off", () => keep.pins.fill(false));
+      const o = parseTimer(inputs[`p${other}Timer`].value);
+      if (o && o.type === "pins") qb(`Copy Pump ${other}`, () => { keep.pins = o.pins.slice(); });
+      const tip = document.createElement("p"); tip.className = "hint"; tip.textContent = "Glide your finger (or drag the mouse) across the pins. Each pin is 15 minutes.";
+      body.append(tip, grid, quick);
+    } else if (type === "cycle") {
+      body.innerHTML = `<p class="hint">A repeat timer: ON for some seconds, then OFF for some minutes, all day.</p>
+        <div class="row"><label for="tOn">ON (seconds)</label><input id="tOn" inputmode="decimal"></div>
+        <div class="row"><label for="tOff">OFF (minutes)</label><input id="tOff" inputmode="decimal"></div>`;
+      const on = body.querySelector("#tOn"), off = body.querySelector("#tOff"); on.value = keep.on; off.value = keep.off;
+      on.oninput = () => { keep.on = on.value.trim(); showSum(); }; off.oninput = () => { keep.off = off.value.trim(); showSum(); };
+    } else if (type === "onoff") {
+      const p = document.createElement("p"); p.className = "hint"; p.textContent = "Each time the pump turns on and off. Add more for split schedules."; body.append(p);
+      keep.ranges.forEach((rg, k) => {
+        const row = document.createElement("div"); row.className = "onoff";
+        const a = document.createElement("input"); a.type = "time"; a.step = 900; a.value = rg[0]; a.oninput = () => { rg[0] = a.value; showSum(); };
+        const b = document.createElement("input"); b.type = "time"; b.step = 900; b.value = rg[1]; b.oninput = () => { rg[1] = b.value; showSum(); };
+        const x = document.createElement("button"); x.type = "button"; x.textContent = "✕"; x.onclick = () => { keep.ranges.splice(k, 1); if (!keep.ranges.length) keep.ranges.push(["", ""]); render(); };
+        row.append("ON", a, "OFF", b, x); body.append(row);
+      });
+      const add = document.createElement("button"); add.type = "button"; add.textContent = "+ add another on-time"; add.onclick = () => { keep.ranges.push(["", ""]); render(); }; body.append(add);
+    } else {
+      const p = document.createElement("p"); p.textContent = type === "hand" ? "Hand: the pump runs all day (24 hrs)." : "Off: the pump doesn't run (0 hrs)."; body.append(p);
+    }
+    showSum();
+  };
+  render();
+  const done = () => {
+    const c = current(), h = timerHours(c);
+    loading = true;
+    inputs[`p${n}Timer`].value = packTimer(c);
+    if (h != null) inputs[`p${n}Hrs`].value = String(+h.toFixed(2));
+    loading = false; dirty = true; updateStatus(); compute(); updateTimerUi();
+    toast(`Pump ${n}: ${h == null ? "timer saved" : +h.toFixed(2) + " hrs/day"} · SAVE to keep it`);
+  };
+  const clear = () => { loading = true; inputs[`p${n}Timer`].value = ""; loading = false; dirty = true; updateStatus(); updateTimerUi(); };
+  dialog(`Pump ${n} timer`, box, [{ text: "Remove", cls: "danger", fn: clear }, { text: "Cancel" }, { text: "DONE", cls: "primary", fn: done }]);
+}
 
 /* ---------- Arrival / departure times ----------
    Opening a site = arrived. SAVE or CONFIRM = left (the last one while the site is still open counts).
@@ -862,6 +1022,7 @@ function showReading(e) {
   const kv = document.createElement("div"); kv.className = "kv";
   const add = (k, v) => { const a = document.createElement("div"); a.textContent = k; const b = document.createElement("div"); b.textContent = v || "—"; kv.append(a, b); };
   ALL.forEach(f => { if (f.key === "curve") { if (e.curve) add(f.label, curveSummary(e.curve)); }
+    else if (f.key.endsWith("Timer")) { if (e[f.key]) add(f.label, timerSummary(e[f.key])); }
     else if (f.key === "loc") { if (e.loc) add(f.label, locText(e.loc)); }
     else if (f.key === "treatedBy") { if (e.treatedBy) add(f.label, linkName(e.treatedBy)); }
     else if (!f.key.startsWith("adj") || e.curve) add(colOf(f), e[f.key]); });
@@ -1332,7 +1493,7 @@ function csvRows(f) {
   // Column list: each entry is [heading, value for one reading]. Chem feed GPD sits right after the pump boxes.
   const COLS = [["Arrived", (e) => e.arrived ? fmtTime(e.arrived) : ""], ["Left", (e) => e.left ? fmtTime(e.left) : ""]];
   ALL.filter(x => !CSV_SKIP.has(x.key)).forEach(x => {
-    COLS.push([colOf(x), x.key === "treatedBy" ? (e) => linkName(e.treatedBy) : (e) => e[x.key]]);
+    COLS.push([colOf(x), x.key === "treatedBy" ? (e) => linkName(e.treatedBy) : x.key.endsWith("Timer") ? (e) => timerSummary(e[x.key]) : (e) => e[x.key]]);
     if (x.key === "p2Hrs") COLS.push(["Chem feed GPD", (e, k) => k.gpd == null ? "" : k.gpd.toFixed(2)]);
   });
   COLS.push(["Tank empty in days", (e, k) => k.days == null ? "" : k.days.toFixed(1)],
@@ -1440,16 +1601,17 @@ function logFor(rec, date, times) {
   const AIR = ["ductDia", "fpm"];
   const EXTRA = ["waterGpm", ...SAMPLE.map(f => f.key), "chemName", "bioSystem", "h2sIn", "h2sMid", "h2sOut"];   // added later, in the order they were added
   const TAIL = ["vfdHz", "curve", ADJ_GLOBAL.key, ...ADJ_DAYS.map(f => f.key), "loc", "treatedBy"];                            // added after "H2S removal %" (then Arrived / Left at the very end: add any newer columns after Left)
-  const later = [...EXTRA, ...ALL.map(f => f.key).filter(x => !LOG_KEYS.includes(x) && !AIR.includes(x) && !EXTRA.includes(x) && !TAIL.includes(x) && !NEWER.includes(x) && !CARB_PORTS.includes(x) && x !== "chemTank")];
+  const later = [...EXTRA, ...ALL.map(f => f.key).filter(x => !LOG_KEYS.includes(x) && !AIR.includes(x) && !EXTRA.includes(x) && !TAIL.includes(x) && !NEWER.includes(x) && !CARB_PORTS.includes(x) && x !== "chemTank" && !x.endsWith("Timer"))];
   const val = x => x === "curve" ? curveSummary(rec.curve) : x === "loc" ? locText(rec.loc) : x === "treatedBy" ? linkName(rec.treatedBy) : (rec[x] || "");
   return { date, complete: rec.completeMonth === date.slice(0, 7),
     cols: [...LOG_KEYS.map(x => lab[x]), "Chem feed GPD", "Nutrient feed gal/day", "Tank empty in days", ...AIR.map(x => lab[x]), "Airflow CFM", ...later.map(x => lab[x]), "H2S removal %", ...TAIL.map(x => lab[x]), "Arrived", "Left",
-      ...NEWER.map(x => lab[x]), "Scrubber CFM", "Scrubber H2S removal %", "Carbon CFM", "Carbon H2S removal %", ...CARB_PORTS.map(x => lab[x]), lab.chemTank, "Chem tank empty in days"],
+      ...NEWER.map(x => lab[x]), "Scrubber CFM", "Scrubber H2S removal %", "Carbon CFM", "Carbon H2S removal %", ...CARB_PORTS.map(x => lab[x]), lab.chemTank, "Chem tank empty in days", "Pump1 timer", "Pump2 timer"],
     vals: [...LOG_KEYS.map(val), k.gpd == null ? "" : k.gpd.toFixed(2), k.bioGpd == null ? "" : k.bioGpd.toFixed(2), k.days == null ? "" : k.days.toFixed(1),
       ...AIR.map(val), k.cfm == null ? "" : String(Math.round(k.cfm)), ...later.map(val), k.removal == null ? "" : k.removal.toFixed(1), ...TAIL.map(val),
       (times && times.a) || "", (times && times.l) || "",
       ...NEWER.map(val), r1(sa.cfm, 0), r1(sa.removal, 1), r1(ca.cfm, 0), r1(ca.removal, 1), ...CARB_PORTS.map(val),
-      val("chemTank"), num(rec.chemTank) != null && k.gpd > 0 ? (num(rec.chemTank) / k.gpd).toFixed(1) : ""] };
+      val("chemTank"), num(rec.chemTank) != null && k.gpd > 0 ? (num(rec.chemTank) / k.gpd).toFixed(1) : "",
+      timerSummary(rec.p1Timer), timerSummary(rec.p2Timer)] };
 }
 function queue(op, noSend) {
   if (!syncCfg) return;                                  // not connected: nothing to send
