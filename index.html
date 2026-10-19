@@ -56,6 +56,9 @@
   .pgrp { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; }
   .pin { height: 26px; border: 1.5px solid var(--line); border-radius: 4px; background: var(--card); cursor: pointer; }
   .pin.on { background: var(--brand); border-color: var(--brand); }
+  .result .rsub { font-weight: 400; font-size: 14px; margin-top: 4px; }
+  .ddwatch { display: flex; align-items: center; gap: 12px; margin: 8px 0; }
+  .ddwatch span { font-size: 28px; font-weight: 800; font-variant-numeric: tabular-nums; }
   .onoff { display: flex; align-items: center; gap: 6px; margin: 6px 0; font-size: 14px; font-weight: 700; }
   .onoff input { flex: 1; min-width: 0; padding: 6px; }
   .onoff button { padding: 4px 8px; }
@@ -427,6 +430,9 @@ for (const n of [1, 2]) {
   wrap.append(hrs, btn);
   const note = document.createElement("div"); note.className = "hint tnote"; note.id = `timerNote${n}`; note.hidden = true; row.after(note);
   const t = document.createElement("input"); t.type = "hidden"; inputs[`p${n}Timer`] = t; wrap.append(t);
+  const rate = inputs[`p${n}Rate`], rwrap = document.createElement("div"); rwrap.className = "hrswrap"; rate.replaceWith(rwrap);
+  const dbtn = document.createElement("button"); dbtn.type = "button"; dbtn.className = "tbtn"; dbtn.textContent = "📏"; dbtn.title = `Pump ${n} drawdown`;
+  dbtn.onclick = () => openDrawdown(n); rwrap.append(rate, dbtn);
 } addField($("chemInfo"), CHEM_INFO);
 inputs.curve = document.createElement("input"); inputs.curve.type = "hidden"; $("curveBox").append(inputs.curve);
 inputs.loc = document.createElement("input"); inputs.loc.type = "hidden"; $("locBar").append(inputs.loc);
@@ -509,6 +515,14 @@ const currentRecord = () => { const r = {}; ALL.forEach(f => r[f.key] = inputs[f
 function compute() {
   const c = calc(currentRecord());
   let chem = c.gpd == null ? "CHEM FEED GPD: --" : "CHEM FEED GPD: " + c.gpd.toFixed(2);
+  if (!c.curve) {
+    const r = currentRecord();
+    for (const n of [1, 2]) {
+      const ml = num(r[`p${n}Rate`]); if (!ml) continue;
+      const h = num(r[`p${n}Hrs`]) ?? 24, gph = ml * 60 / 3785.41;
+      chem += `\nPump ${n}: ${+ml.toFixed(1)} mL/min = ${gph.toFixed(2)} GPH × ${+h.toFixed(2)} hrs = ${(gph * h).toFixed(1)} gal/day` + (h < 24 ? `  (${(gph * 24).toFixed(1)} if 24 hrs)` : "");
+    }
+  }
   if (c.curve) {
     chem += "\nFrom the dosing curve (weekly average)";
     const pd = c.curve.perDay, lo = Math.min(...pd), hi = Math.max(...pd);
@@ -525,7 +539,9 @@ function compute() {
     const since = Math.round((toDate(today()) - toDate(base)) / dayMs);
     if (since > 0) { const est = Math.max(0, ct - c.gpd * since); chem += "\nEstimated tank today: about " + Math.round(est) + " gal" + (est === 0 ? " (probably empty!)" : "") + ` (${since} day${since > 1 ? "s" : ""} since it read ${Math.round(ct)} gal)`; }
   }
-  $("chemResult").textContent = chem;
+  { const [first, ...rest] = chem.split("\n"), el = $("chemResult");
+    el.textContent = first;
+    if (rest.length) { const d = document.createElement("div"); d.className = "rsub"; d.textContent = rest.join("\n"); el.append(d); } }
   updateTimerUi();
   updateCurveUi(); updateLocUi(); updateLinkUi();
   $("bioResult").textContent = (c.bioGpd == null ? "Nutrient feed: enter pump GPH, speed % and stroke %"
@@ -623,6 +639,46 @@ $("completeChk").addEventListener("change", () => { if (!loading) { dirty = true
 function selectCounty(c) { county = c; site = null; fill(null); dirty = false; refreshUi(); }
 function loadSite(s) { site = s; dirty = false; startVisit(); dayNudge(); fill((db[county] || {})[s]); dirty = false; refreshUi(); autoHere(); }
 async function persist() { await store.save(db); }
+
+/* ---------- Drawdown helper (📏 next to each pump's rate) ----------
+   Stopwatch: start level, START, STOP, end level → mL/min. Or type mL drawn + seconds. DONE fills the rate. */
+function openDrawdown(n) {
+  const box = document.createElement("div"); box.className = "tmr";
+  box.innerHTML = `<p class="hint">Calibration cylinder drawdown. Use the stopwatch, or type what you timed.</p>
+    <div class="row"><label for="ddStart">Start level (mL)</label><input id="ddStart" inputmode="decimal" placeholder="e.g. 1000"></div>
+    <div class="ddwatch"><button type="button" id="ddGo" class="primary">▶ START</button><span id="ddClock">0:00</span></div>
+    <div class="row"><label for="ddEnd">End level (mL)</label><input id="ddEnd" inputmode="decimal" placeholder="e.g. 900"></div>
+    <div class="row"><label for="ddSec">Seconds</label><input id="ddSec" inputmode="decimal" placeholder="e.g. 60"></div>
+    <p class="tsum" id="ddRes">--</p>`;
+  const q = id => box.querySelector("#" + id);
+  let t0 = null, tick = null;
+  const fmt = s => Math.floor(s / 60) + ":" + String(Math.floor(s % 60)).padStart(2, "0");
+  const rate = () => {
+    const a = num(q("ddStart").value), b = num(q("ddEnd").value), s = num(q("ddSec").value);
+    if (a == null || b == null || !s || a <= b) return null;
+    return (a - b) * 60 / s;
+  };
+  const show = () => { const r = rate(); const a = num(q("ddStart").value), b = num(q("ddEnd").value), s = num(q("ddSec").value);
+    q("ddRes").textContent = r == null ? "--" : `${+(a - b).toFixed(1)} mL in ${+s.toFixed(1)} sec = ${r.toFixed(1)} mL/min`; };
+  ["ddStart", "ddEnd", "ddSec"].forEach(id => q(id).oninput = show);
+  q("ddGo").onclick = () => {
+    if (t0 == null) {
+      t0 = Date.now(); q("ddGo").textContent = "■ STOP"; q("ddGo").className = "danger";
+      tick = setInterval(() => { q("ddClock").textContent = fmt((Date.now() - t0) / 1000); }, 250);
+    } else {
+      const s = (Date.now() - t0) / 1000; clearInterval(tick); t0 = null;
+      q("ddGo").textContent = "▶ START again"; q("ddGo").className = "primary";
+      q("ddClock").textContent = fmt(s); q("ddSec").value = String(Math.round(s)); show(); q("ddEnd").focus();
+    }
+  };
+  const done = () => {
+    clearInterval(tick);
+    const r = rate(); if (r == null) { q("ddRes").textContent = "Fill in start, end (lower than start) and seconds."; return false; }
+    loading = true; inputs[`p${n}Rate`].value = String(+r.toFixed(1)); loading = false;
+    dirty = true; updateStatus(); compute(); toast(`Pump ${n}: ${r.toFixed(1)} mL/min · SAVE to keep it`);
+  };
+  dialog(`Pump ${n} drawdown`, box, [{ text: "Cancel", fn: () => { clearInterval(tick); } }, { text: "DONE", cls: "primary", fn: done }]);
+}
 
 /* ---------- Pump timers (⏱ next to each pump's hrs/day) ----------
    Stored on the reading as text: "pins:<96 x 0/1>" (15-min pins from 12 AM), "cycle:<on sec>,<off min>",
