@@ -868,15 +868,18 @@ function editTime(which) {
   const ok = () => {
     if (!/^\d\d:\d\d$/.test(inp.value)) return false;
     if (which === "l" && v.a && inp.value < v.a) { err.textContent = `Left can't be before Arrived (${fmtTime(v.a)}). Check AM / PM.`; return false; }
-    if (which === "a" && v.l && inp.value > v.l) { err.textContent = `Arrived can't be after Left (${fmtTime(v.l)}). Check AM / PM.`; return false; }
     saveTime();
   };
   const saveTime = async () => {
-    (visits[k] ||= {})[which] = inp.value; saveVisits();
+    (visits[k] ||= {})[which] = inp.value;
+    // A new arrival after the old Left time: that Left is out of date, so clear it. It fills again at the next SAVE / CONFIRM.
+    let cleared = false;
+    if (which === "a" && visits[k].l && inp.value > visits[k].l) { delete visits[k].l; liveVisit = k; cleared = true; }
+    saveVisits();
     if (k === liveVisit && which === "l") liveVisit = null;        // a time you typed in isn't overwritten by the next tap
     const r = siteRec(), e = r && (r[HIST] || []).find(x => x.date === date);
-    if (e) { e[which === "a" ? "arrived" : "left"] = inp.value; await persist(); queue({ op: "put", c: county, s: site }); }
-    updateTimes(); toast((which === "a" ? "Arrived " : "Left ") + fmtTime(inp.value));
+    if (e) { e[which === "a" ? "arrived" : "left"] = inp.value; if (cleared) delete e.left; await persist(); queue({ op: "put", c: county, s: site }); }
+    updateTimes(); toast((which === "a" ? "Arrived " : "Left ") + fmtTime(inp.value) + (cleared ? " · old Left time cleared, it fills in at SAVE / CONFIRM" : ""));
   };
   const clear = () => { if (visits[k]) { delete visits[k][which]; saveVisits(); } updateTimes(); };
   dialog(which === "a" ? `Arrived at ${site}` : `Left ${site}`, box, [{ text: "Clear", cls: "danger", fn: clear }, { text: "Cancel" }, { text: "OK", cls: "primary", fn: ok }]);
