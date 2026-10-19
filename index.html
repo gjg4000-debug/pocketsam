@@ -259,6 +259,7 @@
     <input type="file" id="importFile" accept=".json,.txt,.csv,application/json,text/plain,text/csv" hidden>
   </section>
   <p class="hint version">Pocket SAM version <span id="appVersion">2026-10-03 (v20)</span></p>
+  <p class="hint version"><a href="#" id="demoLink" hidden>Load demo county</a></p>
   <p class="hint version"><a href="#" id="dynLink">Dynamics test: off</a></p>
 </main>
 
@@ -831,7 +832,7 @@ function saveVisits() {
 }
 function startVisit() {
   liveVisit = null;
-  if (!county || !site) return;
+  if (!county || !site || isDemo(county)) return;
   const k = visitKey(county, site, today()), v = visits[k];
   if (!v) { visits[k] = { a: nowHM() }; saveVisits(); liveVisit = k; }
   else if (!v.l) liveVisit = k;                                 // came back before leaving: same visit
@@ -1672,7 +1673,8 @@ function logFor(rec, date, times) {
       timerSummary(rec.p1Timer), timerSummary(rec.p2Timer)] };
 }
 function queue(op, noSend) {
-  if (!syncCfg) return;                                  // not connected: nothing to send
+  if (!syncCfg) return;
+  if (op && isDemo(op.c)) return;                          // the demo county stays on this phone                                  // not connected: nothing to send
   pending.push(op); lsSet(QUEUE_KEY, pending); showSync();
   if (!noSend) syncNow();
 }
@@ -1751,7 +1753,7 @@ function setupSync(problem) {
     api({ url, pass }, { action: "ping" }).then(() => {
       const first = !syncCfg;
       syncCfg = { url, pass, last: 0 }; lsSet(SYNC_KEY, syncCfg); closeDlg();
-      if (first) for (const c of counties()) for (const s of sites(c)) pending.push({ op: "put", c, s });   // send what's already on this phone
+      if (first) for (const c of counties().filter(c => !isDemo(c))) for (const s of sites(c)) pending.push({ op: "put", c, s });   // send what's already on this phone
       lsSet(QUEUE_KEY, pending);
       askedAgain = false; toast("Connected ✓"); syncNow(true);
     }).catch(e => { err.textContent = e.message === "Wrong password" ? "Wrong password." : "Couldn't connect: " + e.message; });
@@ -1810,6 +1812,47 @@ $("dynLink").onclick = e => {
   dialog("Dynamics test", box, buttons);
 };
 showDyn();
+/* ---------- Demo county (on this phone only, never synced) ---------- */
+const DEMO = "Demo County", DEMO_ASKED = "pocketsam-demoAsked";
+const isDemo = c => c === DEMO;
+function demoData() {
+  const t = today(), [y, m] = t.split("-").map(Number);
+  const last = new Date(y, m - 2, 15).toISOString().slice(0, 10), now = t;
+  const pins = "pins:" + "0".repeat(20) + "1".repeat(69) + "0".repeat(7);          // 5:00 AM – 10:15 PM
+  const site = (rec, olderTweak) => {
+    const a = { ...rec, ...olderTweak }, b = { ...rec };
+    for (const e of [a, b]) delete e.equip;
+    return { ...rec, _history: [{ date: last, ...a }, { date: now, ...b }] };
+  };
+  return {
+    "LS-1 Chem Feed": site({ equip: "chem", chemName: "Bioxide", p1Rate: "100", p1Hrs: "24", p2Rate: "130", p2Hrs: "17.25", p2Timer: pins,
+      chemTank: "300", chemGpd: "73.59", chemInfo: "Demo site: two pumps, Pump 2 on a 96-pin timer. Try the ⏱ and 📏 buttons." }, { p1Rate: "95", chemTank: "450" }),
+    "LS-1 Sample Point": site({ equip: "sample", ph: "7.2", tempC: "27", sulfide: "1.2", h2s: "12", nitrate: "3",
+      treatedBy: linkKey(DEMO, "LS-1 Chem Feed") }, { sulfide: "2.5", h2s: "35" }),
+    "Plant Biofilter": site({ equip: "bio", bioSystem: "Biofilter", tankGal: "55", jugs: "5", bioGph: "2", speed: "60", stroke: "80",
+      onSec: "11", offMin: "14", waterGpm: "2", vfdHz: "50", ductDia: "12", fpm: "800", h2sIn: "80", h2sMid: "10", h2sOut: "1",
+      bioInfo: "Demo biofilter" }, { h2sIn: "95", h2sOut: "3" }),
+    "LoPro Scrubber": site({ equip: "scrub", scrubSystem: "LoPro 3-stage", s1Ph: "10.5", s2Ph: "9.8", s2Orp: "650", naohGal: "300", naoclGal: "420",
+      rp1: "18", rp2: "20", scWater: "2", scHz: "55", scDuct: "24", scFpm: "1500", scDp: "3.1", scIn: "200", scOut: "1" }, { scIn: "180", scOut: "2" }),
+    "Carbon Vessel": site({ equip: "carb", carbSystem: "Carbon Vessel 1", cbHz: "50", cbDuct: "12", cbFpm: "1000", cbDp: "2.2",
+      cbIn: "40", cbP1: "8", cbP2: "1", cbP3: "0", cbOut: "0", cbChange: last }, { cbP1: "4", cbP2: "0" }),
+  };
+}
+async function loadDemo() {
+  db[DEMO] = demoData(); await persist(); try { localStorage.setItem(DEMO_ASKED, "1"); } catch (e) {}
+  selectCounty(DEMO); showDemoLink(); toast("Demo County loaded. Only on this phone, never synced.");
+}
+function showDemoLink() { $("demoLink").hidden = !!db[DEMO]; }
+$("demoLink").onclick = e => { e.preventDefault(); loadDemo(); };
+function offerDemo() {
+  let asked = false; try { asked = !!localStorage.getItem(DEMO_ASKED); } catch (e) {}
+  if (asked || syncCfg || Object.keys(db).length) return;
+  try { localStorage.setItem(DEMO_ASKED, "1"); } catch (e) {}
+  const p = document.createElement("p");
+  p.textContent = "Welcome to Pocket SAM! Want a Demo County to try things out? It has one example of each equipment type, stays on this phone only, and you can delete it any time.";
+  dialog("Try a demo?", p, [{ text: "No thanks" }, { text: "Load demo", cls: "primary", fn: () => { loadDemo(); } }]);
+}
+
 /* ---------- Day times (check in / lunch / check out), optional, this phone only ----------
    A chip in the header: ▶ Check in → 🕘 7:00 · 4h20 → tap for Lunch / Out / Today.
    Workday style: if no real lunch was taken, Out adds the usual meal (12:00-12:30) and moves Out 30 min later,
@@ -1980,7 +2023,7 @@ function showToday(date) {
 // Opening a site before checking in: offer it once a day
 let nudged = "";
 function dayNudge() {
-  if (!dayCfg.on || nudged === today()) return;
+  if (!dayCfg.on || nudged === today() || isDemo(county)) return;
   const d = days[today()];
   if (d && d.in) return;
   nudged = today();
@@ -2021,7 +2064,7 @@ document.addEventListener("visibilitychange", () => {
   db = await store.load();
   compute(); refreshUi(); showSync();
   if (syncCfg) syncNow();
-  dayForgot();
+  dayForgot(); showDemoLink(); offerDemo();
   if ("serviceWorker" in navigator && location.protocol.startsWith("http")) navigator.serviceWorker.register("sw.js").catch(() => {});
 })();
 </script>
