@@ -659,7 +659,9 @@ function openDrawdown(n) {
     return (a - b) * 60 / s;
   };
   const show = () => { const r = rate(); const a = num(q("ddStart").value), b = num(q("ddEnd").value), s = num(q("ddSec").value);
-    q("ddRes").textContent = r == null ? "--" : `${+(a - b).toFixed(1)} mL in ${+s.toFixed(1)} sec = ${r.toFixed(1)} mL/min`; };
+    if (r == null) { q("ddRes").textContent = "--"; return; }
+    const h = num(inputs[`p${n}Hrs`].value) ?? 24, gpd = r * 60 / 3785.41 * h;
+    q("ddRes").textContent = `${+r.toFixed(1)} mL/min = ${gpd.toFixed(1)} GPD` + (h < 24 ? ` (${+h.toFixed(2)} hrs)` : ""); };
   ["ddStart", "ddEnd", "ddSec"].forEach(id => q(id).oninput = show);
   q("ddGo").onclick = () => {
     if (t0 == null) {
