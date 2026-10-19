@@ -487,7 +487,16 @@ function compute() {
     if (hi - lo > 0.005) chem += `\nLowest ${DAYS[pd.indexOf(lo)].slice(0, 3)} ${lo.toFixed(2)} · Highest ${DAYS[pd.indexOf(hi)].slice(0, 3)} ${hi.toFixed(2)}`;
   }
   const ct = num(currentRecord().chemTank);
-  if (ct != null && c.gpd != null && c.gpd > 0) chem += "\nTank empty in about " + (ct / c.gpd).toFixed(1) + " days";
+  if (ct != null && c.gpd != null && c.gpd > 0) {
+    // Count from the day the tank was read: the saved reading's date, or the date box for a new reading
+    const hist = (siteRec() && siteRec()[HIST]) || [], last = [...hist].reverse().find(e => num(e.chemTank) != null);
+    const base = !dirty && last && num(last.chemTank) === ct ? last.date : ($("readingDate").value || today());
+    const dayMs = 864e5, toDate = iso => { const [y, m, d] = iso.split("-").map(Number); return new Date(y, m - 1, d); };
+    const daysLeft = ct / c.gpd, emptyOn = new Date(toDate(base).getTime() + Math.floor(daysLeft) * dayMs);
+    chem += "\nTank empty in about " + daysLeft.toFixed(1) + " days (by " + emptyOn.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }) + ")";
+    const since = Math.round((toDate(today()) - toDate(base)) / dayMs);
+    if (since > 0) { const est = Math.max(0, ct - c.gpd * since); chem += "\nEstimated tank today: about " + Math.round(est) + " gal" + (est === 0 ? " (probably empty!)" : "") + ` (${since} day${since > 1 ? "s" : ""} since it read ${Math.round(ct)} gal)`; }
+  }
   $("chemResult").textContent = chem;
   updateCurveUi(); updateLocUi(); updateLinkUi();
   $("bioResult").textContent = (c.bioGpd == null ? "Nutrient feed: enter pump GPH, speed % and stroke %"
@@ -583,7 +592,7 @@ function setComplete(rec) {
 }
 $("completeChk").addEventListener("change", () => { if (!loading) { dirty = true; updateStatus(); } });
 function selectCounty(c) { county = c; site = null; fill(null); dirty = false; refreshUi(); }
-function loadSite(s) { site = s; startVisit(); dayNudge(); fill((db[county] || {})[s]); dirty = false; refreshUi(); autoHere(); }
+function loadSite(s) { site = s; dirty = false; startVisit(); dayNudge(); fill((db[county] || {})[s]); dirty = false; refreshUi(); autoHere(); }
 async function persist() { await store.save(db); }
 
 /* ---------- Arrival / departure times ----------
