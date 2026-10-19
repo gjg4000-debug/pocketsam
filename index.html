@@ -520,7 +520,7 @@ function compute() {
     for (const n of [1, 2]) {
       const ml = num(r[`p${n}Rate`]); if (!ml) continue;
       const h = num(r[`p${n}Hrs`]) ?? 24, gph = ml * 60 / 3785.41;
-      chem += `\nPump ${n}: ${+ml.toFixed(1)} mL/min = ${gph.toFixed(2)} GPH × ${+h.toFixed(2)} hrs = ${(gph * h).toFixed(1)} gal/day` + (h < 24 ? `  (${(gph * 24).toFixed(1)} if 24 hrs)` : "");
+      chem += `\nPump ${n}: ${(gph * h).toFixed(1)} GPD` + (h < 24 ? ` (${+h.toFixed(2)} hrs)` : "");
     }
   }
   if (c.curve) {
