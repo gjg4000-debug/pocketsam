@@ -1404,8 +1404,12 @@ function updateLinkUi() {
   {
     for (const [c, s] of cps) {
       const e = latestEntry(db[c][s]);
+      // How well the feed is working: last reading → this reading at the sample point
+      const h = Array.isArray(db[c][s][HIST]) ? db[c][s][HIST] : [], prev = h.length > 1 ? h[h.length - 2] : null;
       const bits = [["sulfide", "sulfide", "mg/L"], ["h2s", "H2S", "ppm"], ["nitrate", "nitrate", "mg/L"], ["peroxide", "peroxide", "mg/L"], ["ph", "pH", ""]]
-        .filter(([k]) => e && e[k] != null && e[k] !== "").map(([k, n, u]) => `${n} ${e[k]}${u ? " " + u : ""}`);
+        .filter(([k]) => e && e[k] != null && e[k] !== "").map(([k, n, u]) => {
+          const was = prev && prev[k] != null && prev[k] !== "" && k !== "ph" && String(prev[k]) !== String(e[k]) ? `${prev[k]} → ` : "";
+          return `${n} ${was}${e[k]}${u ? " " + u : ""}`; });
       lines.push(`Sample point ${c === county ? s : s + " (" + c + ")"}: ` + (bits.length ? bits.join(", ") : "no readings yet") + (e && e.date ? ` (${fmtShort(e.date)})` : ""));
     }
   }
