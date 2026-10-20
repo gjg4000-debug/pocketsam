@@ -114,7 +114,15 @@
   .list button.done { color: var(--ok); font-weight: 700; border-color: var(--ok); }
   .list button.warn { background: var(--warn); border-color: var(--warn-line); }
   .list button.leak { background: var(--alarm); border-color: var(--alarm-line); border-width: 2px; }
-  .list button .count { float: right; color: var(--muted); font-weight: 400; font-size: 14px; }
+  .list button .count { float: right; color: var(--muted); font-weight: 400; font-size: 14px; margin-left: 8px; }
+  .list .ctrow { display: flex; gap: 8px; align-items: center; }
+  .list .ctrow button:first-child { flex: 1; }
+  .list .ctrow button.ced { width: auto; flex: none; padding: 10px 14px; }
+  .ctf { border: 1px solid var(--line); border-radius: 10px; padding: 8px; margin: 8px 0; display: grid; gap: 6px; }
+  .ctf .ctl { display: flex; gap: 6px; }
+  .ctf .ctl input { flex: 1; min-width: 0; }
+  .ctf .ctl select { flex: none; width: auto; }
+  .ctf .ctl button { flex: none; width: auto; padding: 6px 12px; }
   .complete { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 10px 0 0; padding: 8px 8px 8px 14px;
     background: var(--card); border: 1px solid var(--line); border-radius: 12px; font-weight: 700; }
   .complete-lbl { display: flex; align-items: center; gap: 10px; cursor: pointer; }
@@ -195,7 +203,7 @@
     </div>
     <input type="file" id="curveFile" accept=".csv,.txt,text/csv,text/plain" hidden>
     <div class="result" id="chemResult">CHEM FEED GPD: --</div>
-    <div class="row"><label for="cpBtn">Control Point</label><button id="cpBtn" type="button" style="text-align:left"></button></div>
+    <div class="row"><label for="cpBtn">Sample point(s)</label><button id="cpBtn" type="button" style="text-align:left"></button></div>
     <div class="latest" id="cpInfo" hidden></div>
     <div id="chemInfo"></div>
   </section>
@@ -203,7 +211,7 @@
   <section class="card" id="sampleCard">
     <h2>Sample Point</h2>
     <div id="sampleFields"></div>
-    <div class="row"><label for="treatBtn">Treated by (feed site)</label><button id="treatBtn" type="button" style="text-align:left"></button></div>
+    <div class="row"><label for="treatBtn">Control point (feed site)</label><button id="treatBtn" type="button" style="text-align:left"></button></div>
     <div class="latest" id="treatInfo" hidden></div>
   </section>
 
@@ -227,6 +235,8 @@
     <div class="result" id="carbResult"></div>
     <div id="carbInfo"></div>
   </section>
+
+  <div id="custCards"></div>
 
   <section class="card">
     <div class="row">
@@ -328,8 +338,8 @@ const ADJ_GLOBAL = { key: "adjGlobal", label: "Global adjustment %", hint: "100"
 const ADJ_DAYS = DAYS.map(d => ({ key: "adj" + d.slice(0, 3), label: d + " adjustment %", hint: "100", num: true, short: d.slice(0, 2) }));
 // Site location for DIRECTIONS: "lat,lng,accuracy in meters" (accuracy blank when typed in).
 const LOC = { key: "loc", label: "Location", hint: "", num: false };
-// Control point link: the feed site whose chemical treats this sample point, stored as "County\u0001Site".
-const TREATED = { key: "treatedBy", label: "Treated by", hint: "", num: false };
+// Control point link: the control point is the feed site whose chemical treats this sample point, stored as "County\u0001Site".
+const TREATED = { key: "treatedBy", label: "Control point (feed site)", col: "Treated by", hint: "", num: false };   // sheet column keeps its old name
 // Scrubber (3-stage example: Stage 1 sump = caustic, Stage 2(/3) sump = caustic + bleach, shared by packing stages 2 and 3).
 // "col" is the column name in the sheet / CSV / HISTORY, so it doesn't clash with the biofilter's boxes.
 const SCRUB_SYSTEM = { key: "scrubSystem", label: "Scrubber", col: "Scrubber name", hint: "Scrubber", num: false };
@@ -512,6 +522,8 @@ function calc(rec) {
   const removal = (hin != null && hout != null && hin > 0) ? (hin - hout) / hin * 100 : null;
   return { gpd, bioGpd, days, runMin: runHrs * 60, timer, cfm, removal, curve: cv };
 }
+// Removal is never shown as 100%: a molecule or two always gets through, so the top is 99.99%
+const remTxt = r => { const t = r.toFixed(1); return +t >= 100 ? "99.99" : t; };
 // Airflow and H2S removal for one unit (scrubber or carbon): same math as the biofilter
 function airCalc(rec, d, f, i, o) {
   const dia = num(rec[d]), fpm = num(rec[f]), hin = num(rec[i]), hout = num(rec[o]);
@@ -520,7 +532,7 @@ function airCalc(rec, d, f, i, o) {
 }
 // Carbon removal: inlet vs outlet; with no outlet reading, the deepest sample port filled in
 const carbOutKey = rec => num(rec.cbOut) != null ? "cbOut" : ["cbP3", "cbP2", "cbP1"].find(k => num(rec[k]) != null) || "cbOut";
-const airText = a => "Airflow: " + (a.cfm == null ? "enter duct diameter and FPM" : Math.round(a.cfm) + " CFM") + (a.removal == null ? "" : "\nH2S removal: " + a.removal.toFixed(1) + "%");
+const airText = a => "Airflow: " + (a.cfm == null ? "enter duct diameter and FPM" : Math.round(a.cfm) + " CFM") + (a.removal == null ? "" : "\nH2S removal: " + remTxt(a.removal) + "%");
 const currentRecord = () => { const r = {}; ALL.forEach(f => r[f.key] = inputs[f.key].value.trim()); return r; };
 function compute() {
   const c = calc(currentRecord());
@@ -568,7 +580,7 @@ function compute() {
       + (c.timer ? "\nPump runs about " + c.runMin.toFixed(1) + " min/day" : "\nNo timer entered, figured as running 24 hrs")
       + (c.days != null ? "\nTank empty in about " + c.days.toFixed(1) + " days" : ""))
     + "\nAirflow: " + (c.cfm == null ? "enter duct diameter and FPM" : Math.round(c.cfm) + " CFM")
-    + (c.removal == null ? "" : "\nH2S removal: " + c.removal.toFixed(1) + "%");
+    + (c.removal == null ? "" : "\nH2S removal: " + remTxt(c.removal) + "%");
   const cr = currentRecord();
   $("scrubResult").textContent = airText(airCalc(cr, "scDuct", "scFpm", "scIn", "scOut"));
   $("carbResult").textContent = airText(airCalc(cr, "cbDuct", "cbFpm", "cbIn", carbOutKey(cr))) + (carbOutKey(cr) !== "cbOut" ? " (to port " + carbOutKey(cr).slice(-1) + ")" : "");
@@ -651,7 +663,8 @@ function guardUnsaved(action) {
 }
 
 /* ---------- Data ops ---------- */
-function fill(rec) { loading = true; ALL.forEach(f => inputs[f.key].value = rec ? (rec[f.key] ?? "") : ""); inputs.equip.value = (rec && rec.equip) || ""; loading = false; compute(); setComplete(rec); }
+function fill(rec) { loading = true; ALL.forEach(f => inputs[f.key].value = rec ? (rec[f.key] ?? "") : ""); inputs.equip.value = (rec && rec.equip) || "";
+  custVals = rec && rec.cust && typeof rec.cust === "object" ? { ...rec.cust } : {}; loading = false; compute(); setComplete(rec); }
 function setComplete(rec) {
   const done = !!(rec && rec.completeMonth === thisMonth());
   $("completeChk").checked = done;
@@ -923,8 +936,8 @@ const EQUIP_TYPES = [
   { id: "carb",   name: "Carbon adsorber", cards: ["carbCard"] },
 ];
 const EQUIP_CARDS = ["chemCard", "sampleCard", "bioCard", "scrubCard", "carbCard"];
-const equipIds = v => v === "all" ? EQUIP_TYPES.map(t => t.id) : String(v || "").split(",").filter(id => EQUIP_TYPES.some(t => t.id === id));
-const equipNames = ids => EQUIP_TYPES.filter(t => ids.includes(t.id)).map(t => t.name).join(" + ");
+const equipIds = v => v === "all" ? EQUIP_TYPES.map(t => t.id) : String(v || "").split(",").filter(id => EQUIP_TYPES.some(t => t.id === id) || knownTypes()[id]);
+const equipNames = ids => allTypes().filter(t => ids.includes(t.id)).map(t => t.name).join(" + ");
 // Yellow in the site list: the feed is 10% or more off its target (Actual GPD if entered, else the pumps)
 function offTarget(c, s) {
   if (!tlOn(c)) return false;
@@ -958,6 +971,7 @@ function applyEquip() {
   label.textContent = !site || !ids.length ? "3. Select Equipment" : equipNames(ids) + (guess ? "  (guess)" : "");
   const show = site && ids.length ? EQUIP_TYPES.filter(t => ids.includes(t.id)).flatMap(t => t.cards) : EQUIP_CARDS;   // nothing picked yet: show everything
   EQUIP_CARDS.forEach(id => $(id).hidden = !show.includes(id));
+  renderCust(site ? ids.filter(id => isCustId(id)) : []);
 }
 // Save the types right away (no SAVE needed) and send them to the sheet, like Treated by
 async function setEquip(v) {
@@ -965,16 +979,17 @@ async function setEquip(v) {
   const r = siteRec();
   if (r) {
     r.equip = v;
+    const ct = ctypesFor(v); if (ct) r.ctypes = ct; else delete r.ctypes;
     const e = Array.isArray(r[HIST]) && r[HIST].length ? r[HIST][r[HIST].length - 1] : null;
-    if (e) e.equip = v;
+    if (e) { e.equip = v; if (ct) e.ctypes = ct; else delete e.ctypes; }
     await persist(); queue({ op: "put", c: county, s: site });
   }
   applyEquip();
 }
-function pickEquip(isNew) {
+function pickEquip(isNew, keep) {
   if (!county || !site) { toast("Pick a site first"); return; }
   const { ids } = currentEquip();
-  const picked = new Set(ids);
+  const picked = keep || new Set(ids);
   const box = document.createElement("div"); box.className = "list";
   const p = document.createElement("p"); p.className = "hint";
   p.textContent = (isNew ? `What's at ${site}? ` : "") + "Tap to check one or more, then DONE.";
@@ -985,14 +1000,159 @@ function pickEquip(isNew) {
     b.onclick = () => { picked.has(t.id) ? picked.delete(t.id) : picked.add(t.id); show(); };
     show(); box.append(b);
   });
+  // Equipment types someone on your team made (shared through sync), each with ✎ to change its readings
+  const hidden = ctHidden();
+  Object.values(knownTypes()).filter(t => !hidden.includes(t.id) || picked.has(t.id)).sort((a, b) => byName(a.name, b.name)).forEach(t => {
+    const row = document.createElement("div"); row.className = "ctrow";
+    const b = document.createElement("button");
+    const show = () => { const on = picked.has(t.id); b.textContent = (on ? "✓ " : "☐ ") + t.name; b.className = on ? "done" : ""; };
+    b.onclick = () => { picked.has(t.id) ? picked.delete(t.id) : picked.add(t.id); show(); };
+    const ed = document.createElement("button"); ed.className = "ced"; ed.textContent = "✎"; ed.title = "Change the readings for " + t.name;
+    ed.onclick = () => { closeDlg(); editType(t, () => pickEquip(isNew, picked)); };
+    show(); row.append(b, ed); box.append(row);
+  });
+  const add = document.createElement("button"); add.className = "add"; add.textContent = "+ New equipment type…";
+  add.onclick = () => { closeDlg(); editType(null, t => { if (t) picked.add(t.id); pickEquip(isNew, picked); }); };
+  box.append(add);
   const done = () => {
     if (!picked.size) { p.textContent = "Check at least one."; return false; }
-    const v = EQUIP_TYPES.map(t => t.id).filter(id => picked.has(id)).join(",");
+    const v = allTypes().map(t => t.id).filter(id => picked.has(id)).join(",");
     setEquip(v).then(() => toast(`${site}: ${equipNames(equipIds(v))}` + (isNew ? " · fill in the fields, then SAVE" : "")));
   };
   dialog(isNew ? "Equipment" : `Equipment at ${site}`, box, [{ text: isNew ? "Later" : "Cancel" }, { text: "DONE", cls: "primary", fn: done }]);
 }
 $("equipBtn").onclick = () => pickEquip(false);
+
+/* ---------- Custom equipment types ----------
+   Anyone can make a new type (e.g. "Disinfection") with its own readings. No calculations, just the readings.
+   The type's setup rides along on each site that uses it (rec.ctypes), so it reaches the rest of the team
+   through the normal sync with no script change. Each team has its own sync link, so each team only sees its own types.
+   Readings are stored as rec.cust = { fieldKey: value }. In the sheet they go in one "Other readings" column at the end. */
+const CT_KEY = "pocketsam-types", CT_HIDE = "pocketsam-typesHidden";
+const ctRead = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } };
+const ctWrite = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
+let myTypes = ctRead(CT_KEY, {});            // made or edited on this phone: { id: def }
+const ctHidden = () => ctRead(CT_HIDE, []);
+const isCustId = id => /^x_/.test(id);
+const CT_KINDS = [["num", "Number"], ["text", "Text"], ["yn", "Yes / No"], ["pick", "Pick list"], ["date", "Date"]];
+const rid = () => Math.random().toString(36).slice(2, 8);
+// Every type this phone knows: its own plus any found on synced sites. Newest edit wins.
+function knownTypes() {
+  const out = {};
+  const take = d => { if (d && d.id && isCustId(d.id) && d.name && Array.isArray(d.fields) && (!out[d.id] || String(d.upd || "") > String(out[d.id].upd || ""))) out[d.id] = d; };
+  for (const c of Object.keys(db)) for (const s of Object.keys(db[c] || {})) { const r = db[c][s]; if (r && r.ctypes) Object.values(r.ctypes).forEach(take); }
+  Object.values(myTypes).forEach(take);
+  return out;
+}
+const allTypes = () => [...EQUIP_TYPES, ...Object.values(knownTypes()).sort((a, b) => byName(a.name, b.name)).map(t => ({ id: t.id, name: t.name, cards: [], custom: true }))];
+function ctypesFor(v) {
+  const k = knownTypes(), out = {};
+  String(v || "").split(",").filter(id => isCustId(id) && k[id]).forEach(id => out[id] = k[id]);
+  return Object.keys(out).length ? out : null;
+}
+const fieldLabel = f => f.label + (f.unit ? ` (${f.unit})` : "");
+// What's typed in the custom cards right now
+let custVals = {};
+function renderCust(ids) {
+  const box = $("custCards"); box.replaceChildren();
+  const k = knownTypes();
+  ids.filter(id => k[id]).forEach(id => {
+    const t = k[id];
+    const card = document.createElement("section"); card.className = "card"; card.id = "card_" + id;
+    const h = document.createElement("h2"); h.textContent = t.name; card.append(h);
+    t.fields.forEach(f => {
+      const row = document.createElement("div"); row.className = "row";
+      const lab = document.createElement("label"); lab.htmlFor = "c_" + f.k; lab.textContent = fieldLabel(f);
+      let el;
+      if (f.kind === "yn" || f.kind === "pick") {
+        el = document.createElement("select");
+        const opts = f.kind === "yn" ? ["Yes", "No"] : (f.opts || []);
+        [["", "—"], ...opts.map(o => [o, o])].forEach(([v, tx]) => { const op = document.createElement("option"); op.value = v; op.textContent = tx; el.append(op); });
+        const cur = custVals[f.k]; if (cur && !opts.includes(cur)) { const op = document.createElement("option"); op.value = op.textContent = cur; el.append(op); }
+      } else if (f.kind === "date") { el = document.createElement("input"); el.type = "date"; }
+      else if (f.kind === "text") { el = document.createElement("textarea"); el.rows = 2; }
+      else { el = document.createElement("input"); el.type = "text"; el.inputMode = "decimal"; el.autocomplete = "off"; el.placeholder = f.unit || ""; }
+      el.id = "c_" + f.k; el.value = custVals[f.k] ?? "";
+      const changed = () => { custVals[f.k] = el.value.trim(); if (!loading) { dirty = true; updateStatus(); } };
+      el.addEventListener("input", changed); el.addEventListener("change", changed);
+      row.append(lab, el); card.append(row);
+    });
+    box.append(card);
+  });
+}
+// One line for the sheet / spreadsheet: "Disinfection: Free chlorine 1.2 mg/L; pH 7.1"
+function custText(rec) {
+  const v = rec && rec.cust; if (!v || typeof v !== "object") return "";
+  const k = { ...(rec.ctypes || {}), ...knownTypes() };
+  const parts = [];
+  equipIds(rec.equip).filter(isCustId).forEach(id => {
+    const t = k[id]; if (!t) return;
+    const got = t.fields.filter(f => v[f.k] != null && v[f.k] !== "").map(f => `${f.label} ${v[f.k]}${f.unit ? " " + f.unit : ""}`);
+    if (got.length) parts.push(`${t.name}: ${got.join("; ")}`);
+  });
+  return parts.join(" | ");
+}
+// Make or change a type. done(def) is called after SAVE (def = null after Cancel or Delete).
+function editType(t, done) {
+  const draft = t ? JSON.parse(JSON.stringify(t)) : { id: "x_" + rid(), name: "", fields: [] };
+  if (!draft.fields.length) draft.fields.push({ k: rid(), label: "", unit: "", kind: "num" });
+  const box = document.createElement("div");
+  box.innerHTML = `<p class="hint">Name the equipment, then add the readings you take there. Everyone on your sync link gets it once a site uses it.</p>
+    <label class="hint" for="ctName">Equipment type</label><input id="ctName" placeholder="e.g. Disinfection" autocapitalize="words" autocomplete="off">
+    <div id="ctFields"></div><button type="button" id="ctAdd" class="add">+ Add a reading</button><p class="hint" id="ctErr"></p>`;
+  const q = id => box.querySelector("#" + id);
+  q("ctName").value = draft.name;
+  const list = q("ctFields");
+  const draw = () => {
+    list.replaceChildren();
+    draft.fields.forEach((f, i) => {
+      const w = document.createElement("div"); w.className = "ctf";
+      const l1 = document.createElement("div"); l1.className = "ctl";
+      const lab = document.createElement("input"); lab.placeholder = "Reading, e.g. Free chlorine"; lab.value = f.label; lab.autocapitalize = "sentences"; lab.setAttribute("aria-label", "Reading name");
+      lab.oninput = () => f.label = lab.value;
+      const del = document.createElement("button"); del.type = "button"; del.textContent = "✕"; del.title = "Remove this reading";
+      del.onclick = () => { draft.fields.splice(i, 1); draw(); };
+      l1.append(lab, del);
+      const l2 = document.createElement("div"); l2.className = "ctl";
+      const unit = document.createElement("input"); unit.placeholder = "Unit, e.g. mg/L"; unit.value = f.unit || ""; unit.setAttribute("aria-label", "Unit");
+      unit.oninput = () => f.unit = unit.value;
+      const kind = document.createElement("select"); kind.setAttribute("aria-label", "Kind of reading");
+      CT_KINDS.forEach(([v, tx]) => { const op = document.createElement("option"); op.value = v; op.textContent = tx; kind.append(op); });
+      kind.value = f.kind || "num";
+      const opts = document.createElement("input"); opts.placeholder = "Choices, with commas: Good, Fair, Bad"; opts.value = (f.opts || []).join(", "); opts.setAttribute("aria-label", "Choices");
+      opts.oninput = () => f.opts = opts.value.split(",").map(x => x.trim()).filter(Boolean);
+      const showOpts = () => { opts.hidden = kind.value !== "pick"; unit.hidden = kind.value !== "num"; };
+      kind.onchange = () => { f.kind = kind.value; showOpts(); };
+      showOpts(); l2.append(unit, kind);
+      w.append(l1, l2, opts); list.append(w);
+    });
+  };
+  draw();
+  q("ctAdd").onclick = () => { draft.fields.push({ k: rid(), label: "", unit: "", kind: "num" }); draw(); list.lastChild.querySelector("input").focus(); };
+  const save = () => {
+    const err = q("ctErr"), name = q("ctName").value.trim();
+    draft.fields = draft.fields.map(f => ({ ...f, label: String(f.label || "").trim(), unit: f.kind === "num" ? String(f.unit || "").trim() : "" })).filter(f => f.label);
+    draft.fields.forEach(f => { if (f.kind !== "pick") delete f.opts; });
+    if (!name) { err.textContent = "Give the equipment type a name."; return false; }
+    if (allTypes().some(x => x.id !== draft.id && x.name.toLowerCase() === name.toLowerCase())) { err.textContent = `There's already a type called ${name}.`; return false; }
+    if (!draft.fields.length) { err.textContent = "Add at least one reading."; draw(); return false; }
+    if (draft.fields.some(f => f.kind === "pick" && !(f.opts || []).length)) { err.textContent = "A pick list needs its choices, with commas between them."; return false; }
+    draft.name = name; draft.upd = new Date().toISOString();
+    myTypes[draft.id] = draft; ctWrite(CT_KEY, myTypes);
+    ctWrite(CT_HIDE, ctHidden().filter(x => x !== draft.id));
+    if (site && currentEquip().ids.includes(draft.id)) applyEquip();
+    toast(`${name} saved`);
+    setTimeout(() => done && done(draft), 0);
+  };
+  const buttons = [{ text: "Cancel", fn: () => { setTimeout(() => done && done(null), 0); } }, { text: "SAVE", cls: "primary", fn: save }];
+  if (t) buttons.unshift({ text: "Remove", cls: "danger", fn: () => {
+    setTimeout(() => confirmBox(`Take ${t.name} off this phone's list? Sites that already use it keep it and their readings.`, "Remove", () => {
+      ctWrite(CT_HIDE, [...new Set([...ctHidden(), t.id])]); delete myTypes[t.id]; ctWrite(CT_KEY, myTypes);
+      toast(`${t.name} removed from the list`); setTimeout(() => done && done(null), 0);
+    }), 0); } });
+  dialog(t ? `Change ${t.name}` : "New equipment type", box, buttons);
+  if (!t) setTimeout(() => q("ctName").focus(), 50);
+}
 
 $("countyBtn").onclick = () => guardUnsaved(() =>
   listDialog("Select county / city", counties(), "+ Add new county / city…", selectCounty,
@@ -1026,12 +1186,16 @@ function writeCurrent() {
   if (k.bioGpd != null) rec.bioGalPerDay = k.bioGpd.toFixed(2);
   if (k.days != null) rec.tankDaysLeft = k.days.toFixed(1);
   if (k.cfm != null) rec.cfm = String(Math.round(k.cfm));
-  if (k.removal != null) rec.h2sRemoval = k.removal.toFixed(1);
+  if (k.removal != null) rec.h2sRemoval = remTxt(k.removal);
   // Don't store empty boxes
   for (const key of Object.keys(rec)) if (rec[key] === "") delete rec[key];
   if (old.completeMonth) { rec.completeMonth = old.completeMonth; rec.completedOn = old.completedOn; }
   if (Array.isArray(old[HIST])) rec[HIST] = old[HIST];
   const eq = inputs.equip.value || old.equip; if (eq) rec.equip = eq;
+  // Custom readings: only the types this site has, no empty boxes
+  const ctypes = ctypesFor(eq), cust = {};
+  if (ctypes) { Object.values(ctypes).forEach(t => t.fields.forEach(f => { const v = String(custVals[f.k] ?? "").trim(); if (v) cust[f.k] = v; })); rec.ctypes = ctypes; }
+  if (Object.keys(cust).length) rec.cust = cust;
   (db[county] ||= {})[site] = rec;
   return rec;
 }
@@ -1049,10 +1213,10 @@ $("saveBtn").onclick = async () => {
   if ($("completeChk").checked) { rec.completeMonth = month; rec.completedOn = date; }
   else if (rec.completeMonth === month) { delete rec.completeMonth; delete rec.completedOn; }
   // Only add a dated reading when some numbers or notes are filled in; a blank save just marks Complete.
-  if (ALL.some(f => rec[f.key])) {
+  if (ALL.some(f => rec[f.key]) || rec.cust) {
     const entry = { id: saveId, date, savedAt: new Date().toISOString(), complete: $("completeChk").checked };
     if (times.a) entry.arrived = times.a; if (times.l) entry.left = times.l;
-    [...ALL.map(f => f.key), "chemGpd", "bioGalPerDay", "tankDaysLeft", "cfm", "h2sRemoval", "equip"].forEach(key => { if (rec[key] != null && rec[key] !== "") entry[key] = rec[key]; });
+    [...ALL.map(f => f.key), "chemGpd", "bioGalPerDay", "tankDaysLeft", "cfm", "h2sRemoval", "equip", "cust", "ctypes"].forEach(key => { if (rec[key] != null && rec[key] !== "") entry[key] = rec[key]; });
     const h = (rec[HIST] || []).filter(e => e.date !== date);
     h.push(entry); h.sort((a, b) => a.date.localeCompare(b.date)); rec[HIST] = h;
   }
@@ -1065,7 +1229,7 @@ $("saveBtn").onclick = async () => {
 // CONFIRM: saves just the Complete status. If any boxes have data, it saves those too (same as SAVE).
 $("quickSaveBtn").onclick = async () => {
   if (!county || !site) { toast("Pick a county and a site first"); return; }
-  if (ALL.some(f => inputs[f.key].value.trim())) { $("saveBtn").onclick(); return; }
+  if (ALL.some(f => inputs[f.key].value.trim()) || (ctypesFor(currentEquip().ids.join(",")) && Object.values(custVals).some(v => String(v).trim()))) { $("saveBtn").onclick(); return; }
   const date = $("readingDate").value || today(), month = date.slice(0, 7);
   const rec = ((db[county] ||= {})[site] ||= {});
   const times = endVisit(date);
@@ -1118,6 +1282,8 @@ function showReading(e) {
     else if (f.key === "loc") { if (e.loc) add(f.label, locText(e.loc)); }
     else if (f.key === "treatedBy") { if (e.treatedBy) add(f.label, linkName(e.treatedBy)); }
     else if (!f.key.startsWith("adj") || e.curve) add(colOf(f), e[f.key]); });
+  if (e.cust) { const k = { ...(e.ctypes || {}), ...knownTypes() };
+    Object.values(k).forEach(t => t.fields.forEach(f => { if (e.cust[f.k]) add(fieldLabel(f), e.cust[f.k]); })); }
   if (e.arrived || e.left) {
     add("Arrived", e.arrived ? fmtTime(e.arrived) : ""); add("Left", e.left ? fmtTime(e.left) : "");
     const m = visitMinutes(e.arrived, e.left); if (m != null) add("On site", m + " min");
@@ -1126,7 +1292,7 @@ function showReading(e) {
   add("Nutrient feed gal/day", c.bioGpd == null ? "" : c.bioGpd.toFixed(2));
   add("Tank empty in (days)", c.days == null ? "" : c.days.toFixed(1));
   add("Airflow CFM", c.cfm == null ? "" : String(Math.round(c.cfm)));
-  add("H2S removal %", c.removal == null ? "" : c.removal.toFixed(1));
+  add("H2S removal %", c.removal == null ? "" : remTxt(c.removal));
   dialog(`${site} — ${fmtDate(e.date)}`, kv, [
     { text: "Delete", cls: "danger", fn: () => { setTimeout(() => confirmBox(`Delete the ${fmtDate(e.date)} reading?`, "Delete", async () => {
         const rec = siteRec(); rec[HIST] = rec[HIST].filter(x => x.date !== e.date); if (!rec[HIST].length) delete rec[HIST];
@@ -1211,7 +1377,7 @@ function updateCurveUi() {
   }
 }
 
-/* ---------- Control point <-> feed site link ---------- */
+/* ---------- Sample point <-> control point (feed site) link ---------- */
 const LINK_SEP = "\u0001";
 const linkKey = (c, s) => c + LINK_SEP + s;
 function linkName(v) {
@@ -1222,7 +1388,7 @@ function linkName(v) {
 const linkRec = (v) => { const [c, s] = String(v || "").split(LINK_SEP); return (db[c] || {})[s] || null; };
 function latestEntry(rec) { const h = rec && Array.isArray(rec[HIST]) ? rec[HIST] : []; return h.length ? h[h.length - 1] : rec; }
 function updateLinkUi() {
-  // On a control point: which feed treats it, and that feed's chemical + GPD
+  // On a sample point: which control point (feed site) treats it, and that feed's chemical + GPD
   const v = inputs.treatedBy.value, t = $("treatInfo");
   $("treatBtn").textContent = v ? linkName(v) : "Pick feed site…";
   const feed = v && linkRec(v);
@@ -1231,21 +1397,25 @@ function updateLinkUi() {
     t.textContent = `Fed with ${e.chemName || "chemical"}` + (k.gpd != null ? ` · ${k.gpd.toFixed(2)} GPD` : "") + (e.date ? ` (as of ${fmtShort(e.date)})` : "");
     t.hidden = false;
   } else { t.textContent = v ? "That feed site isn't in the list anymore" : ""; t.hidden = !v; }
-  // On a feed site: its control point(s) and their latest results
+  // On a feed site (control point): its sample point(s) and their latest results
   const cp = $("cpInfo"), lines = [];
   const cps = (county && site) ? controlPointsOf(county, site) : [];
-  $("cpBtn").textContent = cps.length ? cps.map(([c, s]) => c === county ? s : `${s} (${c})`).join(", ") : "Pick control point…";
+  $("cpBtn").textContent = cps.length ? cps.map(([c, s]) => c === county ? s : `${s} (${c})`).join(", ") : "Pick sample point…";
   {
     for (const [c, s] of cps) {
       const e = latestEntry(db[c][s]);
+      // How well the feed is working: last reading → this reading at the sample point
+      const h = Array.isArray(db[c][s][HIST]) ? db[c][s][HIST] : [], prev = h.length > 1 ? h[h.length - 2] : null;
       const bits = [["sulfide", "sulfide", "mg/L"], ["h2s", "H2S", "ppm"], ["nitrate", "nitrate", "mg/L"], ["peroxide", "peroxide", "mg/L"], ["ph", "pH", ""]]
-        .filter(([k]) => e && e[k] != null && e[k] !== "").map(([k, n, u]) => `${n} ${e[k]}${u ? " " + u : ""}`);
-      lines.push(`Control point ${c === county ? s : s + " (" + c + ")"}: ` + (bits.length ? bits.join(", ") : "no readings yet") + (e && e.date ? ` (${fmtShort(e.date)})` : ""));
+        .filter(([k]) => e && e[k] != null && e[k] !== "").map(([k, n, u]) => {
+          const was = prev && prev[k] != null && prev[k] !== "" && k !== "ph" && String(prev[k]) !== String(e[k]) ? `${prev[k]} → ` : "";
+          return `${n} ${was}${e[k]}${u ? " " + u : ""}`; });
+      lines.push(`Sample point ${c === county ? s : s + " (" + c + ")"}: ` + (bits.length ? bits.join(", ") : "no readings yet") + (e && e.date ? ` (${fmtShort(e.date)})` : ""));
     }
   }
   cp.textContent = lines.join("\n"); cp.hidden = !lines.length; cp.style.whiteSpace = "pre-line";
 }
-// Control points whose "Treated by" is this feed site
+// Sample points whose control point ("Treated by") is this feed site
 function controlPointsOf(fc, fs) {
   const me = linkKey(fc, fs), out = [];
   for (const c of counties()) for (const s of sites(c)) {
@@ -1272,18 +1442,18 @@ $("cpBtn").onclick = () => {
     const linked = current.some(([a, b]) => a === c && b === s);
     const e = latestEntry(db[c][s]), other = e && e.treatedBy && e.treatedBy !== me ? ` · now treated by ${linkName(e.treatedBy)}` : "";
     add((linked ? "✓ " : "") + (c === fc ? s : `${s} (${c})`) + other, async () => {
-      closeDlg(); await setTreatedBy(c, s, me); updateLinkUi(); toast(`${s} is now a control point for ${fs}`);
+      closeDlg(); await setTreatedBy(c, s, me); updateLinkUi(); toast(`${s} is now a sample point for ${fs}`);
     }, linked ? "done" : "");
   }
-  if (current.length) add("None (remove control point)", async () => {
-    closeDlg(); for (const [c, s] of current) await setTreatedBy(c, s, ""); updateLinkUi(); toast("Control point removed");
+  if (current.length) add("None (remove sample point)", async () => {
+    closeDlg(); for (const [c, s] of current) await setTreatedBy(c, s, ""); updateLinkUi(); toast("Sample point removed");
   }, "danger");
-  dialog("Control point for " + fs, box, [{ text: "Cancel" }]);
+  dialog("Sample point(s) for " + fs, box, [{ text: "Cancel" }]);
 };
 $("treatBtn").onclick = () => {
   if (!county || !site) { toast("Pick a site first"); return; }
   const box = document.createElement("div"); box.className = "list";
-  const pick = (v) => { loading = true; inputs.treatedBy.value = v; loading = false; dirty = true; updateStatus(); updateLinkUi(); closeDlg(); toast(v ? "Feed site set — SAVE to keep it" : "Feed site cleared — SAVE to keep it"); };
+  const pick = (v) => { loading = true; inputs.treatedBy.value = v; loading = false; dirty = true; updateStatus(); updateLinkUi(); closeDlg(); toast(v ? "Control point set — SAVE to keep it" : "Control point cleared — SAVE to keep it"); };
   const add = (text, v, cls) => { const b = document.createElement("button"); b.textContent = text; if (cls) b.className = cls; b.onclick = () => pick(v); box.append(b); };
   const order = [county];                                      // same county only
   // Every site in the county: ones with a chemical feed saved first (with the chemical), then the rest A-Z
@@ -1298,7 +1468,7 @@ $("treatBtn").onclick = () => {
   list.forEach(x => add(x.s + (x.chem ? ` — ${x.chem}` : ""), linkKey(x.c, x.s)));
   if (!list.length) { const p = document.createElement("p"); p.className = "hint"; p.textContent = "No other sites in this county yet."; box.append(p); }
   if (inputs.treatedBy.value) add("None (not treated by a feed)", "", "danger");
-  dialog("Which feed site treats " + site + "?", box, [{ text: "Cancel" }]);
+  dialog("Control point (feed site) for " + site + "?", box, [{ text: "Cancel" }]);
 };
 
 /* ---------- Site location / directions ---------- */
@@ -1590,7 +1760,7 @@ function csvRows(f) {
   });
   COLS.push(["Tank empty in days", (e, k) => k.days == null ? "" : k.days.toFixed(1)],
     ["Airflow CFM", (e, k) => k.cfm == null ? "" : String(Math.round(k.cfm))],
-    ["Complete", (e) => e.complete ? "Yes" : ""]);
+    ["Complete", (e) => e.complete ? "Yes" : ""], ["Other readings", (e) => custText(e)]);
   const head = ["County/City", "Site", "Reading date", ...COLS.map(x => x[0])];
   const rows = [head];
   const dated = !!(f.from || f.to);
@@ -1697,13 +1867,13 @@ function logFor(rec, date, times) {
   const val = x => x === "curve" ? curveSummary(rec.curve) : x === "loc" ? locText(rec.loc) : x === "treatedBy" ? linkName(rec.treatedBy) : (rec[x] || "");
   return { date, complete: rec.completeMonth === date.slice(0, 7),
     cols: [...LOG_KEYS.map(x => lab[x]), "Chem feed GPD", "Nutrient feed gal/day", "Tank empty in days", ...AIR.map(x => lab[x]), "Airflow CFM", ...later.map(x => lab[x]), "H2S removal %", ...TAIL.map(x => lab[x]), "Arrived", "Left",
-      ...NEWER.map(x => lab[x]), "Scrubber CFM", "Scrubber H2S removal %", "Carbon CFM", "Carbon H2S removal %", ...CARB_PORTS.map(x => lab[x]), lab.chemTank, "Chem tank empty in days", "Pump1 timer", "Pump2 timer", lab.chemTarget, lab.chemActual, lab.alarmType],
+      ...NEWER.map(x => lab[x]), "Scrubber CFM", "Scrubber H2S removal %", "Carbon CFM", "Carbon H2S removal %", ...CARB_PORTS.map(x => lab[x]), lab.chemTank, "Chem tank empty in days", "Pump1 timer", "Pump2 timer", lab.chemTarget, lab.chemActual, lab.alarmType, "Other readings"],
     vals: [...LOG_KEYS.map(val), k.gpd == null ? "" : k.gpd.toFixed(2), k.bioGpd == null ? "" : k.bioGpd.toFixed(2), k.days == null ? "" : k.days.toFixed(1),
-      ...AIR.map(val), k.cfm == null ? "" : String(Math.round(k.cfm)), ...later.map(val), k.removal == null ? "" : k.removal.toFixed(1), ...TAIL.map(val),
+      ...AIR.map(val), k.cfm == null ? "" : String(Math.round(k.cfm)), ...later.map(val), k.removal == null ? "" : remTxt(k.removal), ...TAIL.map(val),
       (times && times.a) || "", (times && times.l) || "",
-      ...NEWER.map(val), r1(sa.cfm, 0), r1(sa.removal, 1), r1(ca.cfm, 0), r1(ca.removal, 1), ...CARB_PORTS.map(val),
+      ...NEWER.map(val), r1(sa.cfm, 0), sa.removal == null ? "" : remTxt(sa.removal), r1(ca.cfm, 0), ca.removal == null ? "" : remTxt(ca.removal), ...CARB_PORTS.map(val),
       val("chemTank"), num(rec.chemTank) != null && k.gpd > 0 ? (num(rec.chemTank) / k.gpd).toFixed(1) : "",
-      timerSummary(rec.p1Timer), timerSummary(rec.p2Timer), val("chemTarget"), val("chemActual"), val("alarmType")] };
+      timerSummary(rec.p1Timer), timerSummary(rec.p2Timer), val("chemTarget"), val("chemActual"), val("alarmType"), custText(rec)] };
 }
 function queue(op, noSend) {
   if (!syncCfg) return;
