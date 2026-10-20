@@ -1378,25 +1378,29 @@ function updateCurveUi() {
 }
 
 /* ---------- Sample point <-> control point (feed site) link ---------- */
-const LINK_SEP = "\u0001";
+const LINK_SEP = "\u0001", MULTI_SEP = "\u0002";       // one link = "County\u0001Site"; several links joined with \u0002
 const linkKey = (c, s) => c + LINK_SEP + s;
+const linksOf = v => String(v || "").split(MULTI_SEP).filter(Boolean);
 function linkName(v) {
   if (!v) return "";
-  const [c, s] = String(v).split(LINK_SEP);
+  const list = linksOf(v);
+  if (list.length > 1) return list.map(linkName).join(", ");
+  const [c, s] = String(list[0] || v).split(LINK_SEP);
   return s == null ? c : (c === county ? s : `${s} (${c})`);
 }
 const linkRec = (v) => { const [c, s] = String(v || "").split(LINK_SEP); return (db[c] || {})[s] || null; };
 function latestEntry(rec) { const h = rec && Array.isArray(rec[HIST]) ? rec[HIST] : []; return h.length ? h[h.length - 1] : rec; }
 function updateLinkUi() {
   // On a sample point: which control point (feed site) treats it, and that feed's chemical + GPD
-  const v = inputs.treatedBy.value, t = $("treatInfo");
-  $("treatBtn").textContent = v ? linkName(v) : "Pick feed site…";
-  const feed = v && linkRec(v);
-  if (feed) {
+  const v = inputs.treatedBy.value, t = $("treatInfo"), feeds = linksOf(v);
+  $("treatBtn").textContent = feeds.length ? linkName(v) : "Pick feed site(s)…";
+  const tl = feeds.map(f => {
+    const feed = linkRec(f);
+    if (!feed) return `${linkName(f)}: not in the list anymore`;
     const e = latestEntry(feed), k = calc(e);
-    t.textContent = `Fed with ${e.chemName || "chemical"}` + (k.gpd != null ? ` · ${k.gpd.toFixed(2)} GPD` : "") + (e.date ? ` (as of ${fmtShort(e.date)})` : "");
-    t.hidden = false;
-  } else { t.textContent = v ? "That feed site isn't in the list anymore" : ""; t.hidden = !v; }
+    return (feeds.length > 1 ? linkName(f) + ": " : "") + `Fed with ${e.chemName || "chemical"}` + (k.gpd != null ? ` · ${k.gpd.toFixed(2)} GPD` : "") + (e.date ? ` (as of ${fmtShort(e.date)})` : "");
+  });
+  t.textContent = tl.join("\n"); t.style.whiteSpace = "pre-line"; t.hidden = !tl.length;
   // On a feed site (control point): its sample point(s) and their latest results
   const cp = $("cpInfo"), lines = [];
   const cps = (county && site) ? controlPointsOf(county, site) : [];
@@ -1420,7 +1424,7 @@ function controlPointsOf(fc, fs) {
   const me = linkKey(fc, fs), out = [];
   for (const c of counties()) for (const s of sites(c)) {
     const r = db[c][s]; const e = latestEntry(r);
-    if (r && !(c === fc && s === fs) && ((e && e.treatedBy) === me || r.treatedBy === me)) out.push([c, s]);
+    if (r && !(c === fc && s === fs) && (linksOf(e && e.treatedBy).includes(me) || linksOf(r.treatedBy).includes(me))) out.push([c, s]);
   }
   return out;
 }
@@ -1431,44 +1435,54 @@ async function setTreatedBy(c, s, v) {
   if (v) { r.treatedBy = v; if (e) e.treatedBy = v; } else { delete r.treatedBy; if (e) delete e.treatedBy; }
   await persist(); queue({ op: "put", c, s });
 }
+// Add or remove one feed site from a sample point's list of control points
+async function toggleFeed(c, s, me, on) {
+  const r = (db[c] || {})[s]; if (!r) return;
+  const e = latestEntry(r), now = linksOf((e && e.treatedBy) || r.treatedBy).filter(x => x !== me);
+  if (on) now.push(me);
+  await setTreatedBy(c, s, now.join(MULTI_SEP));
+}
+// A check list: items = [{ label, on, value }], done(picked values) after DONE
+function checkList(title, hint, items, done) {
+  const box = document.createElement("div"); box.className = "list";
+  const p = document.createElement("p"); p.className = "hint"; p.textContent = hint; box.append(p);
+  const picked = new Set(items.filter(x => x.on).map(x => x.value));
+  items.forEach(x => {
+    const b = document.createElement("button");
+    const show = () => { const on = picked.has(x.value); b.textContent = (on ? "✓ " : "☐ ") + x.label; b.className = on ? "done" : ""; };
+    b.onclick = () => { picked.has(x.value) ? picked.delete(x.value) : picked.add(x.value); show(); };
+    show(); box.append(b);
+  });
+  if (!items.length) { const q = document.createElement("p"); q.className = "hint"; q.textContent = "No other sites in this county yet."; box.append(q); }
+  dialog(title, box, [{ text: "Cancel" }, { text: "DONE", cls: "primary", fn: () => { setTimeout(() => done(items.filter(x => picked.has(x.value)).map(x => x.value)), 0); } }]);
+}
 $("cpBtn").onclick = () => {
   if (!county || !site) { toast("Pick a site first"); return; }
   const fc = county, fs = site, me = linkKey(fc, fs);
-  const box = document.createElement("div"); box.className = "list";
-  const current = controlPointsOf(fc, fs);
-  const add = (text, fn, cls) => { const b = document.createElement("button"); b.textContent = text; if (cls) b.className = cls; b.onclick = fn; box.append(b); };
-  for (const c of [fc]) for (const s of sites(c)) {          // same county only
-    if (c === fc && s === fs) continue;
-    const linked = current.some(([a, b]) => a === c && b === s);
-    const e = latestEntry(db[c][s]), other = e && e.treatedBy && e.treatedBy !== me ? ` · now treated by ${linkName(e.treatedBy)}` : "";
-    add((linked ? "✓ " : "") + (c === fc ? s : `${s} (${c})`) + other, async () => {
-      closeDlg(); await setTreatedBy(c, s, me); updateLinkUi(); toast(`${s} is now a sample point for ${fs}`);
-    }, linked ? "done" : "");
-  }
-  if (current.length) add("None (remove sample point)", async () => {
-    closeDlg(); for (const [c, s] of current) await setTreatedBy(c, s, ""); updateLinkUi(); toast("Sample point removed");
-  }, "danger");
-  dialog("Sample point(s) for " + fs, box, [{ text: "Cancel" }]);
+  const current = new Set(controlPointsOf(fc, fs).map(([c, s]) => linkKey(c, s)));
+  const items = sites(fc).filter(s => s !== fs).map(s => {
+    const e = latestEntry(db[fc][s]), others = linksOf(e && e.treatedBy).filter(x => x !== me);
+    return { label: s + (others.length ? ` · also ${linkName(others.join(MULTI_SEP))}` : ""), value: linkKey(fc, s), on: current.has(linkKey(fc, s)) };
+  });
+  checkList("Sample point(s) for " + fs, "Check every sample point this feed treats, then DONE.", items, async picked => {
+    for (const x of items) {
+      const want = picked.includes(x.value), had = current.has(x.value);
+      if (want !== had) { const [c, s] = x.value.split(LINK_SEP); await toggleFeed(c, s, me, want); }
+    }
+    updateLinkUi(); toast(picked.length ? `${fs}: ${picked.length} sample point(s)` : "Sample points removed");
+  });
 };
 $("treatBtn").onclick = () => {
   if (!county || !site) { toast("Pick a site first"); return; }
-  const box = document.createElement("div"); box.className = "list";
-  const pick = (v) => { loading = true; inputs.treatedBy.value = v; loading = false; dirty = true; updateStatus(); updateLinkUi(); closeDlg(); toast(v ? "Control point set — SAVE to keep it" : "Control point cleared — SAVE to keep it"); };
-  const add = (text, v, cls) => { const b = document.createElement("button"); b.textContent = text; if (cls) b.className = cls; b.onclick = () => pick(v); box.append(b); };
-  const order = [county];                                      // same county only
-  // Every site in the county: ones with a chemical feed saved first (with the chemical), then the rest A-Z
-  const list = [];
-  for (const c of order) for (const s of sites(c)) {
-    if (c === county && s === site) continue;
-    const e = latestEntry(db[c][s]);
-    const feed = !!(e && (e.chemName || e.p1Rate || e.p2Rate || e.curve));
-    list.push({ c, s, feed, chem: e && e.chemName });
-  }
+  const cur = new Set(linksOf(inputs.treatedBy.value));
+  // Every site in the county: ones with a chemical feed saved first, then the rest A-Z
+  const list = sites(county).filter(s => s !== site).map(s => { const e = latestEntry(db[county][s]); return { s, feed: !!(e && (e.chemName || e.p1Rate || e.p2Rate || e.curve)) }; });
   list.sort((a, b) => (b.feed - a.feed) || byName(a.s, b.s));
-  list.forEach(x => add(x.s, linkKey(x.c, x.s)));                         // site names only
-  if (!list.length) { const p = document.createElement("p"); p.className = "hint"; p.textContent = "No other sites in this county yet."; box.append(p); }
-  if (inputs.treatedBy.value) add("None (not treated by a feed)", "", "danger");
-  dialog("Control point (feed site) for " + site + "?", box, [{ text: "Cancel" }]);
+  const items = list.map(x => ({ label: x.s, value: linkKey(county, x.s), on: cur.has(linkKey(county, x.s)) }));
+  checkList("Control point(s) for " + site, "Check every feed site that treats this sample point, then DONE.", items, picked => {
+    loading = true; inputs.treatedBy.value = picked.join(MULTI_SEP); loading = false; dirty = true; updateStatus(); updateLinkUi();
+    toast(picked.length ? "Control point(s) set — SAVE to keep it" : "Control points cleared — SAVE to keep it");
+  });
 };
 
 /* ---------- Site location / directions ---------- */
