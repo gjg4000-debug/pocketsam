@@ -80,6 +80,7 @@
   .card h2.titled input { flex: 1; min-width: 0; font-size: 17px; font-weight: 700; padding: 6px 8px; }
   .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: center; padding: 5px 0; }
   .row label { font-weight: 600; font-size: 15px; }
+  .row.stack { grid-template-columns: 1fr; gap: 4px; }
   input, textarea, select { width: 100%; font: inherit; color: var(--text); background: var(--input);
     border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; }
   textarea { resize: vertical; min-height: 42px; }
@@ -456,9 +457,12 @@ for (const n of [1, 2]) {
   dbtn.onclick = () => openDrawdown(n); rwrap.append(rate, dbtn);
 } addField($("chemInfo"), CHEM_INFO);
 { // 🔩 next to Comments: pick spare parts, they go into the Comments box
-  const ta = inputs.chemInfo, w = document.createElement("div"); w.className = "hrswrap top"; ta.replaceWith(w);
+  const ta = inputs.chemInfo, w = document.createElement("div"); w.className = "hrswrap top"; ta.closest(".row").classList.add("stack"); ta.replaceWith(w);
   const b = document.createElement("button"); b.type = "button"; b.id = "partsBtn"; b.className = "tbtn"; b.textContent = "🔩"; b.title = "Spare parts";
   b.onclick = () => openParts(); w.append(ta, b);
+  // Grow to fit what's typed, so the parts line can be read
+  const fit = () => { ta.style.height = "auto"; ta.style.height = Math.max(ta.scrollHeight + 2, 80) + "px"; };
+  ta.addEventListener("input", fit); window.fitComments = fit;
 }
 inputs.curve = document.createElement("input"); inputs.curve.type = "hidden"; $("curveBox").append(inputs.curve);
 inputs.loc = document.createElement("input"); inputs.loc.type = "hidden"; $("locBar").append(inputs.loc);
@@ -671,7 +675,8 @@ function guardUnsaved(action) {
 
 /* ---------- Data ops ---------- */
 function fill(rec) { loading = true; ALL.forEach(f => inputs[f.key].value = rec ? (rec[f.key] ?? "") : ""); inputs.equip.value = (rec && rec.equip) || "";
-  custVals = rec && rec.cust && typeof rec.cust === "object" ? { ...rec.cust } : {}; loading = false; compute(); setComplete(rec); }
+  custVals = rec && rec.cust && typeof rec.cust === "object" ? { ...rec.cust } : {}; loading = false; compute(); setComplete(rec);
+  if (window.fitComments) setTimeout(window.fitComments, 0); }
 function setComplete(rec) {
   const done = !!(rec && rec.completeMonth === thisMonth());
   $("completeChk").checked = done;
