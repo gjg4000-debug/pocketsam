@@ -538,7 +538,8 @@ function compute() {
     if (tg && now != null) {
       const pct = (now - tg) / tg * 100;
       chem += `\nTarget ${+tg.toFixed(2)} GPD · ${act != null ? "actual " + +act.toFixed(2) : "pumps " + now.toFixed(1)} ` +
-        (Math.abs(pct) < 10 ? "(on target ✓)" : `(${Math.abs(pct).toFixed(0)}% ${pct > 0 ? "over" : "under"}) ⚠`);
+        (Math.abs(pct) < 10 ? "(on target ✓)" : `(${Math.abs(pct).toFixed(0)}% ${pct > 0 ? "over" : "under"}) ⚠`) +
+        (pct <= -10 ? "\nUnder target: check prime, tubing, check valve" : "");
     }
   }
   if (c.curve) {
@@ -1861,8 +1862,8 @@ function demoData() {
   return {
     "LS-1 Chem Feed": site({ equip: "chem", chemName: "Bioxide", p1Rate: "100", p1Hrs: "24", p2Rate: "130", p2Hrs: "17.25", p2Timer: pins,
       chemTank: "300", chemGpd: "73.59", chemInfo: "Demo site: two pumps, Pump 2 on a 96-pin timer. Try the ⏱ and 📏 buttons." }, { p1Rate: "95", chemTank: "450" }),
-    "LS-2 Chem Feed (off target)": site({ equip: "chem", chemName: "Bioxide", p1Rate: "62", p2Rate: "62", chemTank: "1962", chemTarget: "36", chemActual: "47",
-      chemInfo: "Demo: actual feed is 47 GPD, target is 36, so this site shows yellow." }, { chemActual: "40" }),
+    "LS-2 Chem Feed (under target)": site({ equip: "chem", chemName: "Bioxide", p1Rate: "47", p2Rate: "48", chemTank: "1962", chemTarget: "36", chemActual: "28",
+      chemInfo: "Demo: pumps are set for about 36 GPD, but the actual feed is only 28, so this site shows yellow." }, { chemActual: "35" }),
     "LS-3 Chem Feed (DD alarm)": site({ equip: "chem", chemName: "Nitrate", p1Rate: "50", chemTank: "800", alarmType: "DD",
       chemInfo: "Demo: a Delta Dose alarm. Set Alarm type back to None and SAVE to clear it." }, {}),
     "LS-4 Chem Feed (leak)": site({ equip: "chem", chemName: "Bioxide", p1Rate: "80", chemTank: "150", alarmType: "Leak",
