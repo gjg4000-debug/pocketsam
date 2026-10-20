@@ -1465,7 +1465,7 @@ $("treatBtn").onclick = () => {
     list.push({ c, s, feed, chem: e && e.chemName });
   }
   list.sort((a, b) => (b.feed - a.feed) || byName(a.s, b.s));
-  list.forEach(x => add(x.s + (x.chem ? ` — ${x.chem}` : ""), linkKey(x.c, x.s)));
+  list.forEach(x => add(x.s, linkKey(x.c, x.s)));                         // site names only
   if (!list.length) { const p = document.createElement("p"); p.className = "hint"; p.textContent = "No other sites in this county yet."; box.append(p); }
   if (inputs.treatedBy.value) add("None (not treated by a feed)", "", "danger");
   dialog("Control point (feed site) for " + site + "?", box, [{ text: "Cancel" }]);
