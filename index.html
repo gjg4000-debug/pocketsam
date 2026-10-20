@@ -203,7 +203,7 @@
     </div>
     <input type="file" id="curveFile" accept=".csv,.txt,text/csv,text/plain" hidden>
     <div class="result" id="chemResult">CHEM FEED GPD: --</div>
-    <div class="row"><label for="cpBtn">Control Point</label><button id="cpBtn" type="button" style="text-align:left"></button></div>
+    <div class="row"><label for="cpBtn">Sample point(s)</label><button id="cpBtn" type="button" style="text-align:left"></button></div>
     <div class="latest" id="cpInfo" hidden></div>
     <div id="chemInfo"></div>
   </section>
@@ -211,7 +211,7 @@
   <section class="card" id="sampleCard">
     <h2>Sample Point</h2>
     <div id="sampleFields"></div>
-    <div class="row"><label for="treatBtn">Treated by (feed site)</label><button id="treatBtn" type="button" style="text-align:left"></button></div>
+    <div class="row"><label for="treatBtn">Control point (feed site)</label><button id="treatBtn" type="button" style="text-align:left"></button></div>
     <div class="latest" id="treatInfo" hidden></div>
   </section>
 
@@ -338,8 +338,8 @@ const ADJ_GLOBAL = { key: "adjGlobal", label: "Global adjustment %", hint: "100"
 const ADJ_DAYS = DAYS.map(d => ({ key: "adj" + d.slice(0, 3), label: d + " adjustment %", hint: "100", num: true, short: d.slice(0, 2) }));
 // Site location for DIRECTIONS: "lat,lng,accuracy in meters" (accuracy blank when typed in).
 const LOC = { key: "loc", label: "Location", hint: "", num: false };
-// Control point link: the feed site whose chemical treats this sample point, stored as "County\u0001Site".
-const TREATED = { key: "treatedBy", label: "Treated by", hint: "", num: false };
+// Control point link: the control point is the feed site whose chemical treats this sample point, stored as "County\u0001Site".
+const TREATED = { key: "treatedBy", label: "Control point (feed site)", col: "Treated by", hint: "", num: false };   // sheet column keeps its old name
 // Scrubber (3-stage example: Stage 1 sump = caustic, Stage 2(/3) sump = caustic + bleach, shared by packing stages 2 and 3).
 // "col" is the column name in the sheet / CSV / HISTORY, so it doesn't clash with the biofilter's boxes.
 const SCRUB_SYSTEM = { key: "scrubSystem", label: "Scrubber", col: "Scrubber name", hint: "Scrubber", num: false };
@@ -1377,7 +1377,7 @@ function updateCurveUi() {
   }
 }
 
-/* ---------- Control point <-> feed site link ---------- */
+/* ---------- Sample point <-> control point (feed site) link ---------- */
 const LINK_SEP = "\u0001";
 const linkKey = (c, s) => c + LINK_SEP + s;
 function linkName(v) {
@@ -1388,7 +1388,7 @@ function linkName(v) {
 const linkRec = (v) => { const [c, s] = String(v || "").split(LINK_SEP); return (db[c] || {})[s] || null; };
 function latestEntry(rec) { const h = rec && Array.isArray(rec[HIST]) ? rec[HIST] : []; return h.length ? h[h.length - 1] : rec; }
 function updateLinkUi() {
-  // On a control point: which feed treats it, and that feed's chemical + GPD
+  // On a sample point: which control point (feed site) treats it, and that feed's chemical + GPD
   const v = inputs.treatedBy.value, t = $("treatInfo");
   $("treatBtn").textContent = v ? linkName(v) : "Pick feed site…";
   const feed = v && linkRec(v);
@@ -1397,21 +1397,21 @@ function updateLinkUi() {
     t.textContent = `Fed with ${e.chemName || "chemical"}` + (k.gpd != null ? ` · ${k.gpd.toFixed(2)} GPD` : "") + (e.date ? ` (as of ${fmtShort(e.date)})` : "");
     t.hidden = false;
   } else { t.textContent = v ? "That feed site isn't in the list anymore" : ""; t.hidden = !v; }
-  // On a feed site: its control point(s) and their latest results
+  // On a feed site (control point): its sample point(s) and their latest results
   const cp = $("cpInfo"), lines = [];
   const cps = (county && site) ? controlPointsOf(county, site) : [];
-  $("cpBtn").textContent = cps.length ? cps.map(([c, s]) => c === county ? s : `${s} (${c})`).join(", ") : "Pick control point…";
+  $("cpBtn").textContent = cps.length ? cps.map(([c, s]) => c === county ? s : `${s} (${c})`).join(", ") : "Pick sample point…";
   {
     for (const [c, s] of cps) {
       const e = latestEntry(db[c][s]);
       const bits = [["sulfide", "sulfide", "mg/L"], ["h2s", "H2S", "ppm"], ["nitrate", "nitrate", "mg/L"], ["peroxide", "peroxide", "mg/L"], ["ph", "pH", ""]]
         .filter(([k]) => e && e[k] != null && e[k] !== "").map(([k, n, u]) => `${n} ${e[k]}${u ? " " + u : ""}`);
-      lines.push(`Control point ${c === county ? s : s + " (" + c + ")"}: ` + (bits.length ? bits.join(", ") : "no readings yet") + (e && e.date ? ` (${fmtShort(e.date)})` : ""));
+      lines.push(`Sample point ${c === county ? s : s + " (" + c + ")"}: ` + (bits.length ? bits.join(", ") : "no readings yet") + (e && e.date ? ` (${fmtShort(e.date)})` : ""));
     }
   }
   cp.textContent = lines.join("\n"); cp.hidden = !lines.length; cp.style.whiteSpace = "pre-line";
 }
-// Control points whose "Treated by" is this feed site
+// Sample points whose control point ("Treated by") is this feed site
 function controlPointsOf(fc, fs) {
   const me = linkKey(fc, fs), out = [];
   for (const c of counties()) for (const s of sites(c)) {
@@ -1438,18 +1438,18 @@ $("cpBtn").onclick = () => {
     const linked = current.some(([a, b]) => a === c && b === s);
     const e = latestEntry(db[c][s]), other = e && e.treatedBy && e.treatedBy !== me ? ` · now treated by ${linkName(e.treatedBy)}` : "";
     add((linked ? "✓ " : "") + (c === fc ? s : `${s} (${c})`) + other, async () => {
-      closeDlg(); await setTreatedBy(c, s, me); updateLinkUi(); toast(`${s} is now a control point for ${fs}`);
+      closeDlg(); await setTreatedBy(c, s, me); updateLinkUi(); toast(`${s} is now a sample point for ${fs}`);
     }, linked ? "done" : "");
   }
-  if (current.length) add("None (remove control point)", async () => {
-    closeDlg(); for (const [c, s] of current) await setTreatedBy(c, s, ""); updateLinkUi(); toast("Control point removed");
+  if (current.length) add("None (remove sample point)", async () => {
+    closeDlg(); for (const [c, s] of current) await setTreatedBy(c, s, ""); updateLinkUi(); toast("Sample point removed");
   }, "danger");
-  dialog("Control point for " + fs, box, [{ text: "Cancel" }]);
+  dialog("Sample point(s) for " + fs, box, [{ text: "Cancel" }]);
 };
 $("treatBtn").onclick = () => {
   if (!county || !site) { toast("Pick a site first"); return; }
   const box = document.createElement("div"); box.className = "list";
-  const pick = (v) => { loading = true; inputs.treatedBy.value = v; loading = false; dirty = true; updateStatus(); updateLinkUi(); closeDlg(); toast(v ? "Feed site set — SAVE to keep it" : "Feed site cleared — SAVE to keep it"); };
+  const pick = (v) => { loading = true; inputs.treatedBy.value = v; loading = false; dirty = true; updateStatus(); updateLinkUi(); closeDlg(); toast(v ? "Control point set — SAVE to keep it" : "Control point cleared — SAVE to keep it"); };
   const add = (text, v, cls) => { const b = document.createElement("button"); b.textContent = text; if (cls) b.className = cls; b.onclick = () => pick(v); box.append(b); };
   const order = [county];                                      // same county only
   // Every site in the county: ones with a chemical feed saved first (with the chemical), then the rest A-Z
@@ -1464,7 +1464,7 @@ $("treatBtn").onclick = () => {
   list.forEach(x => add(x.s + (x.chem ? ` — ${x.chem}` : ""), linkKey(x.c, x.s)));
   if (!list.length) { const p = document.createElement("p"); p.className = "hint"; p.textContent = "No other sites in this county yet."; box.append(p); }
   if (inputs.treatedBy.value) add("None (not treated by a feed)", "", "danger");
-  dialog("Which feed site treats " + site + "?", box, [{ text: "Cancel" }]);
+  dialog("Control point (feed site) for " + site + "?", box, [{ text: "Cancel" }]);
 };
 
 /* ---------- Site location / directions ---------- */
