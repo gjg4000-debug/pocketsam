@@ -43,7 +43,8 @@
   .wd { display: grid; grid-template-columns: 1fr auto auto; gap: 6px 10px; align-items: center; font-size: 16px; }
   .wd .t { font-weight: 700; text-align: right; }
   .hrswrap { display: flex; gap: 6px; align-items: center; }
-  .hrswrap input { flex: 1; min-width: 0; }
+  .hrswrap input, .hrswrap textarea { flex: 1; min-width: 0; }
+  .hrswrap.top { align-items: flex-start; }
   button.tbtn { padding: 8px 10px; font-size: 18px; line-height: 1; }
   button.tbtn.on { border-color: var(--brand); background: var(--brand); color: var(--brand-ink); }
   .tnote { margin: -2px 0 4px; text-align: right; }
@@ -304,7 +305,7 @@ const ALARM_TYPES = [["", "None"], ["DD", "Delta Dose"], ["Low", "Low level"], [
 const CHEM_ALARM = { key: "alarmType", label: "Alarm type", col: "Alarm type", hint: "", opts: ALARM_TYPES };
 const CHEM_NAME = { key: "chemName", label: "Chemical", hint: "chemical name", num: false };
 const BIO_SYSTEM = { key: "bioSystem", label: "System type", hint: "Biofilter", num: false };
-const CHEM_INFO = { key: "chemInfo", label: "Chem feed info", hint: "Pump type/size/brand, tank level", num: false };
+const CHEM_INFO = { key: "chemInfo", label: "Comments", col: "Chem feed info", hint: "Comments, parts used", num: false };   // sheet column keeps its old name
 const BIO = [
   { key: "tankGal", label: "Nutrient tank gallons", hint: "Tank gal", num: true },
   { key: "jugs",    label: "Gallons of nutrient", hint: "gal", num: true },
@@ -454,6 +455,11 @@ for (const n of [1, 2]) {
   const dbtn = document.createElement("button"); dbtn.type = "button"; dbtn.className = "tbtn"; dbtn.textContent = "📏"; dbtn.title = `Pump ${n} drawdown`;
   dbtn.onclick = () => openDrawdown(n); rwrap.append(rate, dbtn);
 } addField($("chemInfo"), CHEM_INFO);
+{ // 🔩 next to Comments: pick spare parts, they go into the Comments box
+  const ta = inputs.chemInfo, w = document.createElement("div"); w.className = "hrswrap top"; ta.replaceWith(w);
+  const b = document.createElement("button"); b.type = "button"; b.id = "partsBtn"; b.className = "tbtn"; b.textContent = "🔩"; b.title = "Spare parts";
+  b.onclick = () => openParts(); w.append(ta, b);
+}
 inputs.curve = document.createElement("input"); inputs.curve.type = "hidden"; $("curveBox").append(inputs.curve);
 inputs.loc = document.createElement("input"); inputs.loc.type = "hidden"; $("locBar").append(inputs.loc);
 addField($("adjGlobalRow"), ADJ_GLOBAL);
@@ -1484,6 +1490,46 @@ $("treatBtn").onclick = () => {
     toast(picked.length ? "Control point(s) set — SAVE to keep it" : "Control points cleared — SAVE to keep it");
   });
 };
+
+
+/* ---------- Spare parts (🔩 next to chem feed Comments) ----------
+   The parts list lives only on this phone (never in the app's code or the sheet). Picked parts are added to Comments. */
+const PARTS_KEY = "pocketsam-parts";
+const getParts = () => { try { const v = JSON.parse(localStorage.getItem(PARTS_KEY) || "[]"); return Array.isArray(v) ? v : []; } catch (e) { return []; } };
+const setParts = a => { try { localStorage.setItem(PARTS_KEY, JSON.stringify(a)); } catch (e) {} };
+function editParts(after) {
+  const box = document.createElement("div");
+  box.innerHTML = `<p class="hint">Type or paste your parts list, one part per line. It stays on this phone only.</p><textarea id="partsList" rows="12" placeholder="Pump tubing&#10;Check valve&#10;Injection quill"></textarea>`;
+  const ta = box.querySelector("#partsList"); ta.value = getParts().join("\n");
+  dialog("Parts list", box, [{ text: "Cancel" }, { text: "SAVE LIST", cls: "primary", fn: () => {
+    const list = [...new Set(ta.value.split(/\r?\n/).map(x => x.trim()).filter(Boolean))];
+    setParts(list); toast(`${list.length} part(s) saved on this phone`); setTimeout(() => after && after(), 0);
+  } }]);
+  setTimeout(() => ta.focus(), 50);
+}
+function openParts() {
+  const list = getParts();
+  if (!list.length) { editParts(openParts); return; }
+  const box = document.createElement("div"); box.className = "list";
+  const p = document.createElement("p"); p.className = "hint"; p.textContent = "Check the parts you used, then ADD TO COMMENTS."; box.append(p);
+  const picked = new Set();
+  list.forEach(name => {
+    const b = document.createElement("button");
+    const show = () => { const on = picked.has(name); b.textContent = (on ? "✓ " : "☐ ") + name; b.className = on ? "done" : ""; };
+    b.onclick = () => { picked.has(name) ? picked.delete(name) : picked.add(name); show(); };
+    show(); box.append(b);
+  });
+  dialog("Spare parts", box, [
+    { text: "Edit list", fn: () => { setTimeout(() => editParts(openParts), 0); } },
+    { text: "Cancel" },
+    { text: "ADD TO COMMENTS", cls: "primary", fn: () => {
+      if (!picked.size) { p.textContent = "Check at least one part."; return false; }
+      const line = "Parts: " + list.filter(n => picked.has(n)).join(", ");
+      const ta = inputs.chemInfo, cur = ta.value.trim();
+      ta.value = cur ? cur + "\n" + line : line;
+      ta.dispatchEvent(new Event("input")); toast("Added to Comments · SAVE to keep it");
+    } }]);
+}
 
 /* ---------- Site location / directions ---------- */
 function parseLoc(str) {
