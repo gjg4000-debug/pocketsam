@@ -16,13 +16,13 @@
   :root {
     --bg: #f4f5fa; --card: #ffffff; --text: #1b1c22; --muted: #6a6d7c;
     --line: #d9dbe6; --brand: #3F51B5; --brand-ink: #ffffff; --accent: #e8ebfa;
-    --danger: #c62828; --ok: #2e7d32; --input: #fbfbfe;
+    --danger: #c62828; --ok: #2e7d32; --input: #fbfbfe; --warn: #fff3bf; --warn-line: #d4a000;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #121318; --card: #1d1e25; --text: #e9e9ef; --muted: #9a9cab;
       --line: #33353f; --brand: #7986CB; --brand-ink: #10121c; --accent: #262a40;
-      --danger: #ef5350; --ok: #66bb6a; --input: #16171d;
+      --danger: #ef5350; --ok: #66bb6a; --input: #16171d; --warn: #4a3d0a; --warn-line: #e6b800;
     }
   }
   * { box-sizing: border-box; }
@@ -112,6 +112,7 @@
   .list button { display: block; width: 100%; text-align: left; margin: 6px 0; font-weight: 500; }
   .list button.add { color: var(--brand); font-weight: 700; }
   .list button.done { color: var(--ok); font-weight: 700; border-color: var(--ok); }
+  .list button.warn { background: var(--warn); border-color: var(--warn-line); }
   .list button .count { float: right; color: var(--muted); font-weight: 400; font-size: 14px; }
   .complete { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 10px 0 0; padding: 8px 8px 8px 14px;
     background: var(--card); border: 1px solid var(--line); border-radius: 12px; font-weight: 700; }
@@ -526,19 +527,11 @@ function compute() {
       chem += `\nPump ${n}: ${(gph * h).toFixed(1)} GPD` + (h < 24 ? ` (${+h.toFixed(2)} hrs)` : "");
     }
   }
-  { const r = currentRecord(), tg = num(r.chemTarget), act = num(r.chemActual);
-    if (tg && c.gpd != null && c.gpd > 0) {
-      const pct = (c.gpd - tg) / tg * 100, off = Math.abs(pct) >= 10;
-      chem += `\nTarget ${+tg.toFixed(2)} GPD · ` + (Math.abs(pct) < 1 ? "on target ✓" : `${Math.abs(pct).toFixed(0)}% ${pct > 0 ? "over" : "under"}${off ? " ⚠" : ""}`);
-      if (Math.abs(pct) >= 1 && !c.curve) {
-        const f = tg / c.gpd; chem += `\nTo hit target: set pumps to about ${(f * 100).toFixed(0)}% of now`;
-        for (const n of [1, 2]) { const ml = num(r[`p${n}Rate`]); if (ml) chem += `\nPump ${n}: ${+ml.toFixed(1)} → ${(ml * f).toFixed(0)} mL/min`; }
-      }
-    }
-    if (act && c.gpd != null && c.gpd > 0) {
-      const d = (act - c.gpd) / c.gpd * 100;
-      chem += Math.abs(d) < 10 ? `\nTankLink ${+act.toFixed(2)} GPD matches the pumps ✓`
-        : `\nTankLink ${+act.toFixed(2)} GPD vs pumps ${c.gpd.toFixed(1)} (${Math.abs(d).toFixed(0)}% ${d > 0 ? "more" : "less"}) ⚠ check pump rate / timer`;
+  { const r = currentRecord(), tg = num(r.chemTarget), act = num(r.chemActual), now = act ?? c.gpd;
+    if (tg && now != null) {
+      const pct = (now - tg) / tg * 100;
+      chem += `\nTarget ${+tg.toFixed(2)} GPD · ${act != null ? "TankLink " + +act.toFixed(2) : "pumps " + now.toFixed(1)} ` +
+        (Math.abs(pct) < 10 ? "(on target ✓)" : `(${Math.abs(pct).toFixed(0)}% ${pct > 0 ? "over" : "under"}) ⚠`);
     }
   }
   if (c.curve) {
@@ -633,6 +626,7 @@ function listDialog(title, items, addText, onPick, onAdd, decorate) {
     const d = decorate ? decorate(name) : {};
     b.textContent = (d.done ? "✓ " : "") + name;
     if (d.done) b.classList.add("done");
+    if (d.warn) b.classList.add("warn");
     if (d.count || d.distFor) { const sp = document.createElement("span"); sp.className = "count"; sp.textContent = d.count || ""; if (d.distFor) sp.dataset.site = d.distFor; b.append(sp); }
     b.onclick = () => { closeDlg(); onPick(name); }; box.append(b);
   });
@@ -921,6 +915,13 @@ const EQUIP_TYPES = [
 const EQUIP_CARDS = ["chemCard", "sampleCard", "bioCard", "scrubCard", "carbCard"];
 const equipIds = v => v === "all" ? EQUIP_TYPES.map(t => t.id) : String(v || "").split(",").filter(id => EQUIP_TYPES.some(t => t.id === id));
 const equipNames = ids => EQUIP_TYPES.filter(t => ids.includes(t.id)).map(t => t.name).join(" + ");
+// Yellow in the site list: the feed is 10% or more off its target (TankLink actual if entered, else the pumps)
+function offTarget(c, s) {
+  const r = (db[c] || {})[s]; if (!r) return false;
+  const tg = num(r.chemTarget); if (!tg) return false;
+  const now = num(r.chemActual) ?? calc(r).gpd; if (now == null) return false;
+  return Math.abs(now - tg) / tg >= 0.10;
+}
 function guessEquip(rec) {
   if (!rec) return [];
   const has = keys => keys.some(k => String(rec[k] ?? "").trim());
@@ -992,7 +993,7 @@ $("siteBtn").onclick = () => {
     () => askName("New site name", n => {
       if (db[county][n]) { loadSite(n); return; }
       site = n; startVisit(); fill(null); dirty = true; refreshUi(); pickEquip(true);
-    }), s => ({ done: isDone(county, s), count: siteDist(s), distFor: s })));
+    }), s => ({ done: isDone(county, s), warn: offTarget(county, s), count: siteDist(s), distFor: s })));
   // Not sure where you are yet (common on iPhone): offer a button to get distances
   if (!here && sites(county).some(x => parseLoc((db[county][x] || {}).loc))) {
     const box = document.querySelector("#dlgBody .list");
