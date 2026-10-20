@@ -283,6 +283,8 @@ const CHEM = [
 const P1_TIMER = { key: "p1Timer", label: "Pump1 timer", hint: "", num: false };
 const P2_TIMER = { key: "p2Timer", label: "Pump2 timer", hint: "", num: false };
 const CHEM_TANK = { key: "chemTank", label: "Chem tank level (gal)", col: "Chem tank gal", hint: "gal", num: true };
+const CHEM_TARGET = { key: "chemTarget", label: "Target GPD", col: "Target GPD", hint: "GPD", num: true };
+const CHEM_ACTUAL = { key: "chemActual", label: "TankLink actual GPD", col: "TankLink actual GPD", hint: "optional", num: true };
 const CHEM_NAME = { key: "chemName", label: "Chemical", hint: "chemical name", num: false };
 const BIO_SYSTEM = { key: "bioSystem", label: "System type", hint: "Biofilter", num: false };
 const CHEM_INFO = { key: "chemInfo", label: "Chem feed info", hint: "Pump type/size/brand, tank level", num: false };
@@ -358,7 +360,7 @@ const CARB_INFO = { key: "carbInfo", label: "Carbon info", hint: "e.g. vessel si
 const CARB_PORTS = ["cbP1", "cbP2", "cbP3"];
 const SCRUB_KEYS = [SCRUB_SYSTEM, ...SCRUB, SCRUB_INFO].map(f => f.key), CARB_KEYS = [CARB_SYSTEM, ...CARB, CARB_INFO].map(f => f.key);
 const colOf = f => f.col || f.label;
-const ALL = [CHEM_NAME, ...CHEM, P1_TIMER, P2_TIMER, CHEM_TANK, CURVE, ADJ_GLOBAL, ...ADJ_DAYS, CHEM_INFO, ...SAMPLE, TREATED, BIO_SYSTEM, ...BIO, BIO_INFO, LOC,
+const ALL = [CHEM_NAME, ...CHEM, P1_TIMER, P2_TIMER, CHEM_TANK, CHEM_TARGET, CHEM_ACTUAL, CURVE, ADJ_GLOBAL, ...ADJ_DAYS, CHEM_INFO, ...SAMPLE, TREATED, BIO_SYSTEM, ...BIO, BIO_INFO, LOC,
   SCRUB_SYSTEM, ...SCRUB, SCRUB_INFO, CARB_SYSTEM, ...CARB, CARB_INFO];
 const HIST = "_history";   // per-site list of dated readings
 
@@ -422,7 +424,7 @@ inputs.chemName = $("f_chemName");
 inputs.chemName.addEventListener("input", () => { if (!loading) { dirty = true; updateStatus(); } });
 inputs.bioSystem = $("f_bioSystem");
 inputs.bioSystem.addEventListener("input", () => { if (!loading) { dirty = true; updateStatus(); } });
-CHEM.forEach(f => addField($("chemFields"), f)); addField($("chemFields"), CHEM_TANK);
+CHEM.forEach(f => addField($("chemFields"), f)); addField($("chemFields"), CHEM_TANK); addField($("chemFields"), CHEM_TARGET); addField($("chemFields"), CHEM_ACTUAL);
 for (const n of [1, 2]) {
   const hrs = inputs[`p${n}Hrs`], row = hrs.parentElement;
   const wrap = document.createElement("div"); wrap.className = "hrswrap"; hrs.replaceWith(wrap);
@@ -522,6 +524,21 @@ function compute() {
       const ml = num(r[`p${n}Rate`]); if (!ml) continue;
       const h = num(r[`p${n}Hrs`]) ?? 24, gph = ml * 60 / 3785.41;
       chem += `\nPump ${n}: ${(gph * h).toFixed(1)} GPD` + (h < 24 ? ` (${+h.toFixed(2)} hrs)` : "");
+    }
+  }
+  { const r = currentRecord(), tg = num(r.chemTarget), act = num(r.chemActual);
+    if (tg && c.gpd != null && c.gpd > 0) {
+      const pct = (c.gpd - tg) / tg * 100, off = Math.abs(pct) >= 10;
+      chem += `\nTarget ${+tg.toFixed(2)} GPD · ` + (Math.abs(pct) < 1 ? "on target ✓" : `${Math.abs(pct).toFixed(0)}% ${pct > 0 ? "over" : "under"}${off ? " ⚠" : ""}`);
+      if (Math.abs(pct) >= 1 && !c.curve) {
+        const f = tg / c.gpd; chem += `\nTo hit target: set pumps to about ${(f * 100).toFixed(0)}% of now`;
+        for (const n of [1, 2]) { const ml = num(r[`p${n}Rate`]); if (ml) chem += `\nPump ${n}: ${+ml.toFixed(1)} → ${(ml * f).toFixed(0)} mL/min`; }
+      }
+    }
+    if (act && c.gpd != null && c.gpd > 0) {
+      const d = (act - c.gpd) / c.gpd * 100;
+      chem += Math.abs(d) < 10 ? `\nTankLink ${+act.toFixed(2)} GPD matches the pumps ✓`
+        : `\nTankLink ${+act.toFixed(2)} GPD vs pumps ${c.gpd.toFixed(1)} (${Math.abs(d).toFixed(0)}% ${d > 0 ? "more" : "less"}) ⚠ check pump rate / timer`;
     }
   }
   if (c.curve) {
@@ -908,7 +925,7 @@ function guessEquip(rec) {
   if (!rec) return [];
   const has = keys => keys.some(k => String(rec[k] ?? "").trim());
   const found = [];
-  if (has(["chemName", ...CHEM.map(f => f.key), "chemTank", "curve", "chemInfo"])) found.push("chem");
+  if (has(["chemName", ...CHEM.map(f => f.key), "chemTank", "chemTarget", "chemActual", "curve", "chemInfo"])) found.push("chem");
   if (has([...SAMPLE.map(f => f.key), "treatedBy"])) found.push("sample");
   if (has(["bioSystem", ...BIO.map(f => f.key), "bioInfo"])) found.push("bio");
   if (has(SCRUB_KEYS)) found.push("scrub");
@@ -1663,17 +1680,17 @@ function logFor(rec, date, times) {
   const AIR = ["ductDia", "fpm"];
   const EXTRA = ["waterGpm", ...SAMPLE.map(f => f.key), "chemName", "bioSystem", "h2sIn", "h2sMid", "h2sOut"];   // added later, in the order they were added
   const TAIL = ["vfdHz", "curve", ADJ_GLOBAL.key, ...ADJ_DAYS.map(f => f.key), "loc", "treatedBy"];                            // added after "H2S removal %" (then Arrived / Left at the very end: add any newer columns after Left)
-  const later = [...EXTRA, ...ALL.map(f => f.key).filter(x => !LOG_KEYS.includes(x) && !AIR.includes(x) && !EXTRA.includes(x) && !TAIL.includes(x) && !NEWER.includes(x) && !CARB_PORTS.includes(x) && x !== "chemTank" && !x.endsWith("Timer"))];
+  const later = [...EXTRA, ...ALL.map(f => f.key).filter(x => !LOG_KEYS.includes(x) && !AIR.includes(x) && !EXTRA.includes(x) && !TAIL.includes(x) && !NEWER.includes(x) && !CARB_PORTS.includes(x) && x !== "chemTank" && x !== "chemTarget" && x !== "chemActual" && !x.endsWith("Timer"))];
   const val = x => x === "curve" ? curveSummary(rec.curve) : x === "loc" ? locText(rec.loc) : x === "treatedBy" ? linkName(rec.treatedBy) : (rec[x] || "");
   return { date, complete: rec.completeMonth === date.slice(0, 7),
     cols: [...LOG_KEYS.map(x => lab[x]), "Chem feed GPD", "Nutrient feed gal/day", "Tank empty in days", ...AIR.map(x => lab[x]), "Airflow CFM", ...later.map(x => lab[x]), "H2S removal %", ...TAIL.map(x => lab[x]), "Arrived", "Left",
-      ...NEWER.map(x => lab[x]), "Scrubber CFM", "Scrubber H2S removal %", "Carbon CFM", "Carbon H2S removal %", ...CARB_PORTS.map(x => lab[x]), lab.chemTank, "Chem tank empty in days", "Pump1 timer", "Pump2 timer"],
+      ...NEWER.map(x => lab[x]), "Scrubber CFM", "Scrubber H2S removal %", "Carbon CFM", "Carbon H2S removal %", ...CARB_PORTS.map(x => lab[x]), lab.chemTank, "Chem tank empty in days", "Pump1 timer", "Pump2 timer", lab.chemTarget, lab.chemActual],
     vals: [...LOG_KEYS.map(val), k.gpd == null ? "" : k.gpd.toFixed(2), k.bioGpd == null ? "" : k.bioGpd.toFixed(2), k.days == null ? "" : k.days.toFixed(1),
       ...AIR.map(val), k.cfm == null ? "" : String(Math.round(k.cfm)), ...later.map(val), k.removal == null ? "" : k.removal.toFixed(1), ...TAIL.map(val),
       (times && times.a) || "", (times && times.l) || "",
       ...NEWER.map(val), r1(sa.cfm, 0), r1(sa.removal, 1), r1(ca.cfm, 0), r1(ca.removal, 1), ...CARB_PORTS.map(val),
       val("chemTank"), num(rec.chemTank) != null && k.gpd > 0 ? (num(rec.chemTank) / k.gpd).toFixed(1) : "",
-      timerSummary(rec.p1Timer), timerSummary(rec.p2Timer)] };
+      timerSummary(rec.p1Timer), timerSummary(rec.p2Timer), val("chemTarget"), val("chemActual")] };
 }
 function queue(op, noSend) {
   if (!syncCfg) return;
