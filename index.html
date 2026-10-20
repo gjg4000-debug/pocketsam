@@ -223,7 +223,7 @@
   </section>
 
   <section class="card" id="scrubCard">
-    <h2 class="titled"><label for="f_scrubSystem" class="pencil" title="Tap to change the name">✎</label><input type="text" id="f_scrubSystem" placeholder="Scrubber" aria-label="Scrubber name (LoPro…)" autocomplete="off" autocapitalize="words"></h2>
+    <h2 class="titled"><label for="f_scrubSystem" class="pencil" title="Tap to change the name">✎</label><input type="text" id="f_scrubSystem" placeholder="Scrubber" aria-label="Scrubber name" autocomplete="off" autocapitalize="words"></h2>
     <div id="scrubFields"></div>
     <div class="result" id="scrubResult"></div>
     <div id="scrubInfo"></div>
@@ -340,7 +340,7 @@ const ADJ_DAYS = DAYS.map(d => ({ key: "adj" + d.slice(0, 3), label: d + " adjus
 const LOC = { key: "loc", label: "Location", hint: "", num: false };
 // Control point link: the feed site whose chemical treats this sample point, stored as "County\u0001Site".
 const TREATED = { key: "treatedBy", label: "Treated by", hint: "", num: false };
-// Scrubber (LoPro: Stage 1 sump = caustic, Stage 2(/3) sump = caustic + bleach, shared by packing stages 2 and 3).
+// Scrubber (3-stage example: Stage 1 sump = caustic, Stage 2(/3) sump = caustic + bleach, shared by packing stages 2 and 3).
 // "col" is the column name in the sheet / CSV / HISTORY, so it doesn't clash with the biofilter's boxes.
 const SCRUB_SYSTEM = { key: "scrubSystem", label: "Scrubber", col: "Scrubber name", hint: "Scrubber", num: false };
 const SCRUB = [
@@ -359,7 +359,7 @@ const SCRUB = [
   { key: "scIn",    label: "H2S In ppm", col: "Scrubber H2S In ppm", hint: "ppm", num: true },
   { key: "scOut",   label: "H2S Out ppm", col: "Scrubber H2S Out ppm", hint: "ppm", num: true },
 ];
-const SCRUB_INFO = { key: "scrubInfo", label: "Scrubber info", hint: "e.g. LoPro 3-stage, nozzles, notes", num: false };
+const SCRUB_INFO = { key: "scrubInfo", label: "Scrubber info", hint: "e.g. 3-stage, nozzles, notes", num: false };
 const CARB_SYSTEM = { key: "carbSystem", label: "Carbon Adsorber", col: "Carbon adsorber name", hint: "Carbon Adsorber", num: false };
 const CARB = [
   { key: "cbHz",    label: "Fan VFD (Hz)", col: "Carbon fan VFD Hz", hint: "Hz", num: true },
@@ -2038,7 +2038,7 @@ function demoData() {
     "Plant Biofilter": site({ equip: "bio", bioSystem: "Biofilter", tankGal: "55", jugs: "5", bioGph: "2", speed: "60", stroke: "80",
       onSec: "11", offMin: "14", waterGpm: "2", vfdHz: "50", ductDia: "12", fpm: "800", h2sIn: "80", h2sMid: "10", h2sOut: "1",
       bioInfo: "Demo biofilter" }, { h2sIn: "95", h2sOut: "3" }),
-    "LoPro Scrubber": site({ equip: "scrub", scrubSystem: "LoPro 3-stage", s1Ph: "10.5", s2Ph: "9.8", s2Orp: "650", naohGal: "300", naoclGal: "420",
+    "Plant Scrubber": site({ equip: "scrub", scrubSystem: "3-stage scrubber", s1Ph: "10.5", s2Ph: "9.8", s2Orp: "650", naohGal: "300", naoclGal: "420",
       rp1: "18", rp2: "20", scWater: "2", scHz: "55", scDuct: "24", scFpm: "1500", scDp: "3.1", scIn: "200", scOut: "1" }, { scIn: "180", scOut: "2" }),
     "Carbon Vessel": site({ equip: "carb", carbSystem: "Carbon Vessel 1", cbHz: "50", cbDuct: "12", cbFpm: "1000", cbDp: "2.2",
       cbIn: "40", cbP1: "8", cbP2: "1", cbP3: "0", cbOut: "0", cbChange: last }, { cbP1: "4", cbP2: "0" }),
