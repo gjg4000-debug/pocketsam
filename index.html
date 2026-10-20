@@ -522,6 +522,8 @@ function calc(rec) {
   const removal = (hin != null && hout != null && hin > 0) ? (hin - hout) / hin * 100 : null;
   return { gpd, bioGpd, days, runMin: runHrs * 60, timer, cfm, removal, curve: cv };
 }
+// Removal is never shown as 100%: a molecule or two always gets through, so the top is 99.99%
+const remTxt = r => { const t = r.toFixed(1); return +t >= 100 ? "99.99" : t; };
 // Airflow and H2S removal for one unit (scrubber or carbon): same math as the biofilter
 function airCalc(rec, d, f, i, o) {
   const dia = num(rec[d]), fpm = num(rec[f]), hin = num(rec[i]), hout = num(rec[o]);
@@ -530,7 +532,7 @@ function airCalc(rec, d, f, i, o) {
 }
 // Carbon removal: inlet vs outlet; with no outlet reading, the deepest sample port filled in
 const carbOutKey = rec => num(rec.cbOut) != null ? "cbOut" : ["cbP3", "cbP2", "cbP1"].find(k => num(rec[k]) != null) || "cbOut";
-const airText = a => "Airflow: " + (a.cfm == null ? "enter duct diameter and FPM" : Math.round(a.cfm) + " CFM") + (a.removal == null ? "" : "\nH2S removal: " + a.removal.toFixed(1) + "%");
+const airText = a => "Airflow: " + (a.cfm == null ? "enter duct diameter and FPM" : Math.round(a.cfm) + " CFM") + (a.removal == null ? "" : "\nH2S removal: " + remTxt(a.removal) + "%");
 const currentRecord = () => { const r = {}; ALL.forEach(f => r[f.key] = inputs[f.key].value.trim()); return r; };
 function compute() {
   const c = calc(currentRecord());
@@ -578,7 +580,7 @@ function compute() {
       + (c.timer ? "\nPump runs about " + c.runMin.toFixed(1) + " min/day" : "\nNo timer entered, figured as running 24 hrs")
       + (c.days != null ? "\nTank empty in about " + c.days.toFixed(1) + " days" : ""))
     + "\nAirflow: " + (c.cfm == null ? "enter duct diameter and FPM" : Math.round(c.cfm) + " CFM")
-    + (c.removal == null ? "" : "\nH2S removal: " + c.removal.toFixed(1) + "%");
+    + (c.removal == null ? "" : "\nH2S removal: " + remTxt(c.removal) + "%");
   const cr = currentRecord();
   $("scrubResult").textContent = airText(airCalc(cr, "scDuct", "scFpm", "scIn", "scOut"));
   $("carbResult").textContent = airText(airCalc(cr, "cbDuct", "cbFpm", "cbIn", carbOutKey(cr))) + (carbOutKey(cr) !== "cbOut" ? " (to port " + carbOutKey(cr).slice(-1) + ")" : "");
@@ -1184,7 +1186,7 @@ function writeCurrent() {
   if (k.bioGpd != null) rec.bioGalPerDay = k.bioGpd.toFixed(2);
   if (k.days != null) rec.tankDaysLeft = k.days.toFixed(1);
   if (k.cfm != null) rec.cfm = String(Math.round(k.cfm));
-  if (k.removal != null) rec.h2sRemoval = k.removal.toFixed(1);
+  if (k.removal != null) rec.h2sRemoval = remTxt(k.removal);
   // Don't store empty boxes
   for (const key of Object.keys(rec)) if (rec[key] === "") delete rec[key];
   if (old.completeMonth) { rec.completeMonth = old.completeMonth; rec.completedOn = old.completedOn; }
@@ -1290,7 +1292,7 @@ function showReading(e) {
   add("Nutrient feed gal/day", c.bioGpd == null ? "" : c.bioGpd.toFixed(2));
   add("Tank empty in (days)", c.days == null ? "" : c.days.toFixed(1));
   add("Airflow CFM", c.cfm == null ? "" : String(Math.round(c.cfm)));
-  add("H2S removal %", c.removal == null ? "" : c.removal.toFixed(1));
+  add("H2S removal %", c.removal == null ? "" : remTxt(c.removal));
   dialog(`${site} — ${fmtDate(e.date)}`, kv, [
     { text: "Delete", cls: "danger", fn: () => { setTimeout(() => confirmBox(`Delete the ${fmtDate(e.date)} reading?`, "Delete", async () => {
         const rec = siteRec(); rec[HIST] = rec[HIST].filter(x => x.date !== e.date); if (!rec[HIST].length) delete rec[HIST];
@@ -1863,9 +1865,9 @@ function logFor(rec, date, times) {
     cols: [...LOG_KEYS.map(x => lab[x]), "Chem feed GPD", "Nutrient feed gal/day", "Tank empty in days", ...AIR.map(x => lab[x]), "Airflow CFM", ...later.map(x => lab[x]), "H2S removal %", ...TAIL.map(x => lab[x]), "Arrived", "Left",
       ...NEWER.map(x => lab[x]), "Scrubber CFM", "Scrubber H2S removal %", "Carbon CFM", "Carbon H2S removal %", ...CARB_PORTS.map(x => lab[x]), lab.chemTank, "Chem tank empty in days", "Pump1 timer", "Pump2 timer", lab.chemTarget, lab.chemActual, lab.alarmType, "Other readings"],
     vals: [...LOG_KEYS.map(val), k.gpd == null ? "" : k.gpd.toFixed(2), k.bioGpd == null ? "" : k.bioGpd.toFixed(2), k.days == null ? "" : k.days.toFixed(1),
-      ...AIR.map(val), k.cfm == null ? "" : String(Math.round(k.cfm)), ...later.map(val), k.removal == null ? "" : k.removal.toFixed(1), ...TAIL.map(val),
+      ...AIR.map(val), k.cfm == null ? "" : String(Math.round(k.cfm)), ...later.map(val), k.removal == null ? "" : remTxt(k.removal), ...TAIL.map(val),
       (times && times.a) || "", (times && times.l) || "",
-      ...NEWER.map(val), r1(sa.cfm, 0), r1(sa.removal, 1), r1(ca.cfm, 0), r1(ca.removal, 1), ...CARB_PORTS.map(val),
+      ...NEWER.map(val), r1(sa.cfm, 0), sa.removal == null ? "" : remTxt(sa.removal), r1(ca.cfm, 0), ca.removal == null ? "" : remTxt(ca.removal), ...CARB_PORTS.map(val),
       val("chemTank"), num(rec.chemTank) != null && k.gpd > 0 ? (num(rec.chemTank) / k.gpd).toFixed(1) : "",
       timerSummary(rec.p1Timer), timerSummary(rec.p2Timer), val("chemTarget"), val("chemActual"), val("alarmType"), custText(rec)] };
 }
