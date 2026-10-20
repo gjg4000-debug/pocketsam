@@ -593,6 +593,7 @@ function refreshUi() {
   $("historyBtn").disabled = !h.length;
   updateStatus(); updateLocUi(); applyEquip(); updateTimes();
   for (const k of ["chemTarget", "chemActual", "alarmType"]) inputs[k].closest(".row").hidden = !tlOn(county);
+  $("demoLink").hidden = !!db["Demo County"];
 }
 function updateStatus() {
   $("status").textContent = !county ? "Pick or add a county / city to start."
