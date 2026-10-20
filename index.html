@@ -287,6 +287,9 @@ const P2_TIMER = { key: "p2Timer", label: "Pump2 timer", hint: "", num: false };
 const CHEM_TANK = { key: "chemTank", label: "Chem tank level (gal)", col: "Chem tank gal", hint: "gal", num: true };
 const CHEM_TARGET = { key: "chemTarget", label: "Target GPD", col: "Target GPD", hint: "GPD", num: true };
 const CHEM_ACTUAL = { key: "chemActual", label: "TankLink actual GPD", col: "TankLink actual GPD", hint: "optional", num: true };
+// Target / TankLink / L2S alarm: only in Demo County for now (set to false to turn on everywhere)
+const TL_DEMO_ONLY = true;
+function tlOn(c) { return !TL_DEMO_ONLY || c === "Demo County"; }
 const L2S_ALARMS = [["", "None"], ["DD", "Delta Dose"], ["Low", "Low level"], ["Leak", "Tank leak"], ["Empty", "Empty"]];
 const CHEM_ALARM = { key: "l2sAlarm", label: "L2S alarm", col: "L2S alarm", hint: "", opts: L2S_ALARMS };
 const CHEM_NAME = { key: "chemName", label: "Chemical", hint: "chemical name", num: false };
@@ -530,7 +533,7 @@ function compute() {
       chem += `\nPump ${n}: ${(gph * h).toFixed(1)} GPD` + (h < 24 ? ` (${+h.toFixed(2)} hrs)` : "");
     }
   }
-  { const r = currentRecord(), tg = num(r.chemTarget), act = num(r.chemActual), now = act ?? c.gpd;
+  if (tlOn(county)) { const r = currentRecord(), tg = num(r.chemTarget), act = num(r.chemActual), now = act ?? c.gpd;
     if (r.l2sAlarm) chem += (r.l2sAlarm === "Leak" ? "\n🚨 L2S alarm: " : "\n⚠ L2S alarm: ") + (L2S_ALARMS.find(a => a[0] === r.l2sAlarm) || [, r.l2sAlarm])[1];
     if (tg && now != null) {
       const pct = (now - tg) / tg * 100;
@@ -588,6 +591,7 @@ function refreshUi() {
   ["historyBtn", "saveBtn", "quickSaveBtn"].forEach(id => $(id).disabled = !on);
   $("historyBtn").disabled = !h.length;
   updateStatus(); updateLocUi(); applyEquip(); updateTimes();
+  for (const k of ["chemTarget", "chemActual", "l2sAlarm"]) inputs[k].closest(".row").hidden = !tlOn(county);
 }
 function updateStatus() {
   $("status").textContent = !county ? "Pick or add a county / city to start."
@@ -921,6 +925,7 @@ const equipIds = v => v === "all" ? EQUIP_TYPES.map(t => t.id) : String(v || "")
 const equipNames = ids => EQUIP_TYPES.filter(t => ids.includes(t.id)).map(t => t.name).join(" + ");
 // Yellow in the site list: the feed is 10% or more off its target (TankLink actual if entered, else the pumps)
 function offTarget(c, s) {
+  if (!tlOn(c)) return false;
   const r = (db[c] || {})[s]; if (!r) return false;
   if (r.l2sAlarm) return true;
   const tg = num(r.chemTarget); if (!tg) return false;
@@ -998,7 +1003,7 @@ $("siteBtn").onclick = () => {
     () => askName("New site name", n => {
       if (db[county][n]) { loadSite(n); return; }
       site = n; startVisit(); fill(null); dirty = true; refreshUi(); pickEquip(true);
-    }), s => ({ done: isDone(county, s), warn: offTarget(county, s), tag: ((db[county] || {})[s] || {}).l2sAlarm, leak: ((db[county] || {})[s] || {}).l2sAlarm === "Leak", count: siteDist(s), distFor: s })));
+    }), s => ({ done: isDone(county, s), warn: offTarget(county, s), tag: tlOn(county) && ((db[county] || {})[s] || {}).l2sAlarm, leak: tlOn(county) && ((db[county] || {})[s] || {}).l2sAlarm === "Leak", count: siteDist(s), distFor: s })));
   // Not sure where you are yet (common on iPhone): offer a button to get distances
   if (!here && sites(county).some(x => parseLoc((db[county][x] || {}).loc))) {
     const box = document.querySelector("#dlgBody .list");
@@ -1856,6 +1861,12 @@ function demoData() {
   return {
     "LS-1 Chem Feed": site({ equip: "chem", chemName: "Bioxide", p1Rate: "100", p1Hrs: "24", p2Rate: "130", p2Hrs: "17.25", p2Timer: pins,
       chemTank: "300", chemGpd: "73.59", chemInfo: "Demo site: two pumps, Pump 2 on a 96-pin timer. Try the ⏱ and 📏 buttons." }, { p1Rate: "95", chemTank: "450" }),
+    "LS-2 Chem Feed (off target)": site({ equip: "chem", chemName: "Bioxide", p1Rate: "62", p2Rate: "62", chemTank: "1962", chemTarget: "36", chemActual: "47",
+      chemInfo: "Demo: TankLink says 47 GPD, target is 36, so this site shows yellow." }, { chemActual: "40" }),
+    "LS-3 Chem Feed (DD alarm)": site({ equip: "chem", chemName: "Nitrate", p1Rate: "50", chemTank: "800", l2sAlarm: "DD",
+      chemInfo: "Demo: a Delta Dose alarm from Link2Site. Set L2S alarm back to None and SAVE to clear it." }, {}),
+    "LS-4 Chem Feed (leak)": site({ equip: "chem", chemName: "Bioxide", p1Rate: "80", chemTank: "150", l2sAlarm: "Leak",
+      chemInfo: "Demo: a tank leak alarm shows red." }, {}),
     "LS-1 Sample Point": site({ equip: "sample", ph: "7.2", tempC: "27", sulfide: "1.2", h2s: "12", nitrate: "3",
       treatedBy: linkKey(DEMO, "LS-1 Chem Feed") }, { sulfide: "2.5", h2s: "35" }),
     "Plant Biofilter": site({ equip: "bio", bioSystem: "Biofilter", tankGal: "55", jugs: "5", bioGph: "2", speed: "60", stroke: "80",
