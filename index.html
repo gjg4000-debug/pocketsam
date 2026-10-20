@@ -597,7 +597,8 @@ const today = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getT
 const fmtShort = (iso) => { const [y, m, d] = iso.split("-").map(Number); return new Date(y, m - 1, d).toLocaleDateString(undefined, { month: "short", day: "numeric" }); };
 const fmtDate = (iso) => { const [y, m, d] = iso.split("-").map(Number); return new Date(y, m - 1, d).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }); };
 const byName = (a, b) => a.localeCompare(b, undefined, { sensitivity: "base", numeric: true });
-const counties = () => Object.keys(db).sort(byName);
+const SETTINGS = "~Team settings";          // hidden: shared team settings (like the parts list) ride along with sync as one record
+const counties = () => Object.keys(db).filter(c => c !== SETTINGS).sort(byName);
 const sites = (c) => Object.keys(db[c] || {}).sort(byName);
 const siteRec = () => (county && site && db[county] && db[county][site]) || null;
 
@@ -1493,17 +1494,26 @@ $("treatBtn").onclick = () => {
 
 
 /* ---------- Spare parts (🔩 next to chem feed Comments) ----------
-   The parts list lives only on this phone (never in the app's code or the sheet). Picked parts are added to Comments. */
-const PARTS_KEY = "pocketsam-parts";
-const getParts = () => { try { const v = JSON.parse(localStorage.getItem(PARTS_KEY) || "[]"); return Array.isArray(v) ? v : []; } catch (e) { return []; } };
-const setParts = a => { try { localStorage.setItem(PARTS_KEY, JSON.stringify(a)); } catch (e) {} };
+   The parts list is never in the app's code. It's kept on the phone and shared with the team through sync
+   (one hidden "Parts list" record), so everyone on the same sync link gets it. Picked parts are added to Comments. */
+const PARTS_KEY = "pocketsam-parts", PARTS_SITE = "Parts list";
+function getParts() {
+  const r = (db[SETTINGS] || {})[PARTS_SITE];
+  if (r && Array.isArray(r.parts)) return r.parts;
+  try { const v = JSON.parse(localStorage.getItem(PARTS_KEY) || "[]"); return Array.isArray(v) ? v : []; } catch (e) { return []; }   // older phones kept it here
+}
+async function setParts(a) {
+  (db[SETTINGS] ||= {})[PARTS_SITE] = { parts: a, partsUpdated: new Date().toISOString() };
+  try { localStorage.removeItem(PARTS_KEY); } catch (e) {}
+  await persist(); queue({ op: "put", c: SETTINGS, s: PARTS_SITE });
+}
 function editParts(after) {
   const box = document.createElement("div");
-  box.innerHTML = `<p class="hint">Type or paste your parts list, one part per line. It stays on this phone only.</p><textarea id="partsList" rows="12" placeholder="Pump tubing&#10;Check valve&#10;Injection quill"></textarea>`;
+  box.innerHTML = `<p class="hint">Type or paste your parts list, one part per line. It\'s shared with your team through sync, never put in the app itself.</p><textarea id="partsList" rows="12" placeholder="Pump tubing&#10;Check valve&#10;Injection quill"></textarea>`;
   const ta = box.querySelector("#partsList"); ta.value = getParts().join("\n");
   dialog("Parts list", box, [{ text: "Cancel" }, { text: "SAVE LIST", cls: "primary", fn: () => {
     const list = [...new Set(ta.value.split(/\r?\n/).map(x => x.trim()).filter(Boolean))];
-    setParts(list); toast(`${list.length} part(s) saved on this phone`); setTimeout(() => after && after(), 0);
+    setParts(list); toast(`${list.length} part(s) saved` + (syncCfg ? " · shared with your team" : " on this phone")); setTimeout(() => after && after(), 0);
   } }]);
   setTimeout(() => ta.focus(), 50);
 }
@@ -2118,7 +2128,7 @@ function showDemoLink() { $("demoLink").hidden = !!db[DEMO]; }
 $("demoLink").onclick = e => { e.preventDefault(); loadDemo(); };
 function offerDemo() {
   let asked = false; try { asked = !!localStorage.getItem(DEMO_ASKED); } catch (e) {}
-  if (asked || syncCfg || Object.keys(db).length) return;
+  if (asked || syncCfg || counties().length) return;
   try { localStorage.setItem(DEMO_ASKED, "1"); } catch (e) {}
   const p = document.createElement("p");
   p.textContent = "Welcome to Pocket SAM! Want a Demo County to try things out? It has one example of each equipment type, stays on this phone only, and you can delete it any time.";
