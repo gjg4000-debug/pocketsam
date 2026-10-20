@@ -16,13 +16,13 @@
   :root {
     --bg: #f4f5fa; --card: #ffffff; --text: #1b1c22; --muted: #6a6d7c;
     --line: #d9dbe6; --brand: #3F51B5; --brand-ink: #ffffff; --accent: #e8ebfa;
-    --danger: #c62828; --ok: #2e7d32; --input: #fbfbfe; --warn: #fff3bf; --warn-line: #d4a000;
+    --danger: #c62828; --ok: #2e7d32; --input: #fbfbfe; --warn: #fff3bf; --warn-line: #d4a000; --alarm: #ffd6d6; --alarm-line: #c62828;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #121318; --card: #1d1e25; --text: #e9e9ef; --muted: #9a9cab;
       --line: #33353f; --brand: #7986CB; --brand-ink: #10121c; --accent: #262a40;
-      --danger: #ef5350; --ok: #66bb6a; --input: #16171d; --warn: #4a3d0a; --warn-line: #e6b800;
+      --danger: #ef5350; --ok: #66bb6a; --input: #16171d; --warn: #4a3d0a; --warn-line: #e6b800; --alarm: #4d1515; --alarm-line: #ef5350;
     }
   }
   * { box-sizing: border-box; }
@@ -113,6 +113,7 @@
   .list button.add { color: var(--brand); font-weight: 700; }
   .list button.done { color: var(--ok); font-weight: 700; border-color: var(--ok); }
   .list button.warn { background: var(--warn); border-color: var(--warn-line); }
+  .list button.leak { background: var(--alarm); border-color: var(--alarm-line); border-width: 2px; }
   .list button .count { float: right; color: var(--muted); font-weight: 400; font-size: 14px; }
   .complete { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 10px 0 0; padding: 8px 8px 8px 14px;
     background: var(--card); border: 1px solid var(--line); border-radius: 12px; font-weight: 700; }
@@ -530,7 +531,7 @@ function compute() {
     }
   }
   { const r = currentRecord(), tg = num(r.chemTarget), act = num(r.chemActual), now = act ?? c.gpd;
-    if (r.l2sAlarm) chem += "\n⚠ L2S alarm: " + (L2S_ALARMS.find(a => a[0] === r.l2sAlarm) || [, r.l2sAlarm])[1];
+    if (r.l2sAlarm) chem += (r.l2sAlarm === "Leak" ? "\n🚨 L2S alarm: " : "\n⚠ L2S alarm: ") + (L2S_ALARMS.find(a => a[0] === r.l2sAlarm) || [, r.l2sAlarm])[1];
     if (tg && now != null) {
       const pct = (now - tg) / tg * 100;
       chem += `\nTarget ${+tg.toFixed(2)} GPD · ${act != null ? "TankLink " + +act.toFixed(2) : "pumps " + now.toFixed(1)} ` +
@@ -627,9 +628,9 @@ function listDialog(title, items, addText, onPick, onAdd, decorate) {
   items.forEach(name => {
     const b = document.createElement("button");
     const d = decorate ? decorate(name) : {};
-    b.textContent = (d.done ? "✓ " : "") + name + (d.tag ? "  ⚠ " + d.tag : "");
+    b.textContent = (d.done ? "✓ " : "") + name + (d.tag ? (d.tag === "Leak" ? "  🚨 LEAK" : "  ⚠ " + d.tag) : "");
     if (d.done) b.classList.add("done");
-    if (d.warn) b.classList.add("warn");
+    if (d.leak) b.classList.add("leak"); else if (d.warn) b.classList.add("warn");
     if (d.count || d.distFor) { const sp = document.createElement("span"); sp.className = "count"; sp.textContent = d.count || ""; if (d.distFor) sp.dataset.site = d.distFor; b.append(sp); }
     b.onclick = () => { closeDlg(); onPick(name); }; box.append(b);
   });
@@ -997,7 +998,7 @@ $("siteBtn").onclick = () => {
     () => askName("New site name", n => {
       if (db[county][n]) { loadSite(n); return; }
       site = n; startVisit(); fill(null); dirty = true; refreshUi(); pickEquip(true);
-    }), s => ({ done: isDone(county, s), warn: offTarget(county, s), tag: ((db[county] || {})[s] || {}).l2sAlarm, count: siteDist(s), distFor: s })));
+    }), s => ({ done: isDone(county, s), warn: offTarget(county, s), tag: ((db[county] || {})[s] || {}).l2sAlarm, leak: ((db[county] || {})[s] || {}).l2sAlarm === "Leak", count: siteDist(s), distFor: s })));
   // Not sure where you are yet (common on iPhone): offer a button to get distances
   if (!here && sites(county).some(x => parseLoc((db[county][x] || {}).loc))) {
     const box = document.querySelector("#dlgBody .list");
