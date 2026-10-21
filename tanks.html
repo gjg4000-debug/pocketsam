@@ -165,11 +165,9 @@ function render() {
   const rows = chemSites().filter(x => !pick || x.c === pick).map(x => ({ x, e: est(x) }));
   const have = rows.filter(r => r.e).sort((a, b) => a.e.left - b.e.left), none = rows.filter(r => !r.e);
   const soon = have.filter(r => r.e.left < HORIZON);
-  const need = {}; have.forEach(r => { need[r.x.chem] = (need[r.x.chem] || 0) + r.x.gpd * HORIZON; });
   $("sum").innerHTML = "";
   const box = (n, l) => { const b = document.createElement("div"); b.className = "box"; const a = document.createElement("div"); a.className = "n"; a.textContent = n; const c = document.createElement("div"); c.className = "l"; c.textContent = l; b.append(a, c); $("sum").append(b); };
   box(`${soon.length} of ${have.length}`, `tanks empty within ${HORIZON} days`);
-  Object.entries(need).sort().forEach(([c, g]) => box(`~${g < 20 ? g.toFixed(1) : (Math.round(g / 10) * 10).toLocaleString()} gal`, `${c} used in next ${HORIZON} days`));
   box(String(none.length), "tank(s) with no data yet");
   const L = $("list"); L.replaceChildren();
   if (!have.length) { const p = document.createElement("div"); p.className = "empty"; p.textContent = rows.length ? "No tank levels saved yet." : "No tanks found. Open Pocket SAM on this phone and REFRESH first."; L.append(p); }
