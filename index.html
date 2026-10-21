@@ -2352,7 +2352,7 @@ document.addEventListener("visibilitychange", () => {
   db = await store.load();
   compute(); refreshUi(); showSync();
   if (syncCfg) syncNow();
-  dayForgot(); showDemoLink(); offerDemo();
+  showDemoLink(); offerDemo();   // no "Forgot to check out?" pop-up
   if ("serviceWorker" in navigator && location.protocol.startsWith("http")) navigator.serviceWorker.register("sw.js").catch(() => {});
 })();
 </script>
