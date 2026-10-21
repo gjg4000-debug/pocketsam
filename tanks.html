@@ -16,6 +16,9 @@ select{padding:7px 8px;border-radius:8px;border:1px solid var(--line);background
 button{font-size:13.5px;padding:7px 11px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer;white-space:nowrap}
 button.p{background:var(--brand);color:#fff;border-color:var(--brand)}
 .status{font-size:13px;color:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}
+.chip{border-radius:999px;padding:6px 12px;font-size:13.5px}
+.chip.on{background:var(--brand);color:#fff;border-color:var(--brand)}
 .warn{background:var(--note);border:1px solid var(--noteline);border-radius:10px;padding:10px 12px;font-size:13.5px;margin:4px 0 12px}
 .sum{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:12px}
 .box{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
@@ -44,6 +47,7 @@ a{color:var(--brand)}
     <button id="refresh" class="p">REFRESH</button>
     <span class="status" id="status"></span>
   </div>
+  <div class="chips" id="chems" aria-label="Show only these chemicals"></div>
   <div class="warn"><b>These are calculated levels, not live readings.</b> Each tank is estimated from the last level saved in Pocket SAM and its feed rate (caustic and bleach: how much was used between the last two visits). It does <b>not</b> know about a Delta Dose, a pump losing prime, a leak, or a delivery since then. Use <b>Update level</b> when you get a real reading (e.g. from an alarm email). Those updates stay on this phone.</div>
   <div class="sum" id="sum"></div>
   <h2 id="h1">Soonest empty first</h2>
@@ -62,7 +66,7 @@ a{color:var(--brand)}
    Never changes Pocket SAM data. "Update level" readings are kept on this phone only. */
 const HORIZON = 10, DAY = 864e5, HIST = "_history";
 const SKIP = new Set(["Demo County", "~Team settings"]);
-const MINE_KEY = "pocketsam-tankmine", COUNTY_KEY = "pocketsam-tankcounty";
+const MINE_KEY = "pocketsam-tankmine", COUNTY_KEY = "pocketsam-tankcounty", CHEM_KEY = "pocketsam-tankchems";
 const $ = id => document.getElementById(id);
 const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
@@ -73,6 +77,7 @@ const fmt = d => d.toLocaleDateString([], { month: "short", day: "numeric" });
 const fmtW = d => d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
 const today = () => { const t = new Date(); return new Date(t.getFullYear(), t.getMonth(), t.getDate()); };
 let db = {}, mine = lsGet(MINE_KEY, {}), cur = null;
+let chemPick = new Set(lsGet(CHEM_KEY, []));   // empty = show every chemical
 
 // Pocket SAM's saved data on this phone (same storage the app uses)
 function loadLocal() {
@@ -162,7 +167,8 @@ function est(x) {
 
 function render() {
   const pick = $("county").value;
-  const rows = chemSites().filter(x => !pick || x.c === pick).map(x => ({ x, e: est(x) }));
+  const allT = chemSites(), present = new Set(allT.map(x => x.chem)), eff = new Set([...chemPick].filter(c => present.has(c)));
+  const rows = allT.filter(x => (!pick || x.c === pick) && (!eff.size || eff.has(x.chem))).map(x => ({ x, e: est(x) }));
   const have = rows.filter(r => r.e).sort((a, b) => a.e.left - b.e.left), none = rows.filter(r => !r.e);
   const soon = have.filter(r => r.e.left < HORIZON);
   $("sum").innerHTML = "";
@@ -203,6 +209,14 @@ function fillCounties() {
   sel.value = cs.includes(keep) ? keep : "";
 }
 $("county").onchange = () => { lsSet(COUNTY_KEY, $("county").value); render(); };
+// Chemical filter: tap one or more (Bioxide, Nutrient…); none picked = all
+function fillChems() {
+  const all = [...new Set(chemSites().map(x => x.chem))].sort((a, b) => a.localeCompare(b));
+  const box = $("chems"); box.replaceChildren(); box.hidden = all.length < 2;
+  const chip = (label, on, fn) => { const b = document.createElement("button"); b.className = "chip" + (on ? " on" : ""); b.textContent = label; b.setAttribute("aria-pressed", on); b.onclick = fn; box.append(b); };
+  chip("All", ![...chemPick].some(c => all.includes(c)), () => { chemPick.clear(); lsSet(CHEM_KEY, []); fillChems(); render(); });
+  all.forEach(c => chip(c, chemPick.has(c), () => { chemPick.has(c) ? chemPick.delete(c) : chemPick.add(c); lsSet(CHEM_KEY, [...chemPick]); fillChems(); render(); }));
+}
 
 function openDlg(x) {
   cur = x; $("dt").textContent = x.label;
@@ -225,8 +239,8 @@ async function refresh() {
     if (data) { db = data; $("status").textContent = "Up to date " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
     else $("status").textContent = "From this phone (sync not set up)";
   } catch (e) { $("status").textContent = navigator.onLine ? "Sync problem, showing this phone's data" : "No signal, showing this phone's data"; }
-  $("refresh").disabled = false; fillCounties(); render();
+  $("refresh").disabled = false; fillCounties(); fillChems(); render();
 }
 $("refresh").onclick = refresh;
-(async () => { db = await loadLocal(); fillCounties(); render(); refresh(); })();
+(async () => { db = await loadLocal(); fillCounties(); fillChems(); render(); refresh(); })();
 </script></body></html>
