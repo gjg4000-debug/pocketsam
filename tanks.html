@@ -106,6 +106,10 @@ async function loadSync() {
   return j.data || {};
 }
 
+// Filter buttons only for real chemicals: "Bioxide off at breaker" counts as Bioxide; notes like "ORCA" or "offline" get no button
+const CHEMS = [["Bioxide", /bioxide/i], ["Nitrate", /nitrate/i], ["Peroxide", /peroxide|h2o2/i], ["Caustic", /caustic|naoh/i], ["Bleach", /bleach|naocl|hypo/i],
+  ["Nutrient", /nutrient/i], ["Ferric", /ferric/i], ["Mag hydroxide", /magnesium|mag\b|mg\(oh\)/i]];
+const chemOf = name => { const m = CHEMS.find(([, re]) => re.test(name || "")); return m ? m[0] : ""; };
 // Every tank we can forecast: chemical feed, biofilter nutrient, scrubber caustic and bleach
 function chemSites() {
   const out = [];
@@ -124,7 +128,7 @@ function chemSites() {
       if (eq.includes("chem") || eq.includes("all") || last.chemName || last.p1Rate || last.p2Rate || last.curve) {
         let gpd = num(last.chemGpd);
         if (gpd == null) { const r1 = num(last.p1Rate) ?? 0, r2 = num(last.p2Rate) ?? 0; gpd = (r1 || r2) ? (r1 * 60 * (num(last.p1Hrs) ?? 24) + r2 * 60 * (num(last.p2Hrs) ?? 24)) / 3785.41 : null; }
-        out.push({ c, s, key: c + "\u0001" + s, label: s, chem: last.chemName || "Chemical", gpd, tech: base("chemTank"), why: gpd ? "no tank level recorded yet" : "no pump rates recorded yet" });
+        out.push({ c, s, key: c + "\u0001" + s, label: s, chem: last.chemName || "No chemical name", gpd, tech: base("chemTank"), why: gpd ? "no tank level recorded yet" : "no pump rates recorded yet" });
       }
       // Biofilter nutrient: pump GPH × speed % × stroke % × run time (ON sec / OFF min timer), same as Pocket SAM
       if (eq.includes("bio") || has("bioGph") || has("tankGal")) {
@@ -167,8 +171,8 @@ function est(x) {
 
 function render() {
   const pick = $("county").value;
-  const allT = chemSites(), present = new Set(allT.map(x => x.chem)), eff = new Set([...chemPick].filter(c => present.has(c)));
-  const rows = allT.filter(x => (!pick || x.c === pick) && (!eff.size || eff.has(x.chem))).map(x => ({ x, e: est(x) }));
+  const allT = chemSites(), present = new Set(allT.map(x => chemOf(x.chem)).filter(Boolean)), eff = new Set([...chemPick].filter(c => present.has(c)));
+  const rows = allT.filter(x => (!pick || x.c === pick) && (!eff.size || eff.has(chemOf(x.chem)))).map(x => ({ x, e: est(x) }));
   const have = rows.filter(r => r.e).sort((a, b) => a.e.left - b.e.left), none = rows.filter(r => !r.e);
   const soon = have.filter(r => r.e.left < HORIZON);
   $("sum").innerHTML = "";
@@ -211,7 +215,7 @@ function fillCounties() {
 $("county").onchange = () => { lsSet(COUNTY_KEY, $("county").value); render(); };
 // Chemical filter: tap one or more (Bioxide, Nutrient…); none picked = all
 function fillChems() {
-  const all = [...new Set(chemSites().map(x => x.chem))].sort((a, b) => a.localeCompare(b));
+  const all = CHEMS.map(([c]) => c).filter(c => chemSites().some(x => chemOf(x.chem) === c));
   const box = $("chems"); box.replaceChildren(); box.hidden = all.length < 2;
   const chip = (label, on, fn) => { const b = document.createElement("button"); b.className = "chip" + (on ? " on" : ""); b.textContent = label; b.setAttribute("aria-pressed", on); b.onclick = fn; box.append(b); };
   chip("All", ![...chemPick].some(c => all.includes(c)), () => { chemPick.clear(); lsSet(CHEM_KEY, []); fillChems(); render(); });
