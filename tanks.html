@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#3F51B5">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Tank Forecast</title>
+<style>
+:root{--bg:#eef1ee;--card:#fff;--ink:#1d2a2c;--muted:#5b6b6e;--line:#d9e0dc;--brand:#3F51B5;--ok:#3b82f6;--low:#d97706;--crit:#dc2626;--note:#fff6ec;--noteline:#f1cfa9;--mine:#7c3aed}
+@media (prefers-color-scheme: dark){:root{--bg:#111827;--card:#1f2937;--ink:#e5e7eb;--muted:#9ca3af;--line:#374151;--note:#3a2d1c;--noteline:#7a5a2c;--mine:#a78bfa}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.top{background:var(--brand);color:#fff;padding:14px 16px}
+.top h1{margin:0;font-size:22px}.top .sub{opacity:.85;font-size:13px}
+.wrap{max-width:820px;margin:0 auto;padding:12px 16px 24px}
+.bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0 10px}
+select,button,input{font:inherit}
+select{padding:7px 8px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink)}
+button{font-size:13.5px;padding:7px 11px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer;white-space:nowrap}
+button.p{background:var(--brand);color:#fff;border-color:var(--brand)}
+.status{font-size:13px;color:var(--muted)}
+.warn{background:var(--note);border:1px solid var(--noteline);border-radius:10px;padding:10px 12px;font-size:13.5px;margin:4px 0 12px}
+.sum{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:12px}
+.box{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.box .n{font-size:20px;font-weight:700}.box .l{font-size:12.5px;color:var(--muted)}
+h2{font-size:13.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:16px 0 8px}
+.row{display:flex;gap:14px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:10px}
+.tank{position:relative;flex:none;width:58px;height:84px;border:3px solid #6b7280;border-radius:12px 12px 8px 8px;overflow:hidden;background:#0b1220}
+.tank:before{content:"";position:absolute;top:-3px;left:19px;width:14px;height:6px;background:#6b7280;border-radius:0 0 3px 3px;z-index:2}
+.fill{position:absolute;left:0;right:0;bottom:0}
+.d{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;color:#fff;z-index:3;text-shadow:0 1px 3px #000}
+.info{flex:1;min-width:0}.name{font-weight:700}.meta{font-size:13px;color:var(--muted)}
+.src{font-size:12.5px;margin-top:2px}.src.mine{color:var(--mine);font-weight:600}
+.when{font-weight:700;font-size:14px}.when.crit{color:var(--crit)}.when.low{color:var(--low)}
+.empty{background:var(--card);border:1px dashed var(--line);border-radius:12px;padding:14px;color:var(--muted)}
+dialog{border:none;border-radius:14px;padding:16px;max-width:360px;width:calc(100% - 32px);background:var(--card);color:var(--ink)}
+dialog input{width:100%;padding:8px;border:1px solid var(--line);border-radius:8px;margin:6px 0 10px;background:var(--bg);color:var(--ink)}
+.db{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+.small{font-size:12.5px;color:var(--muted)}
+a{color:var(--brand)}
+@media (prefers-color-scheme: dark){a{color:#a5b4fc}}
+</style></head><body>
+<div class="top"><h1>Tank Forecast</h1><div class="sub">From Pocket SAM readings · read only</div></div>
+<div class="wrap">
+  <div class="bar">
+    <select id="county" aria-label="County / City"></select>
+    <button id="refresh" class="p">REFRESH</button>
+    <span class="status" id="status"></span>
+  </div>
+  <div class="warn"><b>These are calculated levels, not live readings.</b> Each tank is estimated from the last tank level saved in Pocket SAM and the pump feed rate. It does <b>not</b> know about a Delta Dose, a pump losing prime, a leak, or a delivery since then. Use <b>Update level</b> when you get a real reading (e.g. from an alarm email). Those updates stay on this phone.</div>
+  <div class="sum" id="sum"></div>
+  <h2 id="h1">Soonest empty first</h2>
+  <div id="list"></div>
+  <h2 id="h2">No tank data</h2>
+  <div id="none"></div>
+  <p class="small"><a href="./">← Back to Pocket SAM</a></p>
+</div>
+
+<dialog id="dlg"><b id="dt"></b><div class="small" id="dd"></div>
+<label class="small" for="g">Current level (gallons)</label><input id="g" inputmode="decimal" autocomplete="off">
+<div class="db"><button id="clr">Use Pocket SAM level</button><button id="cx">Cancel</button><button class="p" id="ok">Save</button></div></dialog>
+
+<script>
+/* Tank Forecast: reads the same data as Pocket SAM on this phone (and its team sync if connected).
+   Never changes Pocket SAM data. "Update level" readings are kept on this phone only. */
+const HORIZON = 10, DAY = 864e5, HIST = "_history";
+const SKIP = new Set(["Demo County", "~Team settings"]);
+const MINE_KEY = "pocketsam-tankmine", COUNTY_KEY = "pocketsam-tankcounty";
+const $ = id => document.getElementById(id);
+const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
+const num = v => { const s = String(v ?? "").trim(); if (!s) return null; const n = Number(s); return isFinite(n) ? n : null; };
+const dkey = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const d0 = s => { const [y, m, d] = String(s).split("-").map(Number); return new Date(y, m - 1, d); };
+const fmt = d => d.toLocaleDateString([], { month: "short", day: "numeric" });
+const fmtW = d => d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+const today = () => { const t = new Date(); return new Date(t.getFullYear(), t.getMonth(), t.getDate()); };
+let db = {}, mine = lsGet(MINE_KEY, {}), cur = null;
+
+// Pocket SAM's saved data on this phone (same storage the app uses)
+function loadLocal() {
+  return new Promise(res => {
+    const fallback = () => res(lsGet("pocketsam-db", {}));
+    try {
+      const r = indexedDB.open("pocketsam", 1);
+      r.onupgradeneeded = () => r.result.createObjectStore("kv");
+      r.onerror = fallback;
+      r.onsuccess = () => {
+        try {
+          const g = r.result.transaction("kv", "readonly").objectStore("kv").get("pocketsam-db");
+          g.onsuccess = () => { let v = g.result; try { v = typeof v === "string" ? JSON.parse(v) : v; } catch (e) { v = null; } v && typeof v === "object" ? res(v) : fallback(); };
+          g.onerror = fallback;
+        } catch (e) { fallback(); }
+      };
+    } catch (e) { fallback(); }
+  });
+}
+// The team sync (read only: sends nothing, just gets the latest)
+async function loadSync() {
+  const cfg = lsGet("pocketsam-sync", null);
+  if (!cfg || !cfg.url) return null;
+  const r = await fetch(cfg.url, { method: "POST", body: JSON.stringify({ pass: cfg.pass, action: "push", ops: [] }) });
+  const j = await r.json(); if (!j.ok) throw new Error(j.error || "Sync error");
+  return j.data || {};
+}
+
+function chemSites() {
+  const out = [];
+  for (const c of Object.keys(db).sort()) {
+    if (SKIP.has(c)) continue;
+    for (const s of Object.keys(db[c] || {})) {
+      const rec = db[c][s]; if (!rec || typeof rec !== "object") continue;
+      const h = Array.isArray(rec[HIST]) && rec[HIST].length ? rec[HIST] : [rec];
+      const last = h[h.length - 1];
+      const eq = String(rec.equip || last.equip || "");
+      const isChem = eq.split(",").includes("chem") || eq === "all" || !!(last.chemName || last.p1Rate || last.p2Rate || last.curve);
+      if (!isChem) continue;
+      // GPD the same way Pocket SAM does: its saved result, else the pump math (blank hours = 24)
+      let gpd = num(last.chemGpd);
+      if (gpd == null) { const r1 = num(last.p1Rate) ?? 0, r2 = num(last.p2Rate) ?? 0; gpd = (r1 || r2) ? (r1 * 60 * (num(last.p1Hrs) ?? 24) + r2 * 60 * (num(last.p2Hrs) ?? 24)) / 3785.41 : null; }
+      const withTank = [...h].reverse().find(e => num(e.chemTank) != null && e.date);
+      out.push({ c, s, key: c + "\u0001" + s, chem: last.chemName || "Chemical", gpd,
+        tech: withTank ? { gal: num(withTank.chemTank), date: withTank.date } : null });
+    }
+  }
+  return out;
+}
+function est(x) {
+  const m = mine[x.key];
+  let base = x.tech ? { ...x.tech, who: "tech" } : null;
+  if (m && (!base || m.date >= base.date)) base = { gal: m.gal, date: m.date, who: "mine" };   // newer reading wins
+  if (!base || !x.gpd) return null;
+  const days = Math.max(0, (today() - d0(base.date)) / DAY);
+  const now = Math.max(0, base.gal - x.gpd * days), left = now / x.gpd;
+  return { now, left, by: new Date(today().getTime() + left * DAY), base };
+}
+
+function render() {
+  const pick = $("county").value;
+  const rows = chemSites().filter(x => !pick || x.c === pick).map(x => ({ x, e: est(x) }));
+  const have = rows.filter(r => r.e).sort((a, b) => a.e.left - b.e.left), none = rows.filter(r => !r.e);
+  const soon = have.filter(r => r.e.left < HORIZON);
+  const need = {}; have.forEach(r => { need[r.x.chem] = (need[r.x.chem] || 0) + r.x.gpd * HORIZON; });
+  $("sum").innerHTML = "";
+  const box = (n, l) => { const b = document.createElement("div"); b.className = "box"; const a = document.createElement("div"); a.className = "n"; a.textContent = n; const c = document.createElement("div"); c.className = "l"; c.textContent = l; b.append(a, c); $("sum").append(b); };
+  box(`${soon.length} of ${have.length}`, `tanks empty within ${HORIZON} days`);
+  Object.entries(need).sort().forEach(([c, g]) => box(`~${(Math.round(g / 10) * 10).toLocaleString()} gal`, `${c} used in next ${HORIZON} days`));
+  box(String(none.length), "site(s) with no tank data");
+  const L = $("list"); L.replaceChildren();
+  if (!have.length) { const p = document.createElement("div"); p.className = "empty"; p.textContent = rows.length ? "No tank levels saved yet." : "No chemical feed sites found. Open Pocket SAM on this phone and REFRESH first."; L.append(p); }
+  have.forEach(({ x, e }) => {
+    const p = Math.max(4, Math.min(100, Math.round(e.left / 30 * 100)));
+    const cls = e.left < 3 ? "crit" : e.left < HORIZON ? "low" : "", col = e.left < 3 ? "var(--crit)" : e.left < HORIZON ? "var(--low)" : "var(--ok)";
+    const r = document.createElement("div"); r.className = "row";
+    r.innerHTML = `<div class="tank"><div class="fill"></div><div class="d"></div></div><div class="info"><div class="name"></div><div class="meta"></div><div class="when"></div><div class="src"></div></div>`;
+    r.querySelector(".fill").style.cssText = `height:${p}%;background:${col}`;
+    r.querySelector(".d").textContent = (e.left >= 30 ? "30+" : e.left.toFixed(0)) + "d";
+    r.querySelector(".name").textContent = x.s + (pick ? "" : ` · ${x.c}`);
+    r.querySelector(".meta").textContent = `${x.chem} · ~${Math.round(e.now).toLocaleString()} gal now · ${x.gpd.toFixed(1)} gal/day`;
+    const w = r.querySelector(".when"); w.textContent = e.left < 0.5 ? "Probably empty now" : `Empty by ${fmtW(e.by)}`; if (cls) w.classList.add(cls);
+    const sr = r.querySelector(".src");
+    if (e.base.who === "mine") { sr.classList.add("mine"); sr.textContent = `Your reading ${fmt(d0(e.base.date))}: ${e.base.gal} gal (this phone)`; }
+    else sr.textContent = `Pocket SAM reading ${fmt(d0(e.base.date))}: ${e.base.gal} gal · estimated since`;
+    const b = document.createElement("button"); b.textContent = "Update level"; b.onclick = () => openDlg(x); r.append(b); L.append(r);
+  });
+  const N = $("none"); N.replaceChildren(); $("h2").hidden = !none.length;
+  none.forEach(({ x }) => {
+    const r = document.createElement("div"); r.className = "row";
+    r.innerHTML = `<div class="tank"><div class="fill" style="height:0"></div><div class="d">?</div></div><div class="info"><div class="name"></div><div class="meta"></div></div>`;
+    r.querySelector(".name").textContent = x.s + (pick ? "" : ` · ${x.c}`);
+    r.querySelector(".meta").textContent = `${x.chem} · ` + (x.gpd ? "no tank level recorded yet" : "no pump rates recorded yet");
+    const b = document.createElement("button"); b.textContent = "Update level"; b.onclick = () => openDlg(x); r.append(b); N.append(r);
+  });
+}
+function fillCounties() {
+  const sel = $("county"), keep = sel.value || lsGet(COUNTY_KEY, "");
+  const cs = [...new Set(chemSites().map(x => x.c))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  sel.replaceChildren();
+  [["", "All counties / cities"], ...cs.map(c => [c, c])].forEach(([v, t]) => { const o = document.createElement("option"); o.value = v; o.textContent = t; sel.append(o); });
+  sel.value = cs.includes(keep) ? keep : "";
+}
+$("county").onchange = () => { lsSet(COUNTY_KEY, $("county").value); render(); };
+
+function openDlg(x) {
+  cur = x; $("dt").textContent = x.s;
+  $("dd").textContent = "Saved on this phone only, dated today. A newer Pocket SAM reading replaces it.";
+  $("g").value = mine[x.key] ? mine[x.key].gal : ""; $("clr").hidden = !mine[x.key];
+  if (!x.gpd) $("dd").textContent = "This site has no pump rates in Pocket SAM yet, so days left can't be worked out.";
+  $("dlg").showModal(); setTimeout(() => $("g").focus(), 50);
+}
+$("cx").onclick = () => $("dlg").close();
+$("clr").onclick = () => { delete mine[cur.key]; lsSet(MINE_KEY, mine); $("dlg").close(); render(); };
+$("ok").onclick = () => {
+  const v = $("g").value.trim(), g = num(v); if (g == null || g < 0) return;
+  mine[cur.key] = { gal: g, date: dkey(today()) }; lsSet(MINE_KEY, mine); $("dlg").close(); render();
+};
+
+async function refresh() {
+  $("refresh").disabled = true; $("status").textContent = "Checking…";
+  try {
+    const data = await loadSync();
+    if (data) { db = data; $("status").textContent = "Up to date " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
+    else $("status").textContent = "From this phone (sync not set up)";
+  } catch (e) { $("status").textContent = navigator.onLine ? "Sync problem, showing this phone's data" : "No signal, showing this phone's data"; }
+  $("refresh").disabled = false; fillCounties(); render();
+}
+$("refresh").onclick = refresh;
+(async () => { db = await loadLocal(); fillCounties(); render(); refresh(); })();
+</script></body></html>
