@@ -685,7 +685,7 @@ function setComplete(rec) {
 }
 $("completeChk").addEventListener("change", () => { if (!loading) { dirty = true; updateStatus(); } });
 function selectCounty(c) { county = c; site = null; fill(null); dirty = false; refreshUi(); }
-function loadSite(s) { site = s; dirty = false; startVisit(); dayNudge(); fill((db[county] || {})[s]); dirty = false; refreshUi(); autoHere(); }
+function loadSite(s) { site = s; dirty = false; startVisit(); fill((db[county] || {})[s]); dirty = false; refreshUi(); autoHere(); }
 async function persist() { await store.save(db); }
 
 /* ---------- Drawdown helper (📏 next to each pump's rate) ----------
