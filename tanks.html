@@ -44,7 +44,7 @@ a{color:var(--brand)}
     <button id="refresh" class="p">REFRESH</button>
     <span class="status" id="status"></span>
   </div>
-  <div class="warn"><b>These are calculated levels, not live readings.</b> Each tank is estimated from the last tank level saved in Pocket SAM and the pump feed rate. It does <b>not</b> know about a Delta Dose, a pump losing prime, a leak, or a delivery since then. Use <b>Update level</b> when you get a real reading (e.g. from an alarm email). Those updates stay on this phone.</div>
+  <div class="warn"><b>These are calculated levels, not live readings.</b> Each tank is estimated from the last level saved in Pocket SAM and its feed rate (caustic and bleach: how much was used between the last two visits). It does <b>not</b> know about a Delta Dose, a pump losing prime, a leak, or a delivery since then. Use <b>Update level</b> when you get a real reading (e.g. from an alarm email). Those updates stay on this phone.</div>
   <div class="sum" id="sum"></div>
   <h2 id="h1">Soonest empty first</h2>
   <div id="list"></div>
@@ -101,23 +101,51 @@ async function loadSync() {
   return j.data || {};
 }
 
+// Every tank we can forecast: chemical feed, biofilter nutrient, scrubber caustic and bleach
 function chemSites() {
   const out = [];
+  const daysBetween = (a, b) => (d0(b) - d0(a)) / DAY;
   for (const c of Object.keys(db).sort()) {
     if (SKIP.has(c)) continue;
     for (const s of Object.keys(db[c] || {})) {
       const rec = db[c][s]; if (!rec || typeof rec !== "object") continue;
       const h = Array.isArray(rec[HIST]) && rec[HIST].length ? rec[HIST] : [rec];
       const last = h[h.length - 1];
-      const eq = String(rec.equip || last.equip || "");
-      const isChem = eq.split(",").includes("chem") || eq === "all" || !!(last.chemName || last.p1Rate || last.p2Rate || last.curve);
-      if (!isChem) continue;
-      // GPD the same way Pocket SAM does: its saved result, else the pump math (blank hours = 24)
-      let gpd = num(last.chemGpd);
-      if (gpd == null) { const r1 = num(last.p1Rate) ?? 0, r2 = num(last.p2Rate) ?? 0; gpd = (r1 || r2) ? (r1 * 60 * (num(last.p1Hrs) ?? 24) + r2 * 60 * (num(last.p2Hrs) ?? 24)) / 3785.41 : null; }
-      const withTank = [...h].reverse().find(e => num(e.chemTank) != null && e.date);
-      out.push({ c, s, key: c + "\u0001" + s, chem: last.chemName || "Chemical", gpd,
-        tech: withTank ? { gal: num(withTank.chemTank), date: withTank.date } : null });
+      const eq = String(rec.equip || last.equip || "").split(",");
+      const has = k => h.some(e => num(e[k]) != null);
+      const lastWith = k => [...h].reverse().find(e => num(e[k]) != null && e.date);
+      const base = (k) => { const e = lastWith(k); return e ? { gal: num(e[k]), date: e.date } : null; };
+      // Chemical feed: GPD the same way Pocket SAM does (its saved result, else the pump math; blank hours = 24)
+      if (eq.includes("chem") || eq.includes("all") || last.chemName || last.p1Rate || last.p2Rate || last.curve) {
+        let gpd = num(last.chemGpd);
+        if (gpd == null) { const r1 = num(last.p1Rate) ?? 0, r2 = num(last.p2Rate) ?? 0; gpd = (r1 || r2) ? (r1 * 60 * (num(last.p1Hrs) ?? 24) + r2 * 60 * (num(last.p2Hrs) ?? 24)) / 3785.41 : null; }
+        out.push({ c, s, key: c + "\u0001" + s, label: s, chem: last.chemName || "Chemical", gpd, tech: base("chemTank"), why: gpd ? "no tank level recorded yet" : "no pump rates recorded yet" });
+      }
+      // Biofilter nutrient: pump GPH × speed % × stroke % × run time (ON sec / OFF min timer), same as Pocket SAM
+      if (eq.includes("bio") || has("bioGph") || has("tankGal")) {
+        let gpd = num(last.bioGalPerDay);
+        if (gpd == null) {
+          const gph = num(last.bioGph), on = num(last.onSec), off = num(last.offMin);
+          const run = on != null && off != null && on + off * 60 > 0 ? 24 * on / (on + off * 60) : (num(last.bioHrs) ?? 24);
+          gpd = gph != null ? gph * ((num(last.speed) ?? 100) / 100) * ((num(last.stroke) ?? 100) / 100) * run : null;
+        }
+        out.push({ c, s, key: c + "\u0001" + s + "\u0001bio", label: s + " · nutrient", chem: "Nutrient", gpd, tech: base("tankGal"), why: gpd ? "no nutrient tank level recorded yet" : "no nutrient pump settings recorded yet" });
+      }
+      // Scrubber caustic and bleach: no pump rate in Pocket SAM, so use = drop between the last two visits
+      if (eq.includes("scrub") || has("naohGal") || has("naoclGal")) {
+        for (const [k, name] of [["naohGal", "Caustic"], ["naoclGal", "Bleach"]]) {
+          const pts = h.filter(e => num(e[k]) != null && e.date);
+          const b = pts.length ? { gal: num(pts[pts.length - 1][k]), date: pts[pts.length - 1].date } : null;
+          let gpd = null;
+          if (pts.length >= 2) {
+            const a = pts[pts.length - 2], z = pts[pts.length - 1], dd = daysBetween(a.date, z.date), drop = num(a[k]) - num(z[k]);
+            if (dd >= 1 && drop > 0) gpd = drop / dd;
+          }
+          if (!b && !has(k)) continue;
+          out.push({ c, s, key: c + "\u0001" + s + "\u0001" + k, label: s + " · " + name.toLowerCase(), chem: name, gpd, tech: b, rateNote: "use from last 2 visits",
+            why: pts.length < 2 ? "needs 2 visits with a level to estimate use" : "level didn't drop between the last 2 visits (refilled?)" });
+        }
+      }
     }
   }
   return out;
@@ -141,10 +169,10 @@ function render() {
   $("sum").innerHTML = "";
   const box = (n, l) => { const b = document.createElement("div"); b.className = "box"; const a = document.createElement("div"); a.className = "n"; a.textContent = n; const c = document.createElement("div"); c.className = "l"; c.textContent = l; b.append(a, c); $("sum").append(b); };
   box(`${soon.length} of ${have.length}`, `tanks empty within ${HORIZON} days`);
-  Object.entries(need).sort().forEach(([c, g]) => box(`~${(Math.round(g / 10) * 10).toLocaleString()} gal`, `${c} used in next ${HORIZON} days`));
-  box(String(none.length), "site(s) with no tank data");
+  Object.entries(need).sort().forEach(([c, g]) => box(`~${g < 20 ? g.toFixed(1) : (Math.round(g / 10) * 10).toLocaleString()} gal`, `${c} used in next ${HORIZON} days`));
+  box(String(none.length), "tank(s) with no data yet");
   const L = $("list"); L.replaceChildren();
-  if (!have.length) { const p = document.createElement("div"); p.className = "empty"; p.textContent = rows.length ? "No tank levels saved yet." : "No chemical feed sites found. Open Pocket SAM on this phone and REFRESH first."; L.append(p); }
+  if (!have.length) { const p = document.createElement("div"); p.className = "empty"; p.textContent = rows.length ? "No tank levels saved yet." : "No tanks found. Open Pocket SAM on this phone and REFRESH first."; L.append(p); }
   have.forEach(({ x, e }) => {
     const p = Math.max(4, Math.min(100, Math.round(e.left / 30 * 100)));
     const cls = e.left < 3 ? "crit" : e.left < HORIZON ? "low" : "", col = e.left < 3 ? "var(--crit)" : e.left < HORIZON ? "var(--low)" : "var(--ok)";
@@ -152,8 +180,8 @@ function render() {
     r.innerHTML = `<div class="tank"><div class="fill"></div><div class="d"></div></div><div class="info"><div class="name"></div><div class="meta"></div><div class="when"></div><div class="src"></div></div>`;
     r.querySelector(".fill").style.cssText = `height:${p}%;background:${col}`;
     r.querySelector(".d").textContent = (e.left >= 30 ? "30+" : e.left.toFixed(0)) + "d";
-    r.querySelector(".name").textContent = x.s + (pick ? "" : ` · ${x.c}`);
-    r.querySelector(".meta").textContent = `${x.chem} · ~${Math.round(e.now).toLocaleString()} gal now · ${x.gpd.toFixed(1)} gal/day`;
+    r.querySelector(".name").textContent = x.label + (pick ? "" : ` · ${x.c}`);
+    r.querySelector(".meta").textContent = `${x.chem} · ~${Math.round(e.now).toLocaleString()} gal now · ${x.gpd < 10 ? x.gpd.toFixed(2) : x.gpd.toFixed(1)} gal/day` + (x.rateNote ? ` (${x.rateNote})` : "");
     const w = r.querySelector(".when"); w.textContent = e.left < 0.5 ? "Probably empty now" : `Empty by ${fmtW(e.by)}`; if (cls) w.classList.add(cls);
     const sr = r.querySelector(".src");
     if (e.base.who === "mine") { sr.classList.add("mine"); sr.textContent = `Your reading ${fmt(d0(e.base.date))}: ${e.base.gal} gal (this phone)`; }
@@ -164,8 +192,8 @@ function render() {
   none.forEach(({ x }) => {
     const r = document.createElement("div"); r.className = "row";
     r.innerHTML = `<div class="tank"><div class="fill" style="height:0"></div><div class="d">?</div></div><div class="info"><div class="name"></div><div class="meta"></div></div>`;
-    r.querySelector(".name").textContent = x.s + (pick ? "" : ` · ${x.c}`);
-    r.querySelector(".meta").textContent = `${x.chem} · ` + (x.gpd ? "no tank level recorded yet" : "no pump rates recorded yet");
+    r.querySelector(".name").textContent = x.label + (pick ? "" : ` · ${x.c}`);
+    r.querySelector(".meta").textContent = `${x.chem} · ${x.why}`;
     const b = document.createElement("button"); b.textContent = "Update level"; b.onclick = () => openDlg(x); r.append(b); N.append(r);
   });
 }
@@ -179,10 +207,10 @@ function fillCounties() {
 $("county").onchange = () => { lsSet(COUNTY_KEY, $("county").value); render(); };
 
 function openDlg(x) {
-  cur = x; $("dt").textContent = x.s;
+  cur = x; $("dt").textContent = x.label;
   $("dd").textContent = "Saved on this phone only, dated today. A newer Pocket SAM reading replaces it.";
   $("g").value = mine[x.key] ? mine[x.key].gal : ""; $("clr").hidden = !mine[x.key];
-  if (!x.gpd) $("dd").textContent = "This site has no pump rates in Pocket SAM yet, so days left can't be worked out.";
+  if (!x.gpd) $("dd").textContent = `Saved on this phone only. Days left can't be worked out yet (${x.why}).`;
   $("dlg").showModal(); setTimeout(() => $("g").focus(), 50);
 }
 $("cx").onclick = () => $("dlg").close();
