@@ -51,7 +51,7 @@ a{color:var(--brand)}
     <span class="status" id="status"></span>
   </div>
   <div class="chips" id="chems" aria-label="Show only these chemicals"></div>
-  <div class="warn"><b>These are calculated levels, not live readings.</b> Each tank is estimated from the last level saved in Pocket SAM and its feed rate. It does <b>not</b> know about a Delta Dose, a pump losing prime, a leak, or a delivery since then. Use <b>Update level</b> when you get a real reading (e.g. from an alarm email). Those updates stay on this phone.</div>
+  <div class="warn"><b>These are calculated levels, not live readings.</b> Each tank is estimated from the last level saved in Pocket SAM and its feed rate. It does <b>not</b> know about a Delta Dose, a pump losing prime, a leak, or a delivery since then. Use <b>Update level</b> when you get a real reading (e.g. from an alarm email), or to add the tank size so the picture shows % full. Those stay on this phone.</div>
   <div class="sum" id="sum"></div>
   <h2 id="h1">Soonest empty first</h2>
   <div id="list"></div>
@@ -62,7 +62,8 @@ a{color:var(--brand)}
 
 <div id="toast" role="status"></div>
 <dialog id="dlg"><b id="dt"></b><div class="small" id="dd"></div>
-<label class="small" for="g">Current level (gallons)</label><input id="g" inputmode="decimal" autocomplete="off">
+<label class="small" for="g">Current level (gallons)</label><input id="g" inputmode="decimal" autocomplete="off" placeholder="leave blank to keep">
+<label class="small" for="sz">Tank size (gallons, optional)</label><input id="sz" inputmode="decimal" autocomplete="off" placeholder="e.g. 550">
 <div class="db"><button id="clr">Use Pocket SAM level</button><button id="cx">Cancel</button><button class="p" id="ok">Save</button></div></dialog>
 
 <script>
@@ -80,7 +81,7 @@ const d0 = s => { const [y, m, d] = String(s).split("-").map(Number); return new
 const fmt = d => d.toLocaleDateString([], { month: "short", day: "numeric" });
 const fmtW = d => d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
 const today = () => { const t = new Date(); return new Date(t.getFullYear(), t.getMonth(), t.getDate()); };
-let db = {}, mine = lsGet(MINE_KEY, {}), cur = null;
+let db = {}, mine = lsGet(MINE_KEY, {}), cur = null, sizes = lsGet("pocketsam-tanksize", {});   // tank sizes: this phone only
 let chemPick = new Set(lsGet(CHEM_KEY, []));   // empty = show every chemical
 
 // Pocket SAM's saved data on this phone (same storage the app uses)
@@ -171,14 +172,16 @@ function render() {
   const L = $("list"); L.replaceChildren();
   if (!have.length) { const p = document.createElement("div"); p.className = "empty"; p.textContent = rows.length ? "No tank levels saved yet." : "No tanks found. Open Pocket SAM on this phone and REFRESH first."; L.append(p); }
   have.forEach(({ x, e }) => {
-    const p = Math.max(4, Math.min(100, Math.round(e.left / 30 * 100)));
+    // With a tank size: the picture is % full. Without one: full = 30 days or more left.
+    const size = sizes[x.key], pct = size ? Math.max(0, Math.min(100, Math.round(e.now / size * 100))) : null;
+    const p = size ? Math.max(4, pct) : Math.max(4, Math.min(100, Math.round(e.left / 30 * 100)));
     const cls = e.left < 3 ? "crit" : e.left < HORIZON ? "low" : "", col = e.left < 3 ? "var(--crit)" : e.left < HORIZON ? "var(--low)" : "var(--ok)";
     const r = document.createElement("div"); r.className = "row"; r.dataset.key = x.key;
     r.innerHTML = `<div class="tank"><div class="fill"></div><div class="d"></div></div><div class="info"><div class="name"></div><div class="meta"></div><div class="when"></div><div class="src"></div></div>`;
     r.querySelector(".fill").style.cssText = `height:${p}%;background:${col}`;
-    r.querySelector(".d").textContent = (e.left >= 999 ? "999+" : e.left.toFixed(0)) + "d";
+    r.querySelector(".d").textContent = size ? pct + "%" : (e.left >= 999 ? "999+" : e.left.toFixed(0)) + "d";
     r.querySelector(".name").textContent = x.label + (pick ? "" : ` · ${x.c}`);
-    r.querySelector(".meta").textContent = `${x.chem} · ~${Math.round(e.now).toLocaleString()} gal now · ${x.gpd < 10 ? x.gpd.toFixed(2) : x.gpd.toFixed(1)} gal/day` + (x.rateNote ? ` (${x.rateNote})` : "");
+    r.querySelector(".meta").textContent = `${x.chem} · ~${Math.round(e.now).toLocaleString()}${size ? " of " + size.toLocaleString() : ""} gal now · ${x.gpd < 10 ? x.gpd.toFixed(2) : x.gpd.toFixed(1)} gal/day` + (x.rateNote ? ` (${x.rateNote})` : "");
     const w = r.querySelector(".when"); w.textContent = e.left < 0.5 ? "Probably empty now" : `Empty by ${fmtW(e.by)}`; if (cls) w.classList.add(cls);
     const sr = r.querySelector(".src");
     if (e.base.who === "mine") { sr.classList.add("mine"); sr.textContent = `Your reading ${fmt(d0(e.base.date))}: ${e.base.gal} gal (this phone)`; }
@@ -215,7 +218,8 @@ function fillChems() {
 function openDlg(x) {
   cur = x; $("dt").textContent = x.label;
   $("dd").textContent = "Saved on this phone only, dated today. A newer Pocket SAM reading replaces it.";
-  $("g").value = mine[x.key] ? mine[x.key].gal : ""; $("clr").hidden = !mine[x.key];
+  $("g").value = ""; $("g").placeholder = mine[x.key] ? `now ${mine[x.key].gal} (yours) · blank keeps it` : "blank keeps it"; $("clr").hidden = !mine[x.key];
+  $("sz").value = sizes[x.key] || "";
   if (!x.gpd) $("dd").textContent = `Saved on this phone only. Days left can't be worked out yet (${x.why}).`;
   if (typeof $("dlg").showModal !== "function") {             // very old phones: plain prompt instead
     const v = prompt(`${x.label}: current level (gallons)`, $("g").value); if (v != null && !saveLevel(x, v)) alert("Type the gallons as a number, like 150."); return;
@@ -232,9 +236,16 @@ function saveLevel(x, v) {
   toast(`Saved ${g} gal for ${x.label}`); flash(x.key); return true;
 }
 $("ok").onclick = () => {
-  if (!saveLevel(cur, $("g").value)) { $("dd").textContent = "Type the gallons as a number, like 150."; $("g").focus(); return; }
+  const lv = $("g").value.trim(), sz = $("sz").value.trim();
+  if ((lv && galOf(lv) == null) || (sz && !(galOf(sz) > 0))) { $("dd").textContent = "Type the gallons as a number, like 150."; return; }
+  const old = sizes[cur.key];
+  if (sz) sizes[cur.key] = galOf(sz); else delete sizes[cur.key];
+  lsSet("pocketsam-tanksize", sizes);
+  if (lv) saveLevel(cur, lv);
+  else { render(); if (sizes[cur.key] !== old) { toast(sz ? `Tank size ${galOf(sz)} gal saved for ${cur.label}` : `Tank size cleared for ${cur.label}`); flash(cur.key); } }
   $("dlg").close();
 };
+$("sz").addEventListener("keydown", e => { if (e.key === "Enter") $("ok").click(); });
 $("g").addEventListener("keydown", e => { if (e.key === "Enter") $("ok").click(); });
 function toast(t) { const el = $("toast"); el.textContent = t; el.classList.add("show"); clearTimeout(toast.h); toast.h = setTimeout(() => el.classList.remove("show"), 2500); }
 function flash(key) { const r = document.querySelector(`[data-key="${CSS.escape(key)}"]`); if (!r) return; r.scrollIntoView({ block: "center", behavior: "smooth" }); r.classList.add("flash"); setTimeout(() => r.classList.remove("flash"), 1600); }
