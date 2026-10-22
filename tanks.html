@@ -191,7 +191,7 @@ function render() {
     const r = document.createElement("div"); r.className = "row"; r.dataset.key = x.key;
     r.innerHTML = `<div class="tank"><div class="fill"></div><div class="d"></div></div><div class="info"><div class="name"></div><div class="meta"></div><div class="when"></div><div class="src"></div></div>`;
     r.querySelector(".fill").style.cssText = `height:${p}%;background:${col}`;
-    r.querySelector(".d").textContent = (e.left >= 30 ? "30+" : e.left.toFixed(0)) + "d";
+    r.querySelector(".d").textContent = (e.left >= 999 ? "999+" : e.left.toFixed(0)) + "d";
     r.querySelector(".name").textContent = x.label + (pick ? "" : ` · ${x.c}`);
     r.querySelector(".meta").textContent = `${x.chem} · ~${Math.round(e.now).toLocaleString()} gal now · ${x.gpd < 10 ? x.gpd.toFixed(2) : x.gpd.toFixed(1)} gal/day` + (x.rateNote ? ` (${x.rateNote})` : "");
     const w = r.querySelector(".when"); w.textContent = e.left < 0.5 ? "Probably empty now" : `Empty by ${fmtW(e.by)}`; if (cls) w.classList.add(cls);
