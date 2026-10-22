@@ -31,7 +31,10 @@ h2{font-size:13.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--mu
 .fill{position:absolute;left:0;right:0;bottom:0}
 .d{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;color:#fff;z-index:3;text-shadow:0 1px 3px #000}
 .info{flex:1;min-width:0}.name{font-weight:700}.meta{font-size:13px;color:var(--muted)}
-.src{font-size:12.5px;margin-top:2px}.src.mine{color:var(--mine);font-weight:600}
+.src{font-size:12.5px;margin-top:2px}.src.mine{color:var(--mine);font-weight:600}.src.imp{color:#0f766e;font-weight:600}
+@media (prefers-color-scheme: dark){.src.imp{color:#5eead4}}
+#imp select{width:100%;padding:6px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+#imp .il{max-height:55vh;overflow:auto;margin:8px 0}#imp .ir{padding:6px 0;border-bottom:1px solid var(--line);font-size:13.5px}
 .when{font-weight:700;font-size:14px}.when.crit{color:var(--crit)}.when.low{color:var(--low)}
 .row.flash{outline:3px solid var(--mine);outline-offset:2px}
 #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#222;color:#fff;padding:10px 16px;border-radius:20px;font-size:14px;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90%;text-align:center}
@@ -49,10 +52,12 @@ a{color:var(--brand)}
   <div class="bar">
     <select id="county" aria-label="County / City"></select>
     <button id="refresh" class="p">REFRESH</button>
+    <button id="impBtn" title="Import levels from the tank monitoring export (.csv)">Import levels</button>
+    <input type="file" id="impFile" accept=".csv,text/csv,.txt" hidden>
     <span class="status" id="status"></span>
   </div>
   <div class="chips" id="chems" aria-label="Show only these chemicals"></div>
-  <div class="warn" id="warn"><button class="x" id="warnX" aria-label="Close this note" title="Close">✕</button><b>These are calculated levels, not live readings.</b> Each tank is estimated from the last level saved in Pocket SAM and its feed rate. It does <b>not</b> know about a Delta Dose, a pump losing prime, a leak, or a delivery since then. Use <b>Update level</b> when you get a real reading (e.g. from an alarm email), or to add the tank size so the picture shows % full. Levels stay on this phone; tank sizes are shared with your team.</div>
+  <div class="warn" id="warn"><button class="x" id="warnX" aria-label="Close this note" title="Close">✕</button><b>These are calculated levels, not live readings.</b> Each tank is estimated from the last level saved in Pocket SAM and its feed rate. It does <b>not</b> know about a Delta Dose, a pump losing prime, a leak, or a delivery since then. Use <b>Import levels</b> with the monitoring export, or <b>Update level</b> when you get a real reading (e.g. from an alarm email), or to add the tank size so the picture shows % full. Levels stay on this phone; tank sizes are shared with your team.</div>
   <div class="sum" id="sum"></div>
   <h2 id="h1">Soonest empty first</h2>
   <div id="list"></div>
@@ -62,6 +67,8 @@ a{color:var(--brand)}
 </div>
 
 <div id="toast" role="status"></div>
+<dialog id="imp"><b>Import levels</b><div class="small" id="impMsg"></div><div class="il" id="impList"></div>
+<div class="db"><button id="impCx">Cancel</button><button class="p" id="impOk">Save levels</button></div></dialog>
 <dialog id="dlg"><b id="dt"></b><div class="small" id="dd"></div>
 <label class="small" for="g">Current level (gallons)</label><input id="g" inputmode="decimal" autocomplete="off" placeholder="leave blank to keep">
 <label class="small" for="sz">Tank size (gallons, optional)</label><input id="sz" inputmode="decimal" autocomplete="off" placeholder="e.g. 550">
@@ -86,10 +93,16 @@ let db = {}, mine = lsGet(MINE_KEY, {}), cur = null;
 /* Tank sizes are shared with the team through sync (one hidden "Tank sizes" record, like the parts list).
    Changes made with no signal wait here and are sent on the next REFRESH. */
 const SET = "~Team settings", SIZES_SITE = "Tank sizes", SIZE_PENDING = "pocketsam-tanksize-pending";
-let sizePending = lsGet(SIZE_PENDING, {});
-{ const old = lsGet("pocketsam-tanksize", null); if (old) { for (const k in old) if (!(k in sizePending)) sizePending[k] = old[k]; lsSet(SIZE_PENDING, sizePending); try { localStorage.removeItem("pocketsam-tanksize"); } catch (e) {} } }   // sizes typed before sharing
-const sharedSizes = () => { const r = (db[SET] || {})[SIZES_SITE]; return r && r.sizes && typeof r.sizes === "object" ? r.sizes : {}; };
-const sizeOf = k => { if (k in sizePending) return sizePending[k] || null; return sharedSizes()[k] || null; };
+// Shared team records: tank sizes, levels imported from the monitoring export, and how export names match sites.
+const TEAM = { sizes: SIZES_SITE, levels: "Tank levels", matches: "Import matches" };
+const pendKey = f => f === "sizes" ? SIZE_PENDING : "pocketsam-team-pending-" + f;
+const pending = {}; for (const f in TEAM) pending[f] = lsGet(pendKey(f), {});
+const savePending = f => lsSet(pendKey(f), pending[f]);
+{ const old = lsGet("pocketsam-tanksize", null); if (old) { for (const k in old) if (!(k in pending.sizes)) pending.sizes[k] = old[k]; savePending("sizes"); try { localStorage.removeItem("pocketsam-tanksize"); } catch (e) {} } }   // sizes typed before sharing
+const shared = f => { const r = (db[SET] || {})[TEAM[f]]; return r && r[f] && typeof r[f] === "object" ? r[f] : {}; };
+const teamGet = (f, k) => (k in pending[f]) ? (pending[f][k] || null) : (shared(f)[k] || null);
+const sizeOf = k => teamGet("sizes", k);
+let sizePending = pending.sizes;
 const NUTRIENT_SIZE = 15;                                    // most nutrient tanks are 15 gal; set the bigger ones in Update level
 // A nutrient level over 15 gal can't be a 15 gal tank, so treat it as one of the 100 gal ones
 const tankSize = (x, now) => sizeOf(x.key) || (x.chem === "Nutrient" ? ((x.tech && x.tech.gal > NUTRIENT_SIZE) || now > NUTRIENT_SIZE ? 100 : NUTRIENT_SIZE) : null);
@@ -162,14 +175,17 @@ function chemSites() {
   return out;
 }
 function est(x) {
-  const m = mine[x.key];
-  let base = x.tech ? { ...x.tech, who: "tech" } : null;
-  if (m && (!base || m.date >= base.date)) base = { gal: m.gal, date: m.date, who: "mine" };   // newer reading wins
-  if (!base) return null;
+  // Newest reading wins: Pocket SAM visit, one typed on this phone, or one imported from the monitoring export
+  const m = mine[x.key], im = teamGet("levels", x.key), c = [];
+  if (x.tech) c.push({ ...x.tech, ts: d0(x.tech.date).getTime(), who: "tech" });
+  if (m) c.push({ gal: m.gal, date: m.date, ts: d0(m.date).getTime() + 1, who: "mine" });
+  if (im && isFinite(im.ts)) c.push({ gal: im.gal, ts: im.ts, at: im.at, who: "import" });
+  if (!c.length) return null;
+  const base = c.sort((a, b) => b.ts - a.ts)[0];
   if (!x.gpd) return { now: base.gal, left: Infinity, noRate: true, base };   // level known, no feed rate: show the level, no countdown
-  const days = Math.max(0, (today() - d0(base.date)) / DAY);
+  const days = Math.max(0, (Date.now() - base.ts) / DAY);
   const now = Math.max(0, base.gal - x.gpd * days), left = now / x.gpd;
-  return { now, left, by: new Date(today().getTime() + left * DAY), base };
+  return { now, left, by: new Date(Date.now() + left * DAY), base };
 }
 
 function render() {
@@ -200,6 +216,7 @@ function render() {
     else { w.textContent = e.left < 0.5 ? "Probably empty now" : `Empty by ${fmtW(e.by)}`; if (cls) w.classList.add(cls); }
     const sr = r.querySelector(".src");
     if (e.base.who === "mine") { sr.classList.add("mine"); sr.textContent = `Your reading ${fmt(d0(e.base.date))}: ${e.base.gal} gal (this phone)`; }
+    else if (e.base.who === "import") { sr.classList.add("imp"); sr.textContent = `Monitor reading ${new Date(e.base.ts).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}: ${e.base.gal} gal (imported)` + (e.noRate ? "" : " · estimated since"); }
     else sr.textContent = `Pocket SAM reading ${fmt(d0(e.base.date))}: ${e.base.gal} gal` + (e.noRate ? "" : " · estimated since");
     const b = document.createElement("button"); b.textContent = "Update level"; b.onclick = () => openDlg(x); r.append(b); L.append(r);
   });
@@ -254,7 +271,7 @@ $("ok").onclick = () => {
   const lv = $("g").value.trim(), sz = $("sz").value.trim();
   if ((lv && galOf(lv) == null) || (sz && !(galOf(sz) > 0))) { $("dd").textContent = "Type the gallons as a number, like 150."; return; }
   const old = sizeOf(cur.key), nw = sz ? galOf(sz) : null;
-  if (nw !== old) { sizePending[cur.key] = nw; lsSet(SIZE_PENDING, sizePending); setTimeout(refresh, 0); }   // shared on the next sync
+  if (nw !== old) { pending.sizes[cur.key] = nw; savePending("sizes"); setTimeout(refresh, 0); }   // shared on the next sync
   if (lv) saveLevel(cur, lv);
   else { render(); if (nw !== old) { toast((sz ? `Tank size ${galOf(sz)} gal saved for ${cur.label}` : `Tank size cleared for ${cur.label}`) + (lsGet("pocketsam-sync", null) ? " · shared with your team" : "")); flash(cur.key); } }
   $("dlg").close();
@@ -264,15 +281,99 @@ $("g").addEventListener("keydown", e => { if (e.key === "Enter") $("ok").click()
 function toast(t) { const el = $("toast"); el.textContent = t; el.classList.add("show"); clearTimeout(toast.h); toast.h = setTimeout(() => el.classList.remove("show"), 2500); }
 function flash(key) { const r = document.querySelector(`[data-key="${CSS.escape(key)}"]`); if (!r) return; r.scrollIntoView({ block: "center", behavior: "smooth" }); r.classList.add("flash"); setTimeout(() => r.classList.remove("flash"), 1600); }
 
+/* ---------- Import levels from the tank monitoring export (.csv) ----------
+   Columns used: Customer, SiteName, LastUpdate, Inventory, Capacity. The file is read on this device only;
+   the levels, tank sizes and name matches are shared with the team through sync. */
+function parseCsv(text) {
+  const rows = []; let row = [], f = "", q = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) { if (ch === '"') { if (text[i + 1] === '"') { f += '"'; i++; } else q = false; } else f += ch; }
+    else if (ch === '"') q = true;
+    else if (ch === ",") { row.push(f); f = ""; }
+    else if (ch === "\n" || ch === "\r") { if (ch === "\r" && text[i + 1] === "\n") i++; row.push(f); rows.push(row); row = []; f = ""; }
+    else f += ch;
+  }
+  if (f || row.length) { row.push(f); rows.push(row); }
+  return rows.filter(r => r.some(c => String(c).trim()));
+}
+const norm = v => String(v || "").toLowerCase().replace(/\broad\b/g, "rd").replace(/\bstreet\b/g, "st").replace(/\bavenue\b/g, "ave").replace(/\bdrive\b/g, "dr").replace(/\blift station\b/g, "ls").replace(/,\s*[a-z]{2}\.?$/i, "").replace(/\bcounty\b/g, "").replace(/[^a-z0-9]/g, "");
+function firstNum(v) { const m = String(v).replace(/\b\d+\s*g\b/gi, " ").match(/\d+/); return m ? m[0].replace(/^0+(?=\d)/, "") : null; }
+function parseWhen(v) {
+  const m = String(v).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(am|pm)?)?/i);
+  if (!m) { const t = Date.parse(v); return isFinite(t) ? t : null; }
+  let [, mo, d, y, h, mi, sec, ap] = m; y = +y < 100 ? 2000 + +y : +y; h = +(h || 0);
+  if (ap) { ap = ap.toLowerCase(); if (ap === "pm" && h < 12) h += 12; if (ap === "am" && h === 12) h = 0; }
+  return new Date(y, +mo - 1, +d, h, +(mi || 0), +(sec || 0)).getTime();
+}
+function guessSite(cust, name, tanks) {
+  const cn = norm(cust), inCounty = tanks.filter(x => norm(x.c) === cn || (cn && (norm(x.c).includes(cn) || cn.includes(norm(x.c)))));
+  const pool = inCounty.length ? inCounty : tanks;
+  const num = firstNum(name);
+  if (num) { const hit = pool.filter(x => firstNum(x.s) === num); if (hit.length === 1) return hit[0].key; }
+  const nn = norm(String(name).replace(/\b\d+\s*g\b/gi, ""));
+  const hit = pool.filter(x => norm(x.s) === nn || (nn.length > 3 && (norm(x.s).includes(nn) || nn.includes(norm(x.s)))));
+  return hit.length === 1 ? hit[0].key : null;
+}
+let impRows = [];
+$("impBtn").onclick = () => { $("impFile").value = ""; $("impFile").click(); };
+$("impFile").onchange = async () => {
+  const file = $("impFile").files[0]; if (!file) return;
+  const text = await file.text(), rows = parseCsv(text.replace(/^﻿/, ""));
+  const head = (rows[0] || []).map(h => String(h).trim().toLowerCase());
+  const col = n => head.indexOf(n);
+  const ci = { cust: col("customer"), site: col("sitename"), when: col("lastupdate"), inv: col("inventory"), cap: col("capacity") };
+  if (ci.site < 0 || ci.inv < 0) { toast("That file doesn't have SiteName and Inventory columns"); return; }
+  const tanks = chemSites().filter(x => x.chem !== "Nutrient");
+  impRows = rows.slice(1).map(r => {
+    const cust = ci.cust >= 0 ? r[ci.cust] : "", name = r[ci.site], id = norm(cust) + "|" + norm(name);
+    const remembered = teamGet("matches", id);
+    return { id, cust, name, inv: galOf(r[ci.inv]), cap: ci.cap >= 0 ? galOf(r[ci.cap]) : null, ts: ci.when >= 0 ? parseWhen(r[ci.when]) : Date.now(), whenTxt: ci.when >= 0 ? r[ci.when] : "",
+      key: remembered === "skip" ? "" : (remembered || guessSite(cust, name, tanks)), remembered };
+  }).filter(r => r.name && r.inv != null);
+  if (!impRows.length) { toast("No tank rows found in that file"); return; }
+  const L = $("impList"); L.replaceChildren();
+  const opts = [["", "— skip this one —"], ...tanks.map(x => [x.key, `${x.s} (${x.c})`]).sort((a, b) => a[1].localeCompare(b[1], undefined, { numeric: true }))];
+  impRows.forEach(r => {
+    const d = document.createElement("div"); d.className = "ir";
+    const t = document.createElement("div"); t.textContent = `${r.name} · ${r.cust} — ${r.inv} gal` + (r.cap ? ` of ${r.cap}` : "");
+    const sel = document.createElement("select"); opts.forEach(([v, tx]) => { const o = document.createElement("option"); o.value = v; o.textContent = tx; sel.append(o); });
+    sel.value = r.key || ""; sel.onchange = () => { r.key = sel.value; r.changed = true; };
+    d.append(t, sel); L.append(d);
+  });
+  const n = impRows.filter(r => r.key).length;
+  $("impMsg").textContent = `${impRows.length} tank(s) in the file, ${n} matched to your sites. Check the matches, pick any that are missing, then Save. Matches are remembered for next time.`;
+  $("imp").showModal();
+};
+$("impCx").onclick = () => $("imp").close();
+$("impOk").onclick = () => {
+  let n = 0;
+  impRows.forEach(r => {
+    if (r.changed || !r.remembered) { pending.matches[r.id] = r.key || "skip"; }
+    if (!r.key) return;
+    const cur = teamGet("levels", r.key);
+    if (!cur || !(cur.ts > r.ts)) { pending.levels[r.key] = { gal: r.inv, ts: r.ts, at: r.whenTxt }; n++; }
+    if (r.cap > 0) pending.sizes[r.key] = r.cap;
+  });
+  ["matches", "levels", "sizes"].forEach(savePending);
+  $("imp").close(); render(); refresh();
+  toast(`Imported ${n} tank level(s)` + (lsGet("pocketsam-sync", null) ? " · shared with your team" : ""));
+};
+
 async function refresh() {
   $("refresh").disabled = true; $("status").textContent = "Checking…";
   try {
     let data = await loadSync();
-    if (data && Object.keys(sizePending).length) {          // send tank size changes: latest shared list + this phone's changes
-      db = data; const merged = { ...sharedSizes() };
-      for (const [k, v] of Object.entries(sizePending)) { if (v) merged[k] = v; else delete merged[k]; }
-      data = await loadSync([{ op: "put", c: SET, s: SIZES_SITE, rec: { sizes: merged, updated: new Date().toISOString() } }]);
-      sizePending = {}; lsSet(SIZE_PENDING, sizePending);
+    const waiting = Object.keys(TEAM).filter(f => Object.keys(pending[f]).length);
+    if (data && waiting.length) {                            // send this phone's changes on top of the latest shared lists
+      db = data;
+      const ops = waiting.map(f => {
+        const merged = { ...shared(f) };
+        for (const [k, v] of Object.entries(pending[f])) { if (v) merged[k] = v; else delete merged[k]; }
+        return { op: "put", c: SET, s: TEAM[f], rec: { [f]: merged, updated: new Date().toISOString() } };
+      });
+      data = await loadSync(ops);
+      waiting.forEach(f => { pending[f] = {}; savePending(f); });
     }
     if (data) { db = data; $("status").textContent = "Up to date " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
     else $("status").textContent = "From this phone (sync not set up)";
