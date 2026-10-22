@@ -32,6 +32,9 @@ h2{font-size:13.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--mu
 .info{flex:1;min-width:0}.name{font-weight:700}.meta{font-size:13px;color:var(--muted)}
 .src{font-size:12.5px;margin-top:2px}.src.mine{color:var(--mine);font-weight:600}
 .when{font-weight:700;font-size:14px}.when.crit{color:var(--crit)}.when.low{color:var(--low)}
+.row.flash{outline:3px solid var(--mine);outline-offset:2px}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#222;color:#fff;padding:10px 16px;border-radius:20px;font-size:14px;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90%;text-align:center}
+#toast.show{opacity:1}
 .empty{background:var(--card);border:1px dashed var(--line);border-radius:12px;padding:14px;color:var(--muted)}
 dialog{border:none;border-radius:14px;padding:16px;max-width:360px;width:calc(100% - 32px);background:var(--card);color:var(--ink)}
 dialog input{width:100%;padding:8px;border:1px solid var(--line);border-radius:8px;margin:6px 0 10px;background:var(--bg);color:var(--ink)}
@@ -57,6 +60,7 @@ a{color:var(--brand)}
   <p class="small"><a href="./">← Back to Pocket SAM</a></p>
 </div>
 
+<div id="toast" role="status"></div>
 <dialog id="dlg"><b id="dt"></b><div class="small" id="dd"></div>
 <label class="small" for="g">Current level (gallons)</label><input id="g" inputmode="decimal" autocomplete="off">
 <div class="db"><button id="clr">Use Pocket SAM level</button><button id="cx">Cancel</button><button class="p" id="ok">Save</button></div></dialog>
@@ -184,7 +188,7 @@ function render() {
   have.forEach(({ x, e }) => {
     const p = Math.max(4, Math.min(100, Math.round(e.left / 30 * 100)));
     const cls = e.left < 3 ? "crit" : e.left < HORIZON ? "low" : "", col = e.left < 3 ? "var(--crit)" : e.left < HORIZON ? "var(--low)" : "var(--ok)";
-    const r = document.createElement("div"); r.className = "row";
+    const r = document.createElement("div"); r.className = "row"; r.dataset.key = x.key;
     r.innerHTML = `<div class="tank"><div class="fill"></div><div class="d"></div></div><div class="info"><div class="name"></div><div class="meta"></div><div class="when"></div><div class="src"></div></div>`;
     r.querySelector(".fill").style.cssText = `height:${p}%;background:${col}`;
     r.querySelector(".d").textContent = (e.left >= 30 ? "30+" : e.left.toFixed(0)) + "d";
@@ -198,10 +202,11 @@ function render() {
   });
   const N = $("none"); N.replaceChildren(); $("h2").hidden = !none.length;
   none.forEach(({ x }) => {
-    const r = document.createElement("div"); r.className = "row";
-    r.innerHTML = `<div class="tank"><div class="fill" style="height:0"></div><div class="d">?</div></div><div class="info"><div class="name"></div><div class="meta"></div></div>`;
+    const r = document.createElement("div"); r.className = "row"; r.dataset.key = x.key;
+    r.innerHTML = `<div class="tank"><div class="fill" style="height:0"></div><div class="d">?</div></div><div class="info"><div class="name"></div><div class="meta"></div><div class="src mine"></div></div>`;
     r.querySelector(".name").textContent = x.label + (pick ? "" : ` · ${x.c}`);
     r.querySelector(".meta").textContent = `${x.chem} · ${x.why}`;
+    const m = mine[x.key]; r.querySelector(".src").textContent = m ? `Your reading ${fmt(d0(m.date))}: ${m.gal} gal (this phone)` : "";
     const b = document.createElement("button"); b.textContent = "Update level"; b.onclick = () => openDlg(x); r.append(b); N.append(r);
   });
 }
@@ -227,14 +232,27 @@ function openDlg(x) {
   $("dd").textContent = "Saved on this phone only, dated today. A newer Pocket SAM reading replaces it.";
   $("g").value = mine[x.key] ? mine[x.key].gal : ""; $("clr").hidden = !mine[x.key];
   if (!x.gpd) $("dd").textContent = `Saved on this phone only. Days left can't be worked out yet (${x.why}).`;
+  if (typeof $("dlg").showModal !== "function") {             // very old phones: plain prompt instead
+    const v = prompt(`${x.label}: current level (gallons)`, $("g").value); if (v != null && !saveLevel(x, v)) alert("Type the gallons as a number, like 150."); return;
+  }
   $("dlg").showModal(); setTimeout(() => $("g").focus(), 50);
 }
 $("cx").onclick = () => $("dlg").close();
 $("clr").onclick = () => { delete mine[cur.key]; lsSet(MINE_KEY, mine); $("dlg").close(); render(); };
+// "150", "150 gal" or "1,200" all work
+const galOf = v => { const m = String(v).replace(/,/g, "").match(/\d+(\.\d+)?/); return m ? Number(m[0]) : null; };
+function saveLevel(x, v) {
+  const g = galOf(v); if (g == null) return false;
+  mine[x.key] = { gal: g, date: dkey(today()) }; lsSet(MINE_KEY, mine); render();
+  toast(`Saved ${g} gal for ${x.label}`); flash(x.key); return true;
+}
 $("ok").onclick = () => {
-  const v = $("g").value.trim(), g = num(v); if (g == null || g < 0) return;
-  mine[cur.key] = { gal: g, date: dkey(today()) }; lsSet(MINE_KEY, mine); $("dlg").close(); render();
+  if (!saveLevel(cur, $("g").value)) { $("dd").textContent = "Type the gallons as a number, like 150."; $("g").focus(); return; }
+  $("dlg").close();
 };
+$("g").addEventListener("keydown", e => { if (e.key === "Enter") $("ok").click(); });
+function toast(t) { const el = $("toast"); el.textContent = t; el.classList.add("show"); clearTimeout(toast.h); toast.h = setTimeout(() => el.classList.remove("show"), 2500); }
+function flash(key) { const r = document.querySelector(`[data-key="${CSS.escape(key)}"]`); if (!r) return; r.scrollIntoView({ block: "center", behavior: "smooth" }); r.classList.add("flash"); setTimeout(() => r.classList.remove("flash"), 1600); }
 
 async function refresh() {
   $("refresh").disabled = true; $("status").textContent = "Checking…";
