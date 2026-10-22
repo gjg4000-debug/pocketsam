@@ -179,13 +179,14 @@ function est(x) {
   const m = mine[x.key], im = teamGet("levels", x.key), c = [];
   if (x.tech) c.push({ ...x.tech, ts: d0(x.tech.date).getTime(), who: "tech" });
   if (m) c.push({ gal: m.gal, date: m.date, ts: d0(m.date).getTime() + 1, who: "mine" });
-  if (im && isFinite(im.ts)) c.push({ gal: im.gal, ts: im.ts, at: im.at, who: "import" });
+  if (im && isFinite(im.ts)) c.push({ gal: im.gal, ts: im.ts, at: im.at, feed: im.feed, who: "import" });
   if (!c.length) return null;
   const base = c.sort((a, b) => b.ts - a.ts)[0];
-  if (!x.gpd) return { now: base.gal, left: Infinity, noRate: true, base };   // level known, no feed rate: show the level, no countdown
+  const rate = base.who === "import" && base.feed > 0 ? base.feed : x.gpd;         // the monitor's actual feed beats the pump math
+  if (!rate) return { now: base.gal, left: Infinity, noRate: true, base };   // level known, no feed rate: show the level, no countdown
   const days = Math.max(0, (Date.now() - base.ts) / DAY);
-  const now = Math.max(0, base.gal - x.gpd * days), left = now / x.gpd;
-  return { now, left, by: new Date(Date.now() + left * DAY), base };
+  const now = Math.max(0, base.gal - rate * days), left = now / rate;
+  return { now, left, rate, rateSrc: rate === x.gpd ? "" : "monitor", by: new Date(Date.now() + left * DAY), base };
 }
 
 function render() {
@@ -210,7 +211,7 @@ function render() {
     r.querySelector(".fill").style.cssText = `height:${p}%;background:${col}`;
     r.querySelector(".d").textContent = size ? pct + "%" : e.noRate ? "?" : (e.left >= 999 ? "999+" : e.left.toFixed(0)) + "d";
     r.querySelector(".name").textContent = x.label + (pick ? "" : ` · ${x.c}`);
-    r.querySelector(".meta").textContent = `${x.chem} · ~${Math.round(e.now).toLocaleString()}${size ? " of " + size.toLocaleString() : ""} gal now` + (e.noRate ? "" : ` · ${x.gpd < 10 ? x.gpd.toFixed(2) : x.gpd.toFixed(1)} gal/day`) + (x.rateNote ? ` (${x.rateNote})` : "");
+    r.querySelector(".meta").textContent = `${x.chem} · ~${Math.round(e.now).toLocaleString()}${size ? " of " + size.toLocaleString() : ""} gal now` + (e.noRate ? "" : ` · ${e.rate < 10 ? e.rate.toFixed(2) : e.rate.toFixed(1)} gal/day` + (e.rateSrc ? " (actual feed)" : "")) + (x.rateNote ? ` (${x.rateNote})` : "");
     const w = r.querySelector(".when");
     if (e.noRate) w.textContent = `Can't predict empty date: ${x.why.replace("no tank level recorded yet", "no feed rate")}`;
     else { w.textContent = e.left < 0.5 ? "Probably empty now" : `Empty by ${fmtW(e.by)}`; if (cls) w.classList.add(cls); }
@@ -297,7 +298,7 @@ function parseCsv(text) {
   if (f || row.length) { row.push(f); rows.push(row); }
   return rows.filter(r => r.some(c => String(c).trim()));
 }
-const norm = v => String(v || "").toLowerCase().replace(/\broad\b/g, "rd").replace(/\bstreet\b/g, "st").replace(/\bavenue\b/g, "ave").replace(/\bdrive\b/g, "dr").replace(/\blift station\b/g, "ls").replace(/,\s*[a-z]{2}\.?$/i, "").replace(/\bcounty\b/g, "").replace(/[^a-z0-9]/g, "");
+const norm = v => String(v || "").toLowerCase().replace(/\broad\b/g, "rd").replace(/\bstreet\b/g, "st").replace(/\bavenue\b/g, "ave").replace(/\bdrive\b/g, "dr").replace(/\blift station\b/g, "ls").replace(/,\s*[a-z]{2}\.?$/i, "").replace(/\bcounty\b/g, "").replace(/\s+co\.?$/g, "").replace(/[^a-z0-9]/g, "");
 function firstNum(v) { const m = String(v).replace(/\b\d+\s*g\b/gi, " ").match(/\d+/); return m ? m[0].replace(/^0+(?=\d)/, "") : null; }
 function parseWhen(v) {
   const m = String(v).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(am|pm)?)?/i);
@@ -321,14 +322,15 @@ $("impFile").onchange = async () => {
   const file = $("impFile").files[0]; if (!file) return;
   const text = await file.text(), rows = parseCsv(text.replace(/^﻿/, ""));
   const head = (rows[0] || []).map(h => String(h).trim().toLowerCase());
-  const col = n => head.indexOf(n);
-  const ci = { cust: col("customer"), site: col("sitename"), when: col("lastupdate"), inv: col("inventory"), cap: col("capacity") };
+  const col = n => head.indexOf(n), colStart = n => head.findIndex(h => h.replace(/[^a-z]/g, "").startsWith(n));
+  const ci = { cust: col("customer"), site: col("sitename"), when: col("lastupdate"), inv: col("inventory"), cap: col("capacity"), feed: colStart("actualfeed"), prod: col("product") };
   if (ci.site < 0 || ci.inv < 0) { toast("That file doesn't have SiteName and Inventory columns"); return; }
   const tanks = chemSites().filter(x => x.chem !== "Nutrient");
   impRows = rows.slice(1).map(r => {
     const cust = ci.cust >= 0 ? r[ci.cust] : "", name = r[ci.site], id = norm(cust) + "|" + norm(name);
     const remembered = teamGet("matches", id);
-    return { id, cust, name, inv: galOf(r[ci.inv]), cap: ci.cap >= 0 ? galOf(r[ci.cap]) : null, ts: ci.when >= 0 ? parseWhen(r[ci.when]) : Date.now(), whenTxt: ci.when >= 0 ? r[ci.when] : "",
+    const feed = ci.feed >= 0 ? galOf(r[ci.feed]) : null;
+    return { id, cust, name, inv: galOf(r[ci.inv]), cap: ci.cap >= 0 ? galOf(r[ci.cap]) : null, feed: feed > 0 ? feed : null, prod: ci.prod >= 0 ? String(r[ci.prod] || "").trim() : "", ts: ci.when >= 0 ? parseWhen(r[ci.when]) : Date.now(), whenTxt: ci.when >= 0 ? r[ci.when] : "",
       key: remembered === "skip" ? "" : (remembered || guessSite(cust, name, tanks)), remembered };
   }).filter(r => r.name && r.inv != null);
   if (!impRows.length) { toast("No tank rows found in that file"); return; }
@@ -342,7 +344,7 @@ $("impFile").onchange = async () => {
     d.append(t, sel); L.append(d);
   });
   const n = impRows.filter(r => r.key).length;
-  $("impMsg").textContent = `${impRows.length} tank(s) in the file, ${n} matched to your sites. Check the matches, pick any that are missing, then Save. Matches are remembered for next time.`;
+  $("impMsg").textContent = `${impRows.length} tank(s) in the file (air monitors skipped), ${n} matched to your sites. Check the matches, pick any that are missing, then Save. Matches are remembered for next time.`;
   $("imp").showModal();
 };
 $("impCx").onclick = () => $("imp").close();
@@ -352,7 +354,7 @@ $("impOk").onclick = () => {
     if (r.changed || !r.remembered) { pending.matches[r.id] = r.key || "skip"; }
     if (!r.key) return;
     const cur = teamGet("levels", r.key);
-    if (!cur || !(cur.ts > r.ts)) { pending.levels[r.key] = { gal: r.inv, ts: r.ts, at: r.whenTxt }; n++; }
+    if (!cur || !(cur.ts > r.ts)) { pending.levels[r.key] = { gal: r.inv, ts: r.ts, at: r.whenTxt, ...(r.feed ? { feed: r.feed } : {}) }; n++; }
     if (r.cap > 0) pending.sizes[r.key] = r.cap;
   });
   ["matches", "levels", "sizes"].forEach(savePending);
