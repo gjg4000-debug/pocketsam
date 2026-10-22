@@ -90,6 +90,9 @@ let sizePending = lsGet(SIZE_PENDING, {});
 { const old = lsGet("pocketsam-tanksize", null); if (old) { for (const k in old) if (!(k in sizePending)) sizePending[k] = old[k]; lsSet(SIZE_PENDING, sizePending); try { localStorage.removeItem("pocketsam-tanksize"); } catch (e) {} } }   // sizes typed before sharing
 const sharedSizes = () => { const r = (db[SET] || {})[SIZES_SITE]; return r && r.sizes && typeof r.sizes === "object" ? r.sizes : {}; };
 const sizeOf = k => { if (k in sizePending) return sizePending[k] || null; return sharedSizes()[k] || null; };
+const NUTRIENT_SIZE = 15;                                    // most nutrient tanks are 15 gal; set the bigger ones in Update level
+// A nutrient level over 15 gal can't be a 15 gal tank, so treat it as one of the 100 gal ones
+const tankSize = (x, now) => sizeOf(x.key) || (x.chem === "Nutrient" ? ((x.tech && x.tech.gal > NUTRIENT_SIZE) || now > NUTRIENT_SIZE ? 100 : NUTRIENT_SIZE) : null);
 let chemPick = new Set(lsGet(CHEM_KEY, []));   // empty = show every chemical
 
 // Pocket SAM's saved data on this phone (same storage the app uses)
@@ -182,7 +185,7 @@ function render() {
   if (!have.length) { const p = document.createElement("div"); p.className = "empty"; p.textContent = rows.length ? "No tank levels saved yet." : "No tanks found. Open Pocket SAM on this phone and REFRESH first."; L.append(p); }
   have.forEach(({ x, e }) => {
     // With a tank size: the picture is % full. Without one: full = 30 days or more left.
-    const size = sizeOf(x.key), pct = size ? Math.max(0, Math.min(100, Math.round(e.now / size * 100))) : null;
+    const size = tankSize(x, e.now), pct = size ? Math.max(0, Math.min(100, Math.round(e.now / size * 100))) : null;
     const p = size ? Math.max(4, pct) : Math.max(4, Math.min(100, Math.round(e.left / 30 * 100)));
     const cls = e.left < 3 ? "crit" : e.left < HORIZON ? "low" : "", col = e.left < 3 ? "var(--crit)" : e.left < HORIZON ? "var(--low)" : "var(--ok)";
     const r = document.createElement("div"); r.className = "row"; r.dataset.key = x.key;
@@ -228,7 +231,7 @@ function openDlg(x) {
   cur = x; $("dt").textContent = x.label;
   $("dd").textContent = "Saved on this phone only, dated today. A newer Pocket SAM reading replaces it.";
   $("g").value = ""; $("g").placeholder = mine[x.key] ? `now ${mine[x.key].gal} (yours) · blank keeps it` : "blank keeps it"; $("clr").hidden = !mine[x.key];
-  $("sz").value = sizeOf(x.key) || "";
+  $("sz").value = sizeOf(x.key) || ""; $("sz").placeholder = x.chem === "Nutrient" ? `${NUTRIENT_SIZE} (usual nutrient tank)` : "e.g. 550";
   if (!x.gpd) $("dd").textContent = `Saved on this phone only. Days left can't be worked out yet (${x.why}).`;
   if (typeof $("dlg").showModal !== "function") {             // very old phones: plain prompt instead
     const v = prompt(`${x.label}: current level (gallons)`, $("g").value); if (v != null && !saveLevel(x, v)) alert("Type the gallons as a number, like 150."); return;
