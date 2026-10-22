@@ -57,7 +57,7 @@ a{color:var(--brand)}
     <span class="status" id="status"></span>
   </div>
   <div class="chips" id="chems" aria-label="Show only these chemicals"></div>
-  <div class="warn" id="warn"><button class="x" id="warnX" aria-label="Close this note" title="Close">✕</button><b>These are calculated levels, not live readings.</b> Each tank is estimated from the last level saved in Pocket SAM and its feed rate. It does <b>not</b> know about a Delta Dose, a pump losing prime, a leak, or a delivery since then. Use <b>Import levels</b> with the monitoring export, or <b>Update level</b> when you get a real reading (e.g. from an alarm email), or to add the tank size so the picture shows % full. Levels stay on this phone; tank sizes are shared with your team.</div>
+  <div class="warn" id="warn"><button class="x" id="warnX" aria-label="Close this note" title="Close">✕</button><b>Levels are estimates between readings.</b> Each tank starts from its newest reading: a site visit, an <b>Import levels</b> from the monitoring export (.csv), or an <b>Update level</b> you type in. From there it counts down using the feed rate. It won't know about a Delta Dose, a pump losing prime, a leak, or a delivery until the next reading, so import often. Imported levels and tank sizes are shared with your team; levels you type in stay on this phone.</div>
   <div class="sum" id="sum"></div>
   <h2 id="h1">Soonest empty first</h2>
   <div id="list"></div>
