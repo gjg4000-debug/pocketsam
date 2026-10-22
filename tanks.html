@@ -218,7 +218,7 @@ function render() {
     const sr = r.querySelector(".src");
     if (e.base.who === "mine") { sr.classList.add("mine"); sr.textContent = `Your reading ${fmt(d0(e.base.date))}: ${e.base.gal} gal (this phone)`; }
     else if (e.base.who === "import") { sr.classList.add("imp"); sr.textContent = `Monitor reading ${new Date(e.base.ts).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}: ${e.base.gal} gal (imported)` + (e.noRate ? "" : " · estimated since"); }
-    else sr.textContent = `Pocket SAM reading ${fmt(d0(e.base.date))}: ${e.base.gal} gal` + (e.noRate ? "" : " · estimated since");
+    else sr.textContent = `Reading ${fmt(d0(e.base.date))}: ${e.base.gal} gal` + (e.noRate ? "" : " · estimated since");
     const b = document.createElement("button"); b.textContent = "Update level"; b.onclick = () => openDlg(x); r.append(b); L.append(r);
   });
   const N = $("none"); N.replaceChildren(); $("h2").hidden = !none.length;
