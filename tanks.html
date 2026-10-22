@@ -55,6 +55,7 @@ a{color:var(--brand)}
     <button id="impBtn" title="Import levels from the tank monitoring export (.csv)">Import levels</button>
     <input type="file" id="impFile" accept=".csv,text/csv,.txt" hidden>
     <span class="status" id="status"></span>
+    <button id="connBtn" hidden>Connect to sync</button>
   </div>
   <div class="chips" id="chems" aria-label="Show only these chemicals"></div>
   <div class="warn" id="warn"><button class="x" id="warnX" aria-label="Close this note" title="Close">✕</button><b>Levels are estimates between readings.</b> Each tank starts from its newest reading: a site visit, an <b>Import levels</b> from the monitoring export (a .csv file), or an <b>Update level</b> you type in. From there it counts down using the feed rate. It won't know about a Delta Dose, a pump losing prime, a leak, or a delivery until the next reading, so import often.</div>
@@ -67,6 +68,12 @@ a{color:var(--brand)}
 </div>
 
 <div id="toast" role="status"></div>
+<dialog id="conn"><b>Connect to your team sync</b>
+<p class="small">Use the same link and password as Pocket SAM. You only do this once on this computer or phone.</p>
+<label class="small" for="cUrl">Link</label><input id="cUrl" type="url" autocomplete="off" placeholder="https://script.google.com/macros/s/…/exec">
+<label class="small" for="cPass">Password</label><input id="cPass" type="password" autocomplete="off">
+<div class="small" id="cErr"></div>
+<div class="db"><button id="cCx">Cancel</button><button class="p" id="cOk">CONNECT</button></div></dialog>
 <dialog id="imp"><b>Import levels</b><div class="small" id="impMsg"></div><div class="il" id="impList"></div>
 <div class="db"><button id="impCx">Cancel</button><button class="p" id="impOk">Save levels</button></div></dialog>
 <dialog id="dlg"><b id="dt"></b><div class="small" id="dd"></div>
@@ -362,6 +369,21 @@ $("impOk").onclick = () => {
   toast(`Imported ${n} tank level(s)` + (lsGet("pocketsam-sync", null) ? " · shared with your team" : ""));
 };
 
+// Connect this device to the team sync (same link and password as Pocket SAM; Pocket SAM on this device uses it too)
+$("connBtn").onclick = () => { $("cErr").textContent = ""; $("conn").showModal(); setTimeout(() => $("cUrl").focus(), 50); };
+$("cCx").onclick = () => $("conn").close();
+$("cOk").onclick = async () => {
+  const url = $("cUrl").value.trim(), pass = $("cPass").value;
+  if (!/^https:\/\/script\.google(usercontent)?\.com\//.test(url)) { $("cErr").textContent = "That doesn't look like the sync link. It starts with https://script.google.com/"; return; }
+  if (!pass) { $("cErr").textContent = "Type the password."; return; }
+  $("cErr").textContent = "Connecting…";
+  try {
+    const r = await fetch(url, { method: "POST", body: JSON.stringify({ pass, action: "ping" }) }); const j = await r.json();
+    if (!j.ok) { $("cErr").textContent = j.error === "Wrong password" ? "Wrong password." : "Couldn't connect: " + (j.error || "error"); return; }
+  } catch (e) { $("cErr").textContent = "Couldn't connect. Check the link and the signal."; return; }
+  lsSet("pocketsam-sync", { url, pass, last: 0 }); $("conn").close(); toast("Connected ✓"); refresh();
+};
+
 async function refresh() {
   $("refresh").disabled = true; $("status").textContent = "Checking…";
   try {
@@ -378,7 +400,8 @@ async function refresh() {
       waiting.forEach(f => { pending[f] = {}; savePending(f); });
     }
     if (data) { db = data; $("status").textContent = "Up to date " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
-    else $("status").textContent = "From this phone (sync not set up)";
+    else $("status").textContent = "Only this device's data (not connected)";
+    $("connBtn").hidden = !!data;
   } catch (e) { $("status").textContent = navigator.onLine ? "Sync problem, showing this phone's data" : "No signal, showing this phone's data"; }
   $("refresh").disabled = false; fillCounties(); fillChems(); render();
 }
