@@ -165,7 +165,8 @@ function est(x) {
   const m = mine[x.key];
   let base = x.tech ? { ...x.tech, who: "tech" } : null;
   if (m && (!base || m.date >= base.date)) base = { gal: m.gal, date: m.date, who: "mine" };   // newer reading wins
-  if (!base || !x.gpd) return null;
+  if (!base) return null;
+  if (!x.gpd) return { now: base.gal, left: Infinity, noRate: true, base };   // level known, no feed rate: show the level, no countdown
   const days = Math.max(0, (today() - d0(base.date)) / DAY);
   const now = Math.max(0, base.gal - x.gpd * days), left = now / x.gpd;
   return { now, left, by: new Date(today().getTime() + left * DAY), base };
@@ -176,28 +177,30 @@ function render() {
   const allT = chemSites(), present = new Set(allT.map(x => chemOf(x.chem)).filter(Boolean)), eff = new Set([...chemPick].filter(c => present.has(c)));
   const rows = allT.filter(x => (!pick || x.c === pick) && (!eff.size || eff.has(chemOf(x.chem)))).map(x => ({ x, e: est(x) }));
   const have = rows.filter(r => r.e).sort((a, b) => a.e.left - b.e.left), none = rows.filter(r => !r.e);
-  const soon = have.filter(r => r.e.left < HORIZON);
+  const soon = have.filter(r => r.e.left < HORIZON), counted = have.filter(r => !r.e.noRate);
   $("sum").innerHTML = "";
   const box = (n, l) => { const b = document.createElement("div"); b.className = "box"; const a = document.createElement("div"); a.className = "n"; a.textContent = n; const c = document.createElement("div"); c.className = "l"; c.textContent = l; b.append(a, c); $("sum").append(b); };
-  box(`${soon.length} of ${have.length}`, `tanks empty within ${HORIZON} days`);
+  box(`${soon.length} of ${counted.length}`, `tanks empty within ${HORIZON} days`);
   box(String(none.length), "tank(s) with no data yet");
   const L = $("list"); L.replaceChildren();
   if (!have.length) { const p = document.createElement("div"); p.className = "empty"; p.textContent = rows.length ? "No tank levels saved yet." : "No tanks found. Open Pocket SAM on this phone and REFRESH first."; L.append(p); }
   have.forEach(({ x, e }) => {
     // With a tank size: the picture is % full. Without one: full = 30 days or more left.
     const size = tankSize(x, e.now), pct = size ? Math.max(0, Math.min(100, Math.round(e.now / size * 100))) : null;
-    const p = size ? Math.max(4, pct) : Math.max(4, Math.min(100, Math.round(e.left / 30 * 100)));
-    const cls = e.left < 3 ? "crit" : e.left < HORIZON ? "low" : "", col = e.left < 3 ? "var(--crit)" : e.left < HORIZON ? "var(--low)" : "var(--ok)";
+    const p = size ? Math.max(4, pct) : e.noRate ? 0 : Math.max(4, Math.min(100, Math.round(e.left / 30 * 100)));
+    const cls = e.left < 3 ? "crit" : e.left < HORIZON ? "low" : "", col = e.noRate ? "var(--muted)" : e.left < 3 ? "var(--crit)" : e.left < HORIZON ? "var(--low)" : "var(--ok)";
     const r = document.createElement("div"); r.className = "row"; r.dataset.key = x.key;
     r.innerHTML = `<div class="tank"><div class="fill"></div><div class="d"></div></div><div class="info"><div class="name"></div><div class="meta"></div><div class="when"></div><div class="src"></div></div>`;
     r.querySelector(".fill").style.cssText = `height:${p}%;background:${col}`;
-    r.querySelector(".d").textContent = size ? pct + "%" : (e.left >= 999 ? "999+" : e.left.toFixed(0)) + "d";
+    r.querySelector(".d").textContent = size ? pct + "%" : e.noRate ? "?" : (e.left >= 999 ? "999+" : e.left.toFixed(0)) + "d";
     r.querySelector(".name").textContent = x.label + (pick ? "" : ` · ${x.c}`);
-    r.querySelector(".meta").textContent = `${x.chem} · ~${Math.round(e.now).toLocaleString()}${size ? " of " + size.toLocaleString() : ""} gal now · ${x.gpd < 10 ? x.gpd.toFixed(2) : x.gpd.toFixed(1)} gal/day` + (x.rateNote ? ` (${x.rateNote})` : "");
-    const w = r.querySelector(".when"); w.textContent = e.left < 0.5 ? "Probably empty now" : `Empty by ${fmtW(e.by)}`; if (cls) w.classList.add(cls);
+    r.querySelector(".meta").textContent = `${x.chem} · ~${Math.round(e.now).toLocaleString()}${size ? " of " + size.toLocaleString() : ""} gal now` + (e.noRate ? "" : ` · ${x.gpd < 10 ? x.gpd.toFixed(2) : x.gpd.toFixed(1)} gal/day`) + (x.rateNote ? ` (${x.rateNote})` : "");
+    const w = r.querySelector(".when");
+    if (e.noRate) w.textContent = `Can't predict empty date: ${x.why.replace("no tank level recorded yet", "no feed rate")}`;
+    else { w.textContent = e.left < 0.5 ? "Probably empty now" : `Empty by ${fmtW(e.by)}`; if (cls) w.classList.add(cls); }
     const sr = r.querySelector(".src");
     if (e.base.who === "mine") { sr.classList.add("mine"); sr.textContent = `Your reading ${fmt(d0(e.base.date))}: ${e.base.gal} gal (this phone)`; }
-    else sr.textContent = `Pocket SAM reading ${fmt(d0(e.base.date))}: ${e.base.gal} gal · estimated since`;
+    else sr.textContent = `Pocket SAM reading ${fmt(d0(e.base.date))}: ${e.base.gal} gal` + (e.noRate ? "" : " · estimated since");
     const b = document.createElement("button"); b.textContent = "Update level"; b.onclick = () => openDlg(x); r.append(b); L.append(r);
   });
   const N = $("none"); N.replaceChildren(); $("h2").hidden = !none.length;
