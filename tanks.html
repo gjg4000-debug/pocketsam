@@ -402,9 +402,9 @@ $("cOk").onclick = async () => {
 
 /* ---------- Delta Dose summary for the morning email ----------
    actual = the monitor's actual feed from the last import (within 24 hrs); set = Pocket SAM's GPD from the pump settings.
-   DD when actual is 20% or more off (same as the monitor alarm; changeable in the dialog) what it's set for. Written downward: county, then one site per line, a blank line between counties */
+   DD when actual is 15% or more off (catches sites still in the monitor's 20% daily alarm; changeable in the dialog) what it's set for. Written downward: county, then one site per line, a blank line between counties */
 const DD_HOURS = 24;
-const ddOff = () => { const v = Number(localStorage.getItem("pocketsam-ddpct")); return (v > 0 && v < 100 ? v : 20) / 100; };
+const ddOff = () => { const v = Number(localStorage.getItem("pocketsam-ddpct")); return (v > 0 && v < 100 ? v : 15) / 100; };
 function ddSummary() {
   const byCounty = {}, fresh = Date.now() - DD_HOURS * 3600e3; let n = 0, withFeed = 0;
   chemSites().filter(x => x.chem !== "Nutrient").forEach(x => {
