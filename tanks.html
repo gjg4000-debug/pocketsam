@@ -444,7 +444,7 @@ async function refresh() {
       waiting.forEach(f => { pending[f] = {}; savePending(f); });
     }
     if (data) { db = data; $("status").textContent = "Up to date " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
-    else $("status").textContent = "Only this device's data. Set up sync in Pocket SAM to see the team's.";
+    else $("status").textContent = "";
   } catch (e) { $("status").textContent = navigator.onLine ? "Sync problem, showing this phone's data" : "No signal, showing this phone's data"; }
   $("refresh").disabled = false; fillCounties(); fillChems(); render();
 }
