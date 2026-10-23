@@ -77,7 +77,7 @@ a{color:var(--brand)}
 <div class="db"><button id="cCx">Cancel</button><button class="p" id="cOk">CONNECT</button></div></dialog>
 <dialog id="ddDlg"><b>Delta Dose summary</b>
 <p class="small" id="ddMsg"></p>
-<label class="small" for="ddPct">Flag when off by</label> <input id="ddPct" inputmode="decimal" style="width:4.5em;display:inline-block;margin:4px 4px 8px"> <span class="small">% (monitor alarm is 20%)</span>
+<label class="small" for="ddPct">Sites with no DD % of their own: flag when off by</label> <input id="ddPct" inputmode="decimal" style="width:4.5em;display:inline-block;margin:4px 4px 8px"> <span class="small">%</span>
 <textarea id="ddText" rows="10" style="width:100%;font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)"></textarea>
 <div class="db"><button id="ddCx">Close</button><button class="p" id="ddCopy">COPY</button></div></dialog>
 <dialog id="imp"><b>Import levels</b><div class="small" id="impMsg"></div><div class="il" id="impList"></div>
@@ -85,6 +85,8 @@ a{color:var(--brand)}
 <dialog id="dlg"><b id="dt"></b><div class="small" id="dd"></div>
 <label class="small" for="g">Current level (gallons)</label><input id="g" inputmode="decimal" autocomplete="off" placeholder="leave blank to keep">
 <label class="small" for="sz">Tank size (gallons, optional)</label><input id="sz" inputmode="decimal" autocomplete="off" placeholder="e.g. 550">
+<div id="ddSet"><label class="small" for="ddp">Delta Dose alarm % (optional, from the monitor's site settings)</label><input id="ddp" inputmode="decimal" autocomplete="off" placeholder="blank = 15">
+<label class="small" for="tgt">Target GPD (optional, the monitor's target feed rate)</label><input id="tgt" inputmode="decimal" autocomplete="off"></div>
 <div class="db"><button id="clr">Use Pocket SAM level</button><button id="cx">Cancel</button><button class="p" id="ok">Save</button></div></dialog>
 
 <script>
@@ -107,7 +109,8 @@ let db = {}, mine = lsGet(MINE_KEY, {}), cur = null;
    Changes made with no signal wait here and are sent on the next REFRESH. */
 const SET = "~Team settings", SIZES_SITE = "Tank sizes", SIZE_PENDING = "pocketsam-tanksize-pending";
 // Shared team records: tank sizes, levels imported from the monitoring export, and how export names match sites.
-const TEAM = { sizes: SIZES_SITE, levels: "Tank levels", matches: "Import matches" };
+// dd: each site's own Delta Dose alarm % and the monitor's target GPD, typed once in Update level
+const TEAM = { sizes: SIZES_SITE, levels: "Tank levels", matches: "Import matches", dd: "DD settings" };
 const pendKey = f => f === "sizes" ? SIZE_PENDING : "pocketsam-team-pending-" + f;
 const pending = {}; for (const f in TEAM) pending[f] = lsGet(pendKey(f), {});
 const savePending = f => lsSet(pendKey(f), pending[f]);
@@ -266,6 +269,9 @@ function openDlg(x) {
   $("dd").textContent = "Saved on this phone only, dated today. A newer Pocket SAM reading replaces it.";
   $("g").value = ""; $("g").placeholder = mine[x.key] ? `now ${mine[x.key].gal} (yours) · blank keeps it` : "blank keeps it"; $("clr").hidden = !mine[x.key];
   $("sz").value = sizeOf(x.key) || ""; $("sz").placeholder = x.chem === "Nutrient" ? `${NUTRIENT_SIZE} (usual nutrient tank)` : "e.g. 550";
+  const ds = teamGet("dd", x.key) || {}; $("ddSet").hidden = x.chem === "Nutrient";
+  $("ddp").value = ds.pct || ""; $("ddp").placeholder = `blank = ${Math.round(ddOff() * 100)}`;
+  $("tgt").value = ds.target || ""; $("tgt").placeholder = x.gpd ? `blank = Pocket SAM's ${+x.gpd.toFixed(1)}` : "e.g. 53";
   if (!x.gpd) $("dd").textContent = `Saved on this phone only. Days left can't be worked out yet (${x.why}).`;
   if (typeof $("dlg").showModal !== "function") {             // very old phones: plain prompt instead
     const v = prompt(`${x.label}: current level (gallons)`, $("g").value); if (v != null && !saveLevel(x, v)) alert("Type the gallons as a number, like 150."); return;
@@ -286,6 +292,11 @@ function saveLevel(x, v) {
 $("ok").onclick = () => {
   const lv = $("g").value.trim(), sz = $("sz").value.trim();
   if ((lv && galOf(lv) == null) || (sz && !(galOf(sz) > 0))) { $("dd").textContent = "Type the gallons as a number, like 150."; return; }
+  const dp = $("ddp").value.trim(), tg = $("tgt").value.trim();
+  if ((dp && !(galOf(dp) > 0 && galOf(dp) < 100)) || (tg && !(galOf(tg) > 0))) { $("dd").textContent = "Type the DD % and target GPD as numbers, like 25 and 53."; return; }
+  const oldD = teamGet("dd", cur.key) || {}, nwD = { ...(dp ? { pct: galOf(dp) } : {}), ...(tg ? { target: galOf(tg) } : {}) };
+  const ddChanged = oldD.pct !== nwD.pct || oldD.target !== nwD.target;
+  if (ddChanged) { pending.dd[cur.key] = Object.keys(nwD).length ? nwD : null; savePending("dd"); setTimeout(refresh, 0); toast(`DD settings saved for ${cur.label}`); }
   const old = sizeOf(cur.key), nw = sz ? galOf(sz) : null;
   if (nw !== old) { pending.sizes[cur.key] = nw; savePending("sizes"); setTimeout(refresh, 0); }   // shared on the next sync
   if (lv) saveLevel(cur, lv);
@@ -411,11 +422,12 @@ function ddSummary() {
     const im = teamGet("levels", x.key);
     if (!im || !(im.feed > 0) || !(im.ts >= fresh)) return;
     withFeed++;
-    if (!(x.gpd > 0)) return;
-    if (Math.abs(im.feed - x.gpd) / x.gpd < ddOff()) return;
+    const ds = teamGet("dd", x.key) || {}, set = ds.target > 0 ? ds.target : x.gpd, off = ds.pct > 0 ? ds.pct / 100 : ddOff();
+    if (!(set > 0)) return;
+    if (Math.abs(im.feed - set) / set < off) return;
     // Leave the sample point part off the name: "5 and 5 SP" → "5"
     const nm = x.s.replace(/\s+(and|&|\+|\/)\s+.*\bSP\b.*$/i, "").replace(/\s*[-(]?\s*\bSP\b\)?\s*$/i, "").trim() || x.s;
-    (byCounty[x.c] ||= []).push(`${nm} DD ${Math.round(im.feed)}/${Math.round(x.gpd)}`); n++;
+    (byCounty[x.c] ||= []).push(`${nm} DD ${Math.round(im.feed)}/${Math.round(set)}`); n++;
   });
   const lines = Object.keys(byCounty).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
     .map(c => `${c}:\n` + byCounty[c].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).join("\n"));
@@ -425,8 +437,8 @@ function ddShow() {
   const r = ddSummary(), pc = Math.round(ddOff() * 100);
   $("ddText").value = r.text;
   $("ddMsg").textContent = !r.withFeed ? "No actual feed rates from the last 24 hours. Import today's monitoring export (.csv) first."
-    : r.n ? `${r.n} Delta Dose(s): pumped / set for (gal/day), ${pc}% or more off. Edit if needed, then COPY.`
-    : `No Delta Doses in today's import. Every pump is within ${pc}% of its setting.`;
+    : r.n ? `${r.n} Delta Dose(s): pumped / set for (gal/day). Each site uses its own DD % and target if you saved them in Update level, otherwise ${pc}% and Pocket SAM\'s GPD. Edit if needed, then COPY.`
+    : `No Delta Doses in today's import. Every pump is within its DD alarm % (${pc}% if not set).`;
 }
 $("ddBtn").onclick = () => { $("ddPct").value = Math.round(ddOff() * 100); ddShow(); $("ddDlg").showModal(); };
 $("ddPct").oninput = () => { const v = Number($("ddPct").value); if (v > 0 && v < 100) { try { localStorage.setItem("pocketsam-ddpct", String(v)); } catch (e) {} ddShow(); } };
