@@ -65,7 +65,7 @@ a{color:var(--brand)}
   <div id="list"></div>
   <h2 id="h2">No tank data</h2>
   <div id="none"></div>
-  <p class="small"><a href="./">← Back to Pocket SAM</a> · page version T7</p>
+  <p class="small"><a href="./">← Back to Pocket SAM</a> · page version T8</p>
 </div>
 
 <div id="toast" role="status"></div>
@@ -409,7 +409,9 @@ function ddSummary() {
     withFeed++;
     if (!(x.gpd > 0)) return;
     if (Math.abs(im.feed - x.gpd) / x.gpd < DD_OFF) return;
-    (byCounty[x.c] ||= []).push(`${x.s} DD ${Math.round(im.feed)}/${Math.round(x.gpd)}`); n++;
+    // Leave the sample point part off the name: "5 and 5 SP" → "5"
+    const nm = x.s.replace(/\s+(and|&|\+|\/)\s+.*\bSP\b.*$/i, "").replace(/\s*[-(]?\s*\bSP\b\)?\s*$/i, "").trim() || x.s;
+    (byCounty[x.c] ||= []).push(`${nm} DD ${Math.round(im.feed)}/${Math.round(x.gpd)}`); n++;
   });
   const lines = Object.keys(byCounty).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
     .map(c => `${c}:\n` + byCounty[c].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).join("\n"));
