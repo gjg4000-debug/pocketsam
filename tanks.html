@@ -319,9 +319,11 @@ function parseWhen(v) {
   if (ap) { ap = ap.toLowerCase(); if (ap === "pm" && h < 12) h += 12; if (ap === "am" && h === 12) h = 0; }
   return new Date(y, +mo - 1, +d, h, +(mi || 0), +(sec || 0)).getTime();
 }
+const countyFits = (cust, key) => { const cn = norm(cust), kc = norm(String(key).split("\u0001")[0]); return !cn || kc === cn || (!!kc && (kc.includes(cn) || cn.includes(kc))); };
 function guessSite(cust, name, tanks) {
-  const cn = norm(cust), inCounty = tanks.filter(x => norm(x.c) === cn || (cn && (norm(x.c).includes(cn) || cn.includes(norm(x.c)))));
-  const pool = inCounty.length ? inCounty : tanks;
+  // Only guess inside the same county/city: "LS 51" in Wildwood must never land on LS 51 in Apopka
+  const pool = tanks.filter(x => countyFits(cust, x.key));
+  if (!pool.length) return null;
   const num = firstNum(name);
   if (num) { const hit = pool.filter(x => firstNum(x.s) === num); if (hit.length === 1) return hit[0].key; }
   const nn = norm(String(name).replace(/\b\d+\s*g\b/gi, ""));
@@ -340,7 +342,9 @@ $("impFile").onchange = async () => {
   const tanks = chemSites().filter(x => x.chem !== "Nutrient");
   impRows = rows.slice(1).map(r => {
     const cust = ci.cust >= 0 ? r[ci.cust] : "", name = r[ci.site], id = norm(cust) + "|" + norm(name);
-    const remembered = teamGet("matches", id);
+    // Remembered picks: ones you chose by hand always count; older automatic ones only if the county fits
+    const rem = teamGet("matches", id), remKey = rem && typeof rem === "object" ? rem.key : rem, manual = !!(rem && rem.manual);
+    const remembered = manual ? remKey : (remKey && remKey !== "skip" && countyFits(cust, remKey) ? remKey : null);
     const feed = ci.feed >= 0 ? galOf(r[ci.feed]) : null;
     return { id, cust, name, inv: galOf(r[ci.inv]), cap: ci.cap >= 0 ? galOf(r[ci.cap]) : null, feed: feed > 0 ? feed : null, prod: ci.prod >= 0 ? String(r[ci.prod] || "").trim() : "", ts: ci.when >= 0 ? parseWhen(r[ci.when]) : Date.now(), whenTxt: ci.when >= 0 ? r[ci.when] : "",
       key: remembered === "skip" ? "" : (remembered || guessSite(cust, name, tanks)), remembered };
@@ -356,17 +360,21 @@ $("impFile").onchange = async () => {
     d.append(t, sel); L.append(d);
   });
   const n = impRows.filter(r => r.key).length;
-  $("impMsg").textContent = `${impRows.length} tank(s) in the file (air monitors skipped), ${n} matched to your sites. Check the matches, pick any that are missing, then Save. Matches are remembered for next time.`;
+  const seen = {}; impRows.forEach(r => { if (r.key) seen[r.key] = (seen[r.key] || 0) + 1; });
+  const dups = impRows.filter(r => r.key && seen[r.key] > 1);
+  dups.forEach(r => { const i = impRows.indexOf(r), el = L.children[i]; if (el) { const w = document.createElement("div"); w.className = "small"; w.style.color = "var(--crit)"; w.textContent = "⚠ Two rows matched to this same site. Pick the right one, skip the other."; el.append(w); } });
+  $("impMsg").textContent = `${impRows.length} tank(s) in the file (air monitors skipped), ${n} matched to your sites.` + (dups.length ? ` ⚠ ${dups.length} rows share a site, see the red notes.` : "") + ` Check the matches, pick any that are missing, then Save. Matches are remembered for next time.`;
   $("imp").showModal();
 };
 $("impCx").onclick = () => $("imp").close();
 $("impOk").onclick = () => {
   let n = 0;
   impRows.forEach(r => {
-    if (r.changed || !r.remembered) { pending.matches[r.id] = r.key || "skip"; }
+    if (r.changed) pending.matches[r.id] = { key: r.key || "skip", manual: 1 };           // only picks you make are remembered
     if (!r.key) return;
     const cur = teamGet("levels", r.key);
-    if (!cur || !(cur.ts > r.ts)) { pending.levels[r.key] = { gal: r.inv, ts: r.ts, at: r.whenTxt, ...(r.feed ? { feed: r.feed } : {}) }; n++; }
+    // Replace it if it's newer, or if the stored level came from a different export row (an old wrong match)
+    if (!cur || cur.id !== r.id || !(cur.ts > r.ts)) { pending.levels[r.key] = { gal: r.inv, ts: r.ts, at: r.whenTxt, id: r.id, ...(r.feed ? { feed: r.feed } : {}) }; n++; }
     if (r.cap > 0) pending.sizes[r.key] = r.cap;
   });
   ["matches", "levels", "sizes"].forEach(savePending);
