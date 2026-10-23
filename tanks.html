@@ -384,11 +384,14 @@ $("impFile").onchange = async () => {
   const seen = {}; impRows.forEach(r => { if (real(r.key)) seen[r.key] = (seen[r.key] || 0) + 1; });
   const dups = impRows.filter(r => real(r.key) && seen[r.key] > 1);
   dups.forEach(r => { const i = impRows.indexOf(r), el = L.children[i]; if (el) { const w = document.createElement("div"); w.className = "small"; w.style.color = "var(--crit)"; w.textContent = "⚠ Two rows matched to this same site. Pick the right one, skip the other."; el.append(w); } });
-  $("impMsg").textContent = `${impRows.length} tank(s) in the file (air monitors skipped), ${n} matched to your sites, ${nNew} shown as their own tank.` + (dups.length ? ` ⚠ ${dups.length} rows share a site, see the red notes.` : "") + ` Check the matches, pick any that are missing, then Save. Matches are remembered for next time.`;   // (own tanks: rows with no Pocket SAM site)
+  // No pop-up unless two export rows land on the same Pocket SAM site
+  if (!dups.length) { saveImport(); return; }
+  $("impMsg").textContent = `⚠ ${dups.length} rows in the file landed on the same site (red notes). Pick the right site for each, or skip one, then Save. Your picks are remembered for next time.`;
   $("imp").showModal();
 };
 $("impCx").onclick = () => $("imp").close();
-$("impOk").onclick = () => {
+$("impOk").onclick = () => saveImport();
+function saveImport() {
   let n = 0;
   impRows.forEach(r => {
     if (r.changed) pending.matches[r.id] = { key: r.key || NEW, manual: 1 };           // only picks you make are remembered
@@ -402,8 +405,8 @@ $("impOk").onclick = () => {
   });
   ["matches", "levels", "sizes"].forEach(savePending);
   $("imp").close(); render(); refresh();
-  toast(`Imported ${n} tank level(s)` + (lsGet("pocketsam-sync", null) ? " · shared with your team" : ""));
-};
+  toast(`Imported ${impRows.filter(r => r.key !== "skip").length} tank(s)`);
+}
 
 
 /* ---------- Delta Dose summary for the morning email ----------
