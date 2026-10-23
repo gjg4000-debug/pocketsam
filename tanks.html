@@ -53,6 +53,7 @@ a{color:var(--brand)}
     <select id="county" aria-label="County / City"></select>
     <button id="refresh" class="p">REFRESH</button>
     <button id="impBtn" title="Import levels from the tank monitoring export (.csv)">Import levels</button>
+    <button id="ddBtn" title="Delta Dose summary for your morning email">📋 DD summary</button>
     <input type="file" id="impFile" accept=".csv,text/csv,.txt" hidden>
     <span class="status" id="status"></span>
     <button id="connBtn" hidden>Connect to sync</button>
@@ -74,6 +75,10 @@ a{color:var(--brand)}
 <label class="small" for="cPass">Password</label><input id="cPass" type="password" autocomplete="off">
 <div class="small" id="cErr"></div>
 <div class="db"><button id="cCx">Cancel</button><button class="p" id="cOk">CONNECT</button></div></dialog>
+<dialog id="dd"><b>Delta Dose summary</b>
+<p class="small" id="ddMsg"></p>
+<textarea id="ddText" rows="10" style="width:100%;font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)"></textarea>
+<div class="db"><button id="ddCx">Close</button><button class="p" id="ddCopy">COPY</button></div></dialog>
 <dialog id="imp"><b>Import levels</b><div class="small" id="impMsg"></div><div class="il" id="impList"></div>
 <div class="db"><button id="impCx">Cancel</button><button class="p" id="impOk">Save levels</button></div></dialog>
 <dialog id="dlg"><b id="dt"></b><div class="small" id="dd"></div>
@@ -382,6 +387,39 @@ $("cOk").onclick = async () => {
     if (!j.ok) { $("cErr").textContent = j.error === "Wrong password" ? "Wrong password." : "Couldn't connect: " + (j.error || "error"); return; }
   } catch (e) { $("cErr").textContent = "Couldn't connect. Check the link and the signal."; return; }
   lsSet("pocketsam-sync", { url, pass, last: 0 }); $("conn").close(); toast("Connected ✓"); refresh();
+};
+
+/* ---------- Delta Dose summary for the morning email ----------
+   actual = the monitor's actual feed from the last import (within 24 hrs); set = Pocket SAM's GPD from the pump settings.
+   DD when actual is 10% or more off what it's set for. Written like:  Apopka: 50 DD 26/36, 51 DD 18/30 */
+const DD_OFF = 0.10, DD_HOURS = 24;
+function ddSummary() {
+  const byCounty = {}, fresh = Date.now() - DD_HOURS * 3600e3; let n = 0, withFeed = 0;
+  chemSites().filter(x => x.chem !== "Nutrient").forEach(x => {
+    const im = teamGet("levels", x.key);
+    if (!im || !(im.feed > 0) || !(im.ts >= fresh)) return;
+    withFeed++;
+    if (!(x.gpd > 0)) return;
+    if (Math.abs(im.feed - x.gpd) / x.gpd < DD_OFF) return;
+    (byCounty[x.c] ||= []).push(`${x.s} DD ${Math.round(im.feed)}/${Math.round(x.gpd)}`); n++;
+  });
+  const lines = Object.keys(byCounty).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+    .map(c => `${c}: ` + byCounty[c].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).join(", "));
+  return { text: lines.join("\n"), n, withFeed };
+}
+$("ddBtn").onclick = () => {
+  const r = ddSummary();
+  $("ddText").value = r.text;
+  $("ddMsg").textContent = !r.withFeed ? "No actual feed rates from the last 24 hours. Import today's monitoring export (.csv) first."
+    : r.n ? `${r.n} Delta Dose(s): pumped / set for (gal/day), 10% or more off. Edit if needed, then COPY.`
+    : "No Delta Doses in today's import. Every pump is within 10% of its setting.";
+  $("dd").showModal();
+};
+$("ddCx").onclick = () => $("dd").close();
+$("ddCopy").onclick = async () => {
+  const t = $("ddText").value;
+  try { await navigator.clipboard.writeText(t); toast("Copied. Paste it into your email"); }
+  catch (e) { $("ddText").select(); document.execCommand("copy"); toast("Copied"); }
 };
 
 async function refresh() {
