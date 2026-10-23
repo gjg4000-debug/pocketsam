@@ -352,7 +352,7 @@ $("impFile").onchange = async () => {
   const head = (rows[0] || []).map(h => String(h).trim().toLowerCase());
   const col = n => head.indexOf(n), colStart = n => head.findIndex(h => h.replace(/[^a-z]/g, "").startsWith(n));
   const ci = { cust: col("customer"), site: col("sitename"), when: col("lastupdate"), inv: col("inventory"), cap: col("capacity"), feed: colStart("actualfeed"), prod: col("product") };
-  if (ci.site < 0 || ci.inv < 0) { toast("That file doesn't have SiteName and Inventory columns"); return; }
+  if (ci.site < 0 || ci.inv < 0) { toast("That isn't the monitoring export (.csv with SiteName and Inventory). Pocket SAM backups and site lists go in Pocket SAM's IMPORT."); return; }
   const tanks = chemSites().filter(x => x.chem !== "Nutrient");
   impRows = rows.slice(1).map(r => {
     const cust = ci.cust >= 0 ? r[ci.cust] : "", name = r[ci.site], id = norm(cust) + "|" + norm(name);
