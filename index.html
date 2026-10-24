@@ -2085,8 +2085,8 @@ function updateWo() { const b = bookingFor(county, site); $("woRow").hidden = !b
 function bkRow(r) {
   const get = test => { for (const k of Object.keys(r)) { if (k.includes("@")) continue; const n = k.replace(/^[a-z0-9]+_/, "").toLowerCase().replace(/[^a-z]/g, ""); if (test(n)) return r[k + "@OData.Community.Display.V1.FormattedValue"] ?? r[k]; } return null; };
   return { wo: get(n => n === "wonumber" || n === "workordernumber" || n === "workorder" || n === "wo"), c: get(n => n === "county" || n === "countyname"),
-    s: get(n => n === "site" || n === "sitename" || n === "sitecode"), tech: get(n => n === "tech" || n === "technician" || n === "technicianname"),
-    date: get(n => n === "scheduleddate" || n === "date"), status: get(n => n === "status" || n === "bookingstatus") };
+    s: get(n => n === "site" || n.startsWith("site")), tech: get(n => n.startsWith("tech")),
+    date: (() => { for (const k of Object.keys(r)) { if (k.includes("@")) continue; const n = k.replace(/^[a-z0-9]+_/, "").toLowerCase().replace(/[^a-z]/g, ""); if (n.startsWith("scheduled") || n === "date") return String(r[k]).slice(0, 10); } return null; })(), status: get(n => n !== "statuscode" && n !== "statecode" && (n === "status" || n.endsWith("status"))) };
 }
 async function fetchBookings() {
   if (!bkUrl) return;
