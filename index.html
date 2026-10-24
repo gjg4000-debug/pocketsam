@@ -2105,7 +2105,7 @@ function dynVisit(rec, c, s, date, id, complete, times) {
   const travelMin = aM != null && prevM != null && aM >= prevM ? aM - prevM : undefined;
   const tech = safeName(getName()), comments = String(rec.chemInfo || "");
   const visit = { visitId: id, county: c, site: s, tech, date, arrive: iso(times.a), leave: iso(times.l), travelMin, siteMin: siteMin ?? undefined,
-    doseGpd: num(rec.chemGpd) ?? undefined, confirmed: false, complete: !!complete, comments: comments || undefined };
+    doseGpd: num(rec.chemGpd) ?? undefined, confirmed: false, complete: !!complete, result: "Pass", comments: comments || undefined };
   const timeEntries = [];
   if (travelMin != null) timeEntries.push({ id: id + "-T", date, type: "Travel", direct: "Direct", start: iso(m2hm(prevM)), end: iso(times.a), minutes: travelMin });
   if (siteMin != null) timeEntries.push({ id: id + "-S", date, type: "Site Time", direct: "Direct", start: iso(times.a), end: iso(times.l), minutes: siteMin });
