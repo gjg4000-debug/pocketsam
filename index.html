@@ -1983,7 +1983,9 @@ function showSync(msg) {
 async function api(cfg, body) {
   const r = await fetch(cfg.url, { method: "POST", body: JSON.stringify({ pass: cfg.pass, ...body }) });
   let j;
-  try { j = await r.json(); } catch (e) { throw new Error("Bad link"); }
+  // Google sometimes answers with an error page for a minute (busy or timed out). Only a 404, or 3 in a row, means the link is really gone.
+  try { j = await r.json(); } catch (e) { api.bad = (api.bad || 0) + 1; throw new Error(r.status === 404 || api.bad >= 3 ? "Bad link" : "Google sheet busy, trying again soon"); }
+  api.bad = 0;
   if (!j.ok) throw new Error(j.error || "Sync error");
   return j;
 }
@@ -2013,6 +2015,7 @@ async function syncNow(manual) {
     }
     const offline = !navigator.onLine || e instanceof TypeError;
     showSync(offline ? `No signal · ${pending.length} change(s) waiting` : "Sync problem: " + e.message);
+    if (!offline && /busy/.test(e.message)) setTimeout(() => syncNow(), 60000);
     if (manual) toast(offline ? "No signal. Your changes will send when you're back online." : "Sync problem: " + e.message);
   } finally {
     syncing = false; $("refreshBtn").disabled = false;
