@@ -184,6 +184,7 @@
     <button id="locSetBtn">SET</button>
   </div>
   <div class="complete">
+    <div class="times" id="woRow" hidden>📋 Work order <b id="woNum"></b></div>
     <div class="times" id="timesRow" hidden>🕘 Arrived <button id="arrBtn" type="button">--</button> Left <button id="leftBtn" type="button">--</button><span class="worked" id="workedTxt"></span></div>
     <div class="crow">
     <label class="complete-lbl" for="completeChk"><input type="checkbox" id="completeChk"> Complete</label>
@@ -281,7 +282,7 @@
   </section>
   <p class="hint version">Pocket SAM version <span id="appVersion">2026-10-03 (v20)</span></p>
   <p class="hint version"><a href="#" id="demoLink" hidden>Load demo county</a></p>
-  <p class="hint version"><a href="#" id="dynLink">Dynamics test: off</a></p>
+  <p class="hint version"><a href="#" id="dynLink">Dynamics test: off</a> · <a href="#" id="bkLink">Bookings test: off</a></p>
 </main>
 
 <dialog id="dlg">
@@ -621,7 +622,7 @@ function refreshUi() {
   const on = !!(county && site);
   ["historyBtn", "saveBtn", "quickSaveBtn"].forEach(id => $(id).disabled = !on);
   $("historyBtn").disabled = !h.length;
-  updateStatus(); updateLocUi(); applyEquip(); updateTimes();
+  updateStatus(); updateLocUi(); applyEquip(); updateTimes(); updateWo();
   for (const k of ["chemTarget", "chemActual", "alarmType"]) inputs[k].closest(".row").hidden = !tlOn(county);
   $("demoLink").hidden = !!db["Demo County"];
 }
@@ -664,7 +665,7 @@ function listDialog(title, items, addText, onPick, onAdd, decorate) {
   items.forEach(name => {
     const b = document.createElement("button");
     const d = decorate ? decorate(name) : {};
-    b.textContent = (d.done ? "✓ " : "") + name + (d.tag ? (d.tag === "Leak" ? "  🚨 LEAK" : "  ⚠ " + d.tag) : "");
+    b.textContent = (d.done ? "✓ " : "") + name + (d.wo ? "  📋 " + d.wo : "") + (d.tag ? (d.tag === "Leak" ? "  🚨 LEAK" : "  ⚠ " + d.tag) : "");
     if (d.done) b.classList.add("done");
     if (d.leak) b.classList.add("leak"); else if (d.warn) b.classList.add("warn");
     if (d.count || d.distFor) { const sp = document.createElement("span"); sp.className = "count"; sp.textContent = d.count || ""; if (d.distFor) sp.dataset.site = d.distFor; b.append(sp); }
@@ -1184,7 +1185,7 @@ $("siteBtn").onclick = () => {
     () => askName("New site name", n => {
       if (db[county][n]) { loadSite(n); return; }
       site = n; startVisit(); fill(null); dirty = true; refreshUi(); pickEquip(true);
-    }), s => ({ done: isDone(county, s), warn: offTarget(county, s), tag: tlOn(county) && ((db[county] || {})[s] || {}).alarmType, leak: tlOn(county) && ((db[county] || {})[s] || {}).alarmType === "Leak", count: siteDist(s), distFor: s })));
+    }), s => ({ done: isDone(county, s), warn: offTarget(county, s), tag: tlOn(county) && ((db[county] || {})[s] || {}).alarmType, leak: tlOn(county) && ((db[county] || {})[s] || {}).alarmType === "Leak", count: siteDist(s), distFor: s, wo: (bookingFor(county, s) || {}).wo })));
   // Not sure where you are yet (common on iPhone): offer a button to get distances
   if (!here && sites(county).some(x => parseLoc((db[county][x] || {}).loc))) {
     const box = document.querySelector("#dlgBody .list");
@@ -2063,10 +2064,52 @@ function setupSync(problem) {
   dialog(problem === "Wrong password" ? "New password needed" : problem === "Bad link" ? "New link needed" : "Connect to the shared sheet", box, buttons);
   if (syncCfg) { box.querySelector("#syncUrl").value = syncCfg.url; if (!problem) box.querySelector("#syncPass").value = syncCfg.pass; }
 }
-$("refreshBtn").onclick = () => syncNow(true);
+$("refreshBtn").onclick = () => { syncNow(true); fetchBookings(); };
 // Tap the "Synced …" line to see or change the sync link and password
 $("syncStatus").onclick = () => { if (syncCfg) setupSync(); };
 $("syncStatus").style.cursor = "pointer";
+
+/* ---------- Bookings test (optional, this phone only) ----------
+   A Power Automate link that answers with the PS Bookings rows (made-up work orders). On REFRESH they're pulled in;
+   test-county sites with an open booking show 📋 WO-… and the WO number goes out with the visit. Empty link = off. */
+const BK_KEY = "pocketsam-bkurl", BKS_KEY = "pocketsam-bookings";
+let bkUrl = lsGet(BK_KEY, ""), bookings = lsGet(BKS_KEY, []);
+function showBk() { $("bkLink").textContent = bkUrl ? `Bookings test: ON (${bookings.length})` : "Bookings test: off"; }
+function bookingFor(c, s) {
+  if (!bkUrl || !c || !s) return null;
+  const n = x => String(x || "").trim().toLowerCase();
+  return bookings.filter(b => n(b.c) === n(c) && n(b.s) === n(s)).sort((a, b) => String(a.date).localeCompare(String(b.date)))[0] || null;
+}
+function updateWo() { const b = bookingFor(county, site); $("woRow").hidden = !b; $("woNum").textContent = b ? b.wo + (b.date ? " · " + fmtShort(String(b.date).slice(0, 10)) : "") + (b.status ? " · " + b.status : "") : ""; }
+// Dataverse rows come back with names like cr07c_wonumber; match them loosely so the flow can stay simple
+function bkRow(r) {
+  const get = test => { for (const k of Object.keys(r)) { if (k.includes("@")) continue; const n = k.replace(/^[a-z0-9]+_/, "").toLowerCase().replace(/[^a-z]/g, ""); if (test(n)) return r[k + "@OData.Community.Display.V1.FormattedValue"] ?? r[k]; } return null; };
+  return { wo: get(n => n === "wonumber" || n === "workordernumber" || n === "workorder" || n === "wo"), c: get(n => n === "county" || n === "countyname"),
+    s: get(n => n === "site" || n === "sitename" || n === "sitecode"), tech: get(n => n === "tech" || n === "technician" || n === "technicianname"),
+    date: get(n => n === "scheduleddate" || n === "date"), status: get(n => n === "status" || n === "bookingstatus") };
+}
+async function fetchBookings() {
+  if (!bkUrl) return;
+  try {
+    const r = await fetch(bkUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    const j = await r.json(); const rows = Array.isArray(j) ? j : (j.value || j.body || []);
+    bookings = rows.map(bkRow).filter(b => b.wo && isTestCounty(b.c) && !/complet|cancel/i.test(b.status || ""));
+    lsSet(BKS_KEY, bookings); showBk(); updateWo();
+  } catch (e) { toast("Bookings test: couldn't get bookings"); }
+}
+$("bkLink").onclick = e => {
+  e.preventDefault();
+  const box = document.createElement("div");
+  box.innerHTML = `<p>Paste the HTTP link from your "PS Bookings Out" flow. On REFRESH, open test work orders show on test-county sites (📋), and the WO number goes out with your SAVE. This link stays on this phone.</p>
+    <label class="hint" for="bkUrl">Flow link</label><input id="bkUrl" type="url" placeholder="https://…" autocomplete="off"><p class="hint" id="bkErr"></p>`;
+  const inp = box.querySelector("#bkUrl"), err = box.querySelector("#bkErr"); if (bkUrl) inp.value = bkUrl;
+  const save = () => { const u = inp.value.trim(); if (!/^https:\/\//.test(u)) { err.textContent = "That doesn't look like the flow link. It starts with https://"; return false; }
+    bkUrl = u; lsSet(BK_KEY, bkUrl); showBk(); toast("Bookings test is ON · getting bookings…"); fetchBookings(); return true; };
+  const buttons = [{ text: "Cancel" }, { text: "SAVE", cls: "primary", fn: save }];
+  if (bkUrl) buttons.unshift({ text: "Turn off", cls: "danger", fn: () => { bkUrl = ""; bookings = []; lsSet(BK_KEY, ""); lsSet(BKS_KEY, []); showBk(); updateWo(); toast("Bookings test is off"); } });
+  dialog("Bookings test", box, buttons);
+};
+showBk(); setTimeout(fetchBookings, 3000);
 
 /* ---------- Dynamics test (optional, this phone only) ----------
    If a test link is set, each SAVE also sends that reading to a Power Automate flow.
@@ -2106,8 +2149,8 @@ function dynVisit(rec, c, s, date, id, complete, times) {
     const l = hm2m(v.l); if (aM != null && l != null && l <= aM && (prevM == null || l > prevM)) prevM = l;
   }
   const travelMin = aM != null && prevM != null && aM >= prevM ? aM - prevM : undefined;
-  const tech = safeName(getName()), comments = String(rec.chemInfo || "");
-  const visit = { visitId: id, county: c, site: s, tech, date, arrive: iso(times.a), leave: iso(times.l), travelMin, siteMin: siteMin ?? undefined,
+  const tech = safeName(getName()), comments = String(rec.chemInfo || ""), bk = bookingFor(c, s);
+  const visit = { visitId: id, workOrder: bk ? bk.wo : undefined, county: c, site: s, tech, date, arrive: iso(times.a), leave: iso(times.l), travelMin, siteMin: siteMin ?? undefined,
     doseGpd: num(rec.chemGpd) ?? undefined, confirmed: false, complete: !!complete, result: "Pass", comments: comments || undefined };
   const timeEntries = [];
   if (travelMin != null) timeEntries.push({ id: id + "-T", date, type: "Travel", direct: "Direct", start: iso(m2hm(prevM)), end: iso(times.a), minutes: travelMin });
