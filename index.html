@@ -2083,7 +2083,7 @@ function dynReading(rec, c, s, date, id, complete) {
   // Every reading on the site, by its name (biofilter, scrubber, carbon, custom types, results), as one text block.
   // One text column in Dataverse holds it all; IT's flow can split it into the Dynamics inspection answers.
   const skip = new Set(["chemInfo", "loc", "p1Timer", "p2Timer"]), all = {};
-  ALL.forEach(f => { if (skip.has(f.key)) return; const v = rec[f.key]; if (v != null && v !== "") all[f.col || f.label] = f.num ? (num(v) ?? v) : v; });
+  ALL.forEach(f => { if (skip.has(f.key)) return; const v = rec[f.key]; if (v != null && v !== "") all[f.col || f.label] = f.key === "treatedBy" ? linkName(v) : f.num ? (num(v) ?? v) : v; });
   [["chemGpd", "Chemical GPD"], ["bioGalPerDay", "Nutrient gal/day"], ["tankDaysLeft", "Tank days left"], ["cfm", "Airflow CFM"], ["h2sRemoval", "H2S removal %"]]
     .forEach(([k, l]) => { const v = num(rec[k]); if (v != null) all[l] = v; });
   const other = custText(rec); if (other) all["Other readings"] = other;
