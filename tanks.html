@@ -150,7 +150,7 @@ async function loadSync(ops) {
 }
 
 // Filter buttons only for real chemicals: "Bioxide off at breaker" counts as Bioxide; notes like "ORCA" or "offline" get no button
-const CHEMS = [["Bioxide", /bioxide/i], ["Nitrate", /nitrate/i], ["Peroxide", /peroxide|h2o2/i], ["Caustic", /caustic|naoh/i], ["Bleach", /bleach|naocl|hypo/i],
+const CHEMS = [["BP 71", /\bbp\s*-?\s*71\b|bioxide\s*plus\s*71/i], ["AE", /\bae\b/i], ["Bioxide", /bioxide/i], ["Nitrate", /nitrate/i], ["Peroxide", /peroxide|h2o2/i], ["Caustic", /caustic|naoh/i], ["Bleach", /bleach|naocl|hypo/i],
   ["Nutrient", /nutrient/i], ["Ferric", /ferric/i], ["Mag hydroxide", /magnesium|mag\b|mg\(oh\)/i]];
 const chemOf = name => { const m = CHEMS.find(([, re]) => re.test(name || "")); return m ? m[0] : ""; };
 // Every tank we can forecast: chemical feed and biofilter nutrient (scrubber caustic/bleach run off pH and ORP, so no forecast)
