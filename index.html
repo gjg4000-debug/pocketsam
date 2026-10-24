@@ -2100,8 +2100,11 @@ function dynVisit(rec, c, s, date, id, complete, times) {
   const timeEntries = [];
   if (travelMin != null) timeEntries.push({ id: id + "-T", date, type: "Travel", direct: "Direct", start: iso(m2hm(prevM)), end: iso(times.a), minutes: travelMin });
   if (siteMin != null) timeEntries.push({ id: id + "-S", date, type: "Site Time", direct: "Direct", start: iso(times.a), end: iso(times.l), minutes: siteMin });
-  const pm = comments.match(/Parts:\s*([^\n]+)/i);
-  const parts = pm ? pm[1].split(",").map(x => x.trim()).filter(Boolean).map((name, i) => ({ id: id + "-P" + (i + 1), name, qty: 1 })) : [];
+  // Every "Parts:" line counts (each ADD TO COMMENTS adds one). Same part twice = qty 2.
+  // "Poppet Valve Kit  W2T201861" (2+ spaces before the number) → name + part number.
+  const pc = {};
+  for (const m of comments.matchAll(/Parts:\s*([^\n]+)/gi)) for (const x of m[1].split(",")) { const t = x.trim(); if (t) pc[t] = (pc[t] || 0) + 1; }
+  const parts = Object.entries(pc).map(([t, qty], i) => { const [name, number] = t.split(/\s{2,}/); return { id: id + "-P" + (i + 1), name: name.trim(), ...(number ? { number: number.trim() } : {}), qty }; });
   const readings = ALL.some(f => rec[f.key]) ? [dynReading(rec, c, s, date, id, complete)] : [];
   const clean = o => { for (const k of Object.keys(o)) if (o[k] === undefined || o[k] === null || o[k] === "") delete o[k]; return o; };
   return { visit: clean(visit), timeEntries, parts, readings };
