@@ -184,6 +184,7 @@
     <button id="locSetBtn">SET</button>
   </div>
   <div class="complete">
+    <div class="times" id="t5Row" hidden>🦺 <button id="t5Btn" type="button">Take 5: not done</button></div>
     <div class="times" id="woRow" hidden>📋 Work order <b id="woNum"></b></div>
     <div class="times" id="timesRow" hidden>🕘 Arrived <button id="arrBtn" type="button">--</button> Left <button id="leftBtn" type="button">--</button><span class="worked" id="workedTxt"></span></div>
     <div class="crow">
@@ -622,7 +623,7 @@ function refreshUi() {
   const on = !!(county && site);
   ["historyBtn", "saveBtn", "quickSaveBtn"].forEach(id => $(id).disabled = !on);
   $("historyBtn").disabled = !h.length;
-  updateStatus(); updateLocUi(); applyEquip(); updateTimes(); updateWo();
+  updateStatus(); updateLocUi(); applyEquip(); updateTimes(); updateWo(); updateT5();
   for (const k of ["chemTarget", "chemActual", "alarmType"]) inputs[k].closest(".row").hidden = !tlOn(county);
   $("demoLink").hidden = !!db["Demo County"];
 }
@@ -2069,6 +2070,35 @@ $("refreshBtn").onclick = () => { syncNow(true); fetchBookings(); };
 $("syncStatus").onclick = () => { if (syncCfg) setupSync(); };
 $("syncStatus").style.cursor = "pointer";
 
+/* ---------- Take 5 (Dynamics test only) ----------
+   Dynamics won't save a booking until "I have read and completed my TAKE 5 Assessment…" is Yes.
+   On test sites (with the Dynamics test link on) a Take 5 button shows the checklist; tapping DONE marks this visit and it goes out with SAVE. */
+const T5_Q = [["Am I current with all Safety Training?", "Y"], ["Are hands or body parts in line of fire?", "N"], ["Did I complete JSA for this task?", "Y"],
+  ["Do I see any slip, trip or fall risks?", "N"], ["Am I the only employee at work/field?", "N"], ["Any ergonomic risks (lifting, pushing or pulling)?", "N"],
+  ["Look above/below/in front & both sides for risks?", "Y"], ["Are insects, wildlife, heat or weather-related risks?", "N"], ["Am I comfortable performing this job?", "Y"],
+  ["Is a work permit required?", "N"], ["Do I work with a new colleague?", "N"], ["Do I need to inform others of potential risks?", "N"],
+  ["Do I need to perform LOTO?", "N"], ["Do I have the appropriate tools, PPE for my task?", "Y"], ["(Vehicles) Pre-trip inspection or Forklift inspection complete?", "Y"]];
+const t5On = () => !!(dynUrl && county && site && isTestCounty(county));
+function updateT5() {
+  $("t5Row").hidden = !t5On(); if (!t5On()) return;
+  const v = visits[visitKey(county, site, today())] || {};
+  $("t5Btn").textContent = v.t5 ? "Take 5: done ✓" : "Take 5: not done (tap)"; $("t5Btn").className = v.t5 ? "done" : "";
+}
+$("t5Btn").onclick = () => {
+  const box = document.createElement("div");
+  const warn = document.createElement("p"); warn.className = "hint"; warn.style.color = "var(--danger, #c0392b)";
+  warn.textContent = "STOP WORK AUTHORITY: if you see unsafe behaviors or work conditions, you have the right and duty to stop work. If you can't correct the risk, contact your supervisor."; box.append(warn);
+  const ol = document.createElement("ol"); ol.style.paddingLeft = "20px";
+  T5_Q.forEach(([q, safe]) => { const li = document.createElement("li"); li.textContent = q + "  (safe: " + (safe === "Y" ? "Yes" : "No") + ")"; li.style.margin = "4px 0"; ol.append(li); });
+  box.append(ol);
+  const k = visitKey(county, site, today()), done = !!(visits[k] || {}).t5;
+  dialog("Take-5 For Safety", box, [{ text: done ? "Close" : "Cancel" },
+    { text: done ? "UNDO" : "I'VE COMPLETED MY TAKE 5", cls: done ? "" : "primary", fn: () => {
+      const v = (visits[k] ||= {}); if (done) delete v.t5; else { v.t5 = true; if (!v.a) v.a = nowHM(); }
+      saveVisits(); updateT5(); toast(done ? "Take 5 cleared" : "Take 5 done ✓ · goes out with SAVE");
+    } }]);
+};
+
 /* ---------- Bookings test (optional, this phone only) ----------
    A Power Automate link that answers with the PS Bookings rows (made-up work orders). On REFRESH they're pulled in;
    test-county sites with an open booking show 📋 WO-… and the WO number goes out with the visit. Empty link = off. */
@@ -2150,7 +2180,7 @@ function dynVisit(rec, c, s, date, id, complete, times) {
   }
   const travelMin = aM != null && prevM != null && aM >= prevM ? aM - prevM : undefined;
   const tech = safeName(getName()), comments = String(rec.chemInfo || ""), bk = bookingFor(c, s);
-  const visit = { visitId: id, workOrder: bk ? bk.wo : undefined, county: c, site: s, tech, date, arrive: iso(times.a), leave: iso(times.l), travelMin, siteMin: siteMin ?? undefined,
+  const visit = { visitId: id, workOrder: bk ? bk.wo : undefined, takeFive: !!(visits[visitKey(c, s, date)] || {}).t5, county: c, site: s, tech, date, arrive: iso(times.a), leave: iso(times.l), travelMin, siteMin: siteMin ?? undefined,
     doseGpd: num(rec.chemGpd) ?? undefined, confirmed: false, complete: !!complete, result: "Pass", comments: comments || undefined };
   const timeEntries = [];
   if (travelMin != null) timeEntries.push({ id: id + "-T", date, type: "Travel", direct: "Direct", start: iso(m2hm(prevM)), end: iso(times.a), minutes: travelMin });
