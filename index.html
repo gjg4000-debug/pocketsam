@@ -1242,7 +1242,7 @@ $("saveBtn").onclick = async () => {
   await persist(); dirty = false; setComplete(rec); refreshUi();
   queue({ op: "put", c: county, s: site, log: { ...logFor(rec, date, times), id: saveId } });
   toast(`Saved ${site} (${fmtDate(date)})` + (rec.completeMonth === thisMonth() ? " · Complete" : ""));
-  if (dynUrl && ALL.some(f => rec[f.key]) && isTestCounty(county)) sendDyn(dynReading(rec, county, site, date, saveId, $("completeChk").checked));
+  if (dynUrl && isTestCounty(county)) sendDyn(dynVisit(rec, county, site, date, saveId, $("completeChk").checked, times));
 };
 
 // CONFIRM: saves just the Complete status. If any boxes have data, it saves those too (same as SAVE).
@@ -2081,6 +2081,30 @@ function dynReading(rec, c, s, date, id, complete) {
     nitrate: n("nitrate"), peroxide: n("peroxide"), h2sIn: n("h2sIn"), h2sOut: n("h2sOut"), complete: !!complete };
   for (const k of Object.keys(body)) if (body[k] == null || body[k] === "") delete body[k];   // leave empty boxes out
   return body;
+}
+// The whole visit in one package for the flow: visit (times, GPD, complete), time entries, parts, readings.
+// Take Five is added once its questions are in the app.
+function dynVisit(rec, c, s, date, id, complete, times) {
+  const iso = hm => { if (!hm) return undefined; const [y, mo, d] = date.split("-").map(Number), [h, mi] = hm.split(":").map(Number); return new Date(y, mo - 1, d, h, mi).toISOString(); };
+  const aM = hm2m(times.a), lM = hm2m(times.l), siteMin = visitMinutes(times.a, times.l);
+  // Travel: from the last site left earlier that day (or check in) to arriving here
+  let prevM = days[date] && days[date].in ? hm2m(days[date].in) : null;
+  for (const [k, v] of Object.entries(visits)) {
+    const [, , dd] = k.split("\u0001"); if (dd !== date || !v.l || k === visitKey(c, s, date)) continue;
+    const l = hm2m(v.l); if (aM != null && l != null && l <= aM && (prevM == null || l > prevM)) prevM = l;
+  }
+  const travelMin = aM != null && prevM != null && aM >= prevM ? aM - prevM : undefined;
+  const tech = safeName(getName()), comments = String(rec.chemInfo || "");
+  const visit = { visitId: id, county: c, site: s, tech, date, arrive: iso(times.a), leave: iso(times.l), travelMin, siteMin: siteMin ?? undefined,
+    doseGpd: num(rec.chemGpd) ?? undefined, confirmed: false, complete: !!complete, comments: comments || undefined };
+  const timeEntries = [];
+  if (travelMin != null) timeEntries.push({ id: id + "-T", date, type: "Travel", direct: "Direct", start: iso(m2hm(prevM)), end: iso(times.a), minutes: travelMin });
+  if (siteMin != null) timeEntries.push({ id: id + "-S", date, type: "Site Time", direct: "Direct", start: iso(times.a), end: iso(times.l), minutes: siteMin });
+  const pm = comments.match(/Parts:\s*([^\n]+)/i);
+  const parts = pm ? pm[1].split(",").map(x => x.trim()).filter(Boolean).map((name, i) => ({ id: id + "-P" + (i + 1), name, qty: 1 })) : [];
+  const readings = ALL.some(f => rec[f.key]) ? [dynReading(rec, c, s, date, id, complete)] : [];
+  const clean = o => { for (const k of Object.keys(o)) if (o[k] === undefined || o[k] === null || o[k] === "") delete o[k]; return o; };
+  return { visit: clean(visit), timeEntries, parts, readings };
 }
 async function sendDyn(body) {
   try {
