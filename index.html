@@ -2080,6 +2080,15 @@ function dynReading(rec, c, s, date, id, complete) {
     chemGpd: n("chemGpd"), ph: n("ph"), temp: n("tempC"), sulfide: n("sulfide"), h2s: n("h2s"),
     nitrate: n("nitrate"), peroxide: n("peroxide"), h2sIn: n("h2sIn"), h2sOut: n("h2sOut"), complete: !!complete };
   for (const k of Object.keys(body)) if (body[k] == null || body[k] === "") delete body[k];   // leave empty boxes out
+  // Every reading on the site, by its name (biofilter, scrubber, carbon, custom types, results), as one text block.
+  // One text column in Dataverse holds it all; IT's flow can split it into the Dynamics inspection answers.
+  const skip = new Set(["chemInfo", "loc", "p1Timer", "p2Timer"]), all = {};
+  ALL.forEach(f => { if (skip.has(f.key)) return; const v = rec[f.key]; if (v != null && v !== "") all[f.col || f.label] = f.num ? (num(v) ?? v) : v; });
+  [["chemGpd", "Chemical GPD"], ["bioGalPerDay", "Nutrient gal/day"], ["tankDaysLeft", "Tank days left"], ["cfm", "Airflow CFM"], ["h2sRemoval", "H2S removal %"]]
+    .forEach(([k, l]) => { const v = num(rec[k]); if (v != null) all[l] = v; });
+  const other = custText(rec); if (other) all["Other readings"] = other;
+  if (Object.keys(all).length) body.allText = JSON.stringify(all);
+  if (n("chemTank") != null) body.tankGal = n("chemTank");
   return body;
 }
 // The whole visit in one package for the flow: visit (times, GPD, complete), time entries, parts, readings.
@@ -2109,16 +2118,30 @@ function dynVisit(rec, c, s, date, id, complete, times) {
   const clean = o => { for (const k of Object.keys(o)) if (o[k] === undefined || o[k] === null || o[k] === "") delete o[k]; return o; };
   return { visit: clean(visit), timeEntries, parts, readings };
 }
+// No signal: the visit waits on this phone and goes out on its own when signal comes back (like readings to the team)
+const DYNQ_KEY = "pocketsam-dynq";
+async function postDyn(body) { const r = await fetch(dynUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); return r; }
 async function sendDyn(body) {
   try {
-    const r = await fetch(dynUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const r = await postDyn(body);
     toast(r.ok ? "Sent to Dynamics test ✓" : `Dynamics test didn't take it (error ${r.status})`);
+    if (r.ok) flushDyn();
     return r.ok;
   } catch (e) {
-    toast(navigator.onLine ? "Dynamics test: blocked by the browser" : "Dynamics test: no signal, not sent");
+    const q = lsGet(DYNQ_KEY, []); q.push(body); lsSet(DYNQ_KEY, q.slice(-50));
+    toast("Dynamics test: no signal, will send when back online");
     return false;
   }
 }
+async function flushDyn() {
+  if (!dynUrl || flushDyn.busy) return; const q = lsGet(DYNQ_KEY, []); if (!q.length) return;
+  flushDyn.busy = true; let sent = 0;
+  try { while (q.length) { await postDyn(q[0]); q.shift(); sent++; lsSet(DYNQ_KEY, q); } }   // an error reply still counts as delivered; only no signal waits
+  catch (e) {} finally { flushDyn.busy = false; }
+  if (sent) toast(`Sent ${sent} waiting visit(s) to Dynamics test ✓`);
+}
+window.addEventListener("online", () => setTimeout(flushDyn, 2000));
+setTimeout(flushDyn, 4000);
 $("dynLink").onclick = e => {
   e.preventDefault();
   const box = document.createElement("div");
