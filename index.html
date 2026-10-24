@@ -2092,9 +2092,14 @@ $("t5Btn").onclick = () => {
   T5_Q.forEach(([q, safe]) => { const li = document.createElement("li"); li.textContent = q + "  (safe: " + (safe === "Y" ? "Yes" : "No") + ")"; li.style.margin = "4px 0"; ol.append(li); });
   box.append(ol);
   const k = visitKey(county, site, today()), done = !!(visits[k] || {}).t5;
+  const lab = document.createElement("label"); lab.className = "hint"; lab.htmlFor = "t5c"; lab.textContent = "Take 5 Assessment comments (required)";
+  const ta = document.createElement("textarea"); ta.id = "t5c"; ta.rows = 2; ta.style.width = "100%"; ta.value = (visits[k] || {}).t5c || "No hazards found";
+  const er = document.createElement("p"); er.className = "hint"; box.append(lab, ta, er);
   dialog("Take-5 For Safety", box, [{ text: done ? "Close" : "Cancel" },
     { text: done ? "UNDO" : "I'VE COMPLETED MY TAKE 5", cls: done ? "" : "primary", fn: () => {
-      const v = (visits[k] ||= {}); if (done) delete v.t5; else { v.t5 = true; if (!v.a) v.a = nowHM(); }
+      const v = (visits[k] ||= {});
+      if (done) { delete v.t5; delete v.t5c; }
+      else { const c = ta.value.trim(); if (!c) { er.textContent = "Comments are required (Dynamics won't save without them)."; return false; } v.t5 = true; v.t5c = c; if (!v.a) v.a = nowHM(); }
       saveVisits(); updateT5(); toast(done ? "Take 5 cleared" : "Take 5 done ✓ · goes out with SAVE");
     } }]);
 };
@@ -2180,7 +2185,7 @@ function dynVisit(rec, c, s, date, id, complete, times) {
   }
   const travelMin = aM != null && prevM != null && aM >= prevM ? aM - prevM : undefined;
   const tech = safeName(getName()), comments = String(rec.chemInfo || ""), bk = bookingFor(c, s);
-  const visit = { visitId: id, workOrder: bk ? bk.wo : undefined, takeFive: !!(visits[visitKey(c, s, date)] || {}).t5, county: c, site: s, tech, date, arrive: iso(times.a), leave: iso(times.l), travelMin, siteMin: siteMin ?? undefined,
+  const visit = { visitId: id, workOrder: bk ? bk.wo : undefined, takeFive: !!(visits[visitKey(c, s, date)] || {}).t5, takeFiveComments: (visits[visitKey(c, s, date)] || {}).t5c || undefined, county: c, site: s, tech, date, arrive: iso(times.a), leave: iso(times.l), travelMin, siteMin: siteMin ?? undefined,
     doseGpd: num(rec.chemGpd) ?? undefined, confirmed: false, complete: !!complete, result: "Pass", comments: comments || undefined };
   const timeEntries = [];
   if (travelMin != null) timeEntries.push({ id: id + "-T", date, type: "Travel", direct: "Direct", start: iso(m2hm(prevM)), end: iso(times.a), minutes: travelMin });
