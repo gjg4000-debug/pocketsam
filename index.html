@@ -261,6 +261,7 @@
 
   <section class="card">
     <div class="btns">
+      <button id="adminBtn">📋 ADD ADMIN TIME</button>
       <button id="tanksBtn">🛢 CHECK MY TANK LEVELS</button>
     </div>
   </section>
@@ -1752,6 +1753,7 @@ function withName(fn) {
 $("exportBtn").onclick = () => withName(n =>
   download(`${n}-PocketSAM-${today()}.json`, JSON.stringify(db, null, 2), "application/json"));
 
+$("adminBtn").onclick = () => indirectForm(today(), -1);   // admin, vehicle maintenance, training… right from the main screen
 $("tanksBtn").onclick = () => guardUnsaved(() => { location.href = "tanks.html"; });
 $("importBtn").onclick = () => guardUnsaved(() => { $("importFile").value = ""; $("importFile").click(); });
 /* Merge an imported site into the local one.
@@ -2379,6 +2381,7 @@ function dayMenu() {
       askTime("Check out", note, nowHM(), v => { d.out = v; saveDays(); showDay(); const w2 = workday(d); toast("Workday Out " + fmtTime(m2hm(w2.repOut))); }, "CHECK OUT", v => dayCheck(d, "out", v));
     }, "danger");
   }
+  add("📋 Add admin time", () => indirectForm(t, -1));
   add("📋 Today", () => showToday(t));
   add("⚙ Lunch settings", lunchSettings);
   add("↺ Start today over", () => confirmBox("Clear today's check in, lunch and check out? (Site arrived / left times stay.)", "Clear", () => {
@@ -2433,7 +2436,7 @@ function showToday(date) {
       const m = x.l != null && x.l >= x.a ? x.l - x.a : null; if (m != null) indirect += m;
       line(`📋 ${x.type}  ${fmtTime(m2hm(x.a))} – ${x.l != null ? fmtTime(m2hm(x.l)) : "--"}  ${m != null ? dur(m) : ""}${x.note ? " · " + x.note : ""}`);
       const ed = document.createElement("button"); ed.textContent = "✎"; ed.className = "rm"; ed.setAttribute("aria-label", "Change " + x.type);
-      ed.onclick = () => { closeDlg(); setTimeout(() => indirectForm(date, x.i), 0); };
+      ed.onclick = () => { closeDlg(); setTimeout(() => indirectForm(date, x.i, true), 0); };
       const rm = document.createElement("button"); rm.textContent = "✕"; rm.className = "rm"; rm.setAttribute("aria-label", "Remove " + x.type);
       rm.onclick = () => { closeDlg(); setTimeout(() => confirmBox(`Remove ${x.type} ${fmtTime(m2hm(x.a))} from ${fmtDate(date)}?`, "Remove", () => {
         days[date].ind.splice(x.i, 1); saveDays(); setTimeout(() => showToday(date), 0); }), 0); };
@@ -2458,7 +2461,7 @@ function showToday(date) {
   if (opened) line(`${opened} other site(s) opened but not saved: not counted.`, "travel");
   box.append(t);
   const addInd = document.createElement("button"); addInd.style.marginTop = "10px"; addInd.textContent = "+ Indirect time (admin, vehicle, training…)";
-  addInd.onclick = () => { closeDlg(); setTimeout(() => indirectForm(date, -1), 0); };
+  addInd.onclick = () => { closeDlg(); setTimeout(() => indirectForm(date, -1, true), 0); };
   box.append(addInd);
   if (dayVisits.length) {
     const clr = document.createElement("button"); clr.className = "danger"; clr.style.marginTop = "10px"; clr.textContent = "✕ Clear all sites from this day";
@@ -2546,7 +2549,7 @@ $("dynLink").onclick = e => {
 
 // Add or change one indirect time entry for a day (i = -1 for a new one)
 const IND_TYPES = ["Admin", "Vehicle maintenance", "Training", "Other"];
-function indirectForm(date, i) {
+function indirectForm(date, i, fromToday) {
   const list = ((days[date] ||= {}).ind ||= []), e = i >= 0 ? list[i] : null;
   const now = new Date(), nowM = now.getHours() * 60 + now.getMinutes();
   const box = document.createElement("div");
@@ -2562,11 +2565,12 @@ function indirectForm(date, i) {
   const mins = () => { const a = hm2m(q("indA").value), l = hm2m(q("indL").value); return a != null && l != null && l > a ? l - a : null; };
   const show = () => { const m = mins(); q("indMin").textContent = m == null ? "End must be after start." : dur(m); };
   q("indA").oninput = q("indL").oninput = show; show();
-  dialog(e ? "Change indirect time" : "Indirect time", box, [{ text: "Cancel", fn: () => { setTimeout(() => showToday(date), 0); } }, { text: "SAVE", cls: "primary", fn: () => {
+  const back = () => { if (fromToday) setTimeout(() => showToday(date), 0); };
+  dialog(e ? "Change admin / indirect time" : "Admin / indirect time", box, [{ text: "Cancel", fn: back }, { text: "SAVE", cls: "primary", fn: () => {
     if (mins() == null) { q("indErr").textContent = "Pick a start and an end time (end after start)."; return false; }
     const rec = { id: e ? e.id : newId(), type: q("indType").value, a: q("indA").value, l: q("indL").value, note: q("indNote").value.trim() };
     if (e) list[i] = rec; else list.push(rec);
-    saveDays(); toast(`${rec.type} ${dur(mins())} saved`); setTimeout(() => showToday(date), 0);
+    saveDays(); toast(`${rec.type} ${dur(mins())} saved · see it on 📋 Today`); back();
   } }]);
 }
 // Opening a site before checking in: offer it once a day
