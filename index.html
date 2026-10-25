@@ -2497,6 +2497,9 @@ function dayPackage(date) {
 async function sendDay(date, note) {
   const body = dayPackage(date);
   const say = t => { note.textContent = t; note.hidden = false; note.scrollIntoView({ block: "nearest" }); };
+  // Test only for now: a day goes out only if a ZZ / test site was visited that day
+  const testDay = Object.keys(visits).some(k => { const [c, , d] = k.split("\u0001"); return d === date && isTestCounty(c); });
+  if (!testDay) { say("Only test days are sent for now. Save a ZZ test site on this day first."); return; }
   if (!body.timeEntries.length) { say("Nothing to send: no check in, check out or indirect time on this day."); return; }
   say("Sending…");
   try {
