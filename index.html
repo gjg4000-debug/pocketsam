@@ -668,7 +668,7 @@ function listDialog(title, items, addText, onPick, onAdd, decorate) {
   items.forEach(name => {
     const b = document.createElement("button");
     const d = decorate ? decorate(name) : {};
-    b.textContent = (d.done ? "✓ " : "") + name + (d.wo ? "  📋 " + d.wo : "") + (d.tag ? (d.tag === "Leak" ? "  🚨 LEAK" : "  ⚠ " + d.tag) : "");
+    b.textContent = (d.done ? "✓ " : "") + name + (d.wo ? "  📋 " + d.wo : d.wait ? "  ⏳ waiting for WO" : "") + (d.tag ? (d.tag === "Leak" ? "  🚨 LEAK" : "  ⚠ " + d.tag) : "");
     if (d.done) b.classList.add("done");
     if (d.leak) b.classList.add("leak"); else if (d.warn) b.classList.add("warn");
     if (d.count || d.distFor) { const sp = document.createElement("span"); sp.className = "count"; sp.textContent = d.count || ""; if (d.distFor) sp.dataset.site = d.distFor; b.append(sp); }
@@ -1188,7 +1188,7 @@ $("siteBtn").onclick = () => {
     () => askName("New site name", n => {
       if (db[county][n]) { loadSite(n); return; }
       site = n; startVisit(); fill(null); dirty = true; refreshUi(); pickEquip(true);
-    }), s => ({ done: isDone(county, s), warn: offTarget(county, s), tag: tlOn(county) && ((db[county] || {})[s] || {}).alarmType, leak: tlOn(county) && ((db[county] || {})[s] || {}).alarmType === "Leak", count: siteDist(s), distFor: s, wo: (bookingFor(county, s) || {}).wo })));
+    }), s => ({ done: isDone(county, s), warn: offTarget(county, s), tag: tlOn(county) && ((db[county] || {})[s] || {}).alarmType, leak: tlOn(county) && ((db[county] || {})[s] || {}).alarmType === "Leak", count: siteDist(s), distFor: s, wo: (bookingFor(county, s) || {}).wo, wait: bkUrl && waitFor(county, s).length > 0 })));
   // Not sure where you are yet (common on iPhone): offer a button to get distances
   if (!here && sites(county).some(x => parseLoc((db[county][x] || {}).loc))) {
     const box = document.querySelector("#dlgBody .list");
@@ -1246,7 +1246,10 @@ $("saveBtn").onclick = async () => {
   await persist(); dirty = false; setComplete(rec); refreshUi();
   queue({ op: "put", c: county, s: site, log: { ...logFor(rec, date, times), id: saveId } });
   toast(`Saved ${site} (${fmtDate(date)})` + (rec.completeMonth === thisMonth() ? " · Complete" : ""));
-  if (dynUrl && isTestCounty(county)) sendDyn(dynVisit(rec, county, site, date, saveId, $("completeChk").checked, times));
+  if (dynUrl && isTestCounty(county)) {
+    const pkg = dynVisit(rec, county, site, date, saveId, $("completeChk").checked, times);
+    if (bkUrl && !pkg.visit.workOrder) holdForWo(pkg); else sendDyn(pkg);   // no work order: wait on the phone for one
+  }
 };
 
 // CONFIRM: saves just the Complete status. If any boxes have data, it saves those too (same as SAVE).
@@ -2118,7 +2121,12 @@ function bookingFor(c, s) {
   const n = x => String(x || "").trim().toLowerCase();
   return bookings.filter(b => n(b.c) === n(c) && n(b.s) === n(s)).sort((a, b) => String(a.date).localeCompare(String(b.date)))[0] || null;
 }
-function updateWo() { const b = bookingFor(county, site); $("woRow").hidden = !b; $("woNum").textContent = b ? b.wo + (b.date ? " · " + fmtShort(String(b.date).slice(0, 10)) : "") + (b.status ? " · " + b.status : "") : ""; }
+function updateWo() {
+  const b = bookingFor(county, site), w = bkUrl && county && site ? waitFor(county, site) : [];
+  $("woRow").hidden = !b && !w.length;
+  $("woNum").textContent = b ? b.wo + (b.date ? " · " + fmtShort(String(b.date).slice(0, 10)) : "") + (b.status ? " · " + b.status : "")
+    : w.length ? `none yet · ⏳ ${w.length} visit(s) waiting (not sent)` : "";
+}
 // Dataverse rows come back with names like cr07c_wonumber; match them loosely so the flow can stay simple
 function bkRow(r) {
   const get = test => { for (const k of Object.keys(r)) { if (k.includes("@")) continue; const n = k.replace(/^[a-z0-9]+_/, "").toLowerCase().replace(/[^a-z]/g, ""); if (test(n)) return r[k + "@OData.Community.Display.V1.FormattedValue"] ?? r[k]; } return null; };
@@ -2126,13 +2134,41 @@ function bkRow(r) {
     s: get(n => n === "site" || n.startsWith("site")), tech: get(n => n.startsWith("tech")),
     date: (() => { for (const k of Object.keys(r)) { if (k.includes("@")) continue; const n = k.replace(/^[a-z0-9]+_/, "").toLowerCase().replace(/[^a-z]/g, ""); if (n.startsWith("scheduled") || n === "date") return String(r[k]).slice(0, 10); } return null; })(), status: get(n => n !== "statuscode" && n !== "statecode" && (n === "status" || n.endsWith("status"))) };
 }
+/* Visits with no work order aren't sent to Dynamics. They wait on this phone; when a work order for that site comes in on REFRESH,
+   Pocket SAM asks "Attach WO-… to your visit?" and sends it then. A visit that never gets a WO just stays here. */
+const WAIT_KEY = "pocketsam-wowait";
+let woWait = lsGet(WAIT_KEY, []);
+const saveWait = () => lsSet(WAIT_KEY, woWait.slice(-100));
+const waitFor = (c, s) => woWait.filter(w => w.c === c && w.s === s);
+function holdForWo(pkg) {
+  const v = pkg.visit;
+  woWait = woWait.filter(w => !(w.c === v.county && w.s === v.site && w.date === v.date));   // a later SAVE the same day replaces it
+  woWait.push({ c: v.county, s: v.site, date: v.date, pkg, skip: [] }); saveWait(); updateWo();
+  toast("No work order yet: kept on this phone. You'll be asked when one comes in.");
+}
+function askWaiting() {
+  const n = x => String(x || "").trim().toLowerCase();
+  for (const w of woWait) {
+    const b = bookings.find(b => n(b.c) === n(w.c) && n(b.s) === n(w.s) && !w.skip.includes(b.wo));
+    if (!b) continue;
+    const p = document.createElement("p");
+    p.textContent = `${b.wo} came in for ${w.s} (${w.c})${b.date ? ", scheduled " + fmtShort(String(b.date).slice(0, 10)) : ""}. Attach it to your ${fmtShort(w.date)} visit and send it?`;
+    dialog("Work order came in", p, [
+      { text: "Not this one", fn: () => { w.skip.push(b.wo); saveWait(); setTimeout(askWaiting, 0); } },
+      { text: "Later" },
+      { text: "ATTACH & SEND", cls: "primary", fn: () => {
+        w.pkg.visit.workOrder = b.wo; woWait = woWait.filter(x => x !== w); saveWait(); sendDyn(w.pkg); updateWo(); setTimeout(askWaiting, 500);
+      } }]);
+    return;   // one question at a time
+  }
+}
 async function fetchBookings() {
   if (!bkUrl) return;
   try {
     const r = await fetch(bkUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
     const j = await r.json(); const rows = Array.isArray(j) ? j : (j.value || j.body || []);
     bookings = rows.map(bkRow).filter(b => b.wo && isTestCounty(b.c) && !/complet|cancel/i.test(b.status || ""));
-    lsSet(BKS_KEY, bookings); showBk(); updateWo();
+    lsSet(BKS_KEY, bookings); showBk(); updateWo(); setTimeout(askWaiting, 300);
   } catch (e) { toast("Bookings test: couldn't get bookings"); }
 }
 $("bkLink").onclick = e => {
