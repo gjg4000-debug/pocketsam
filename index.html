@@ -283,7 +283,7 @@
   </section>
   <p class="hint version">Pocket SAM version <span id="appVersion">2026-10-03 (v20)</span></p>
   <p class="hint version"><a href="#" id="demoLink" hidden>Load demo county</a></p>
-  <p class="hint version"><a href="#" id="dynLink">Dynamics test: off</a> · <a href="#" id="bkLink">Bookings test: off</a></p>
+  <p class="hint version"><a href="#" id="dynLink">Dynamics test: off</a> · <a href="#" id="bkLink">Bookings test: off</a> · <a href="#" id="dayLink">Day test: off</a></p>
 </main>
 
 <dialog id="dlg">
@@ -2467,7 +2467,8 @@ function showToday(date) {
   const copyText = () => [`Workday ${date}`, `In ${f(w && w.inM)}`, `Out (Meal) ${f(w && w.ms)}`, `In ${f(w && w.me)}`, `Out ${f(w && w.repOut)}`,
     `Total ${w && w.total != null ? hrs(w.total) : "--"}`, "", ...[...t.children].map(e => e.textContent.replace(/ ✕$/, ""))].join("\n");
   const note = document.createElement("p"); note.className = "hint"; note.hidden = true; box.append(note);
-  dialog("Today", box, [{ text: "→ Dynamics", cls: "soon", fn: () => {
+  dialog("Today", box, [{ text: "→ Dynamics", cls: dayUrl ? "" : "soon", fn: () => {
+    if (dayUrl) { sendDay(date, note); return false; }
     // Placeholder until Pocket SAM is approved: nothing is sent yet
     note.textContent = "Not connected to Dynamics yet. Once Pocket SAM is approved, this button will send your day's times and readings.";
     note.hidden = false; note.scrollIntoView({ block: "nearest" });
@@ -2478,6 +2479,45 @@ function showToday(date) {
     return false;
   } }, { text: "Close", cls: "primary" }]);
 }
+/* ---------- Day test (optional, this phone only) ----------
+   → Dynamics on the Today screen sends the day's Clock In, Clock Out and indirect time (admin, vehicle, training…) to a "PS Day In" flow.
+   Site visits already go out on their own with each SAVE. The link stays on this phone. */
+const DAY_URL_KEY = "pocketsam-dayurl";
+let dayUrl = lsGet(DAY_URL_KEY, "");
+function showDayLink() { $("dayLink").textContent = dayUrl ? "Day test: ON" : "Day test: off"; }
+function dayPackage(date) {
+  const d = days[date] || {}, tech = safeName(getName());
+  const iso = hm => { if (!hm) return undefined; const [y, mo, dd] = date.split("-").map(Number), [h, mi] = hm.split(":").map(Number); return new Date(y, mo - 1, dd, h, mi).toISOString(); };
+  const out = [];
+  if (d.in) out.push({ id: date + "-IN-" + tech, date, type: "Clock In", direct: "Direct", start: iso(d.in), end: iso(d.in), minutes: 0 });
+  if (d.out) out.push({ id: date + "-OUT-" + tech, date, type: "Clock Out", direct: "Direct", start: iso(d.out), end: iso(d.out), minutes: 0 });
+  for (const e of d.ind || []) { const m = hm2m(e.l) - hm2m(e.a); out.push({ id: e.id, date, type: e.type, direct: "Indirect", start: iso(e.a), end: iso(e.l), minutes: m > 0 ? m : 0, ...(e.note ? { description: e.note } : {}) }); }
+  return { date, tech, timeEntries: out };
+}
+async function sendDay(date, note) {
+  const body = dayPackage(date);
+  const say = t => { note.textContent = t; note.hidden = false; note.scrollIntoView({ block: "nearest" }); };
+  if (!body.timeEntries.length) { say("Nothing to send: no check in, check out or indirect time on this day."); return; }
+  say("Sending…");
+  try {
+    const r = await fetch(dayUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    say(r.ok ? `Sent ${body.timeEntries.length} time entr${body.timeEntries.length === 1 ? "y" : "ies"} to the Day test ✓` : `The Day test didn't take it (error ${r.status}).`);
+  } catch (e) { say(navigator.onLine ? "Day test: blocked by the browser." : "No signal. Try again when you're back online."); }
+}
+$("dayLink").onclick = e => {
+  e.preventDefault();
+  const box = document.createElement("div");
+  box.innerHTML = `<p>Paste the HTTP link from your "PS Day In" flow. Then → Dynamics on the Today screen sends that day's Clock In, Clock Out and indirect time. This link stays on this phone.</p>
+    <label class="hint" for="dayUrlIn">Flow link</label><input id="dayUrlIn" type="url" placeholder="https://…" autocomplete="off"><p class="hint" id="dayErr"></p>`;
+  const inp = box.querySelector("#dayUrlIn"), err = box.querySelector("#dayErr"); if (dayUrl) inp.value = dayUrl;
+  const save = () => { const u = inp.value.trim(); if (!/^https:\/\//.test(u)) { err.textContent = "That doesn't look like the flow link. It starts with https://"; return false; }
+    dayUrl = u; lsSet(DAY_URL_KEY, dayUrl); showDayLink(); toast("Day test is ON"); return true; };
+  const buttons = [{ text: "Cancel" }, { text: "SAVE", cls: "primary", fn: save }];
+  if (dayUrl) buttons.unshift({ text: "Turn off", cls: "danger", fn: () => { dayUrl = ""; lsSet(DAY_URL_KEY, ""); showDayLink(); toast("Day test is off"); } });
+  dialog("Day test", box, buttons);
+};
+showDayLink();
+
 // Add or change one indirect time entry for a day (i = -1 for a new one)
 const IND_TYPES = ["Admin", "Vehicle maintenance", "Training", "Other"];
 function indirectForm(date, i) {
