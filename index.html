@@ -2563,6 +2563,9 @@ function indirectForm(date, i, fromToday, startHM) {
   q("indType").value = e ? e.type : "Admin";
   const sM = startHM ? hm2m(startHM) : null;
   q("indA").value = e ? e.a : sM != null ? startHM : m2hm(Math.max(0, nowM - 30)); q("indL").value = e ? e.l : sM != null ? m2hm(Math.min(1439, sM + 30)) : m2hm(nowM); q("indNote").value = e ? e.note || "" : "";
+  // Any type but Admin fills "What I did" with the type name, unless you've typed something of your own
+  q("indType").onchange = () => { const n = q("indNote"), cur = n.value.trim(), t = q("indType").value;
+    if (!cur || IND_TYPES.includes(cur)) n.value = t === "Admin" ? "" : t; };
   const mins = () => { const a = hm2m(q("indA").value), l = hm2m(q("indL").value); return a != null && l != null && l > a ? l - a : null; };
   const show = () => { const m = mins(); q("indMin").textContent = m == null ? "End must be after start." : dur(m); };
   q("indA").oninput = q("indL").oninput = show; show();
