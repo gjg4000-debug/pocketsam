@@ -283,7 +283,7 @@
   </section>
   <p class="hint version">Pocket SAM version <span id="appVersion">2026-10-03 (v20)</span></p>
   <p class="hint version"><a href="#" id="demoLink" hidden>Load demo county</a></p>
-  <p class="hint version"><a href="#" id="dynLink">Dynamics test: off</a> · <a href="#" id="bkLink">Bookings test: off</a> · <a href="#" id="dayLink">Day test: off</a></p>
+  <p class="hint version"><a href="#" id="dynLink">Dynamics test: off</a><span id="bkLink" hidden></span><span id="dayLink" hidden></span></p>
 </main>
 
 <dialog id="dlg">
@@ -2112,7 +2112,7 @@ $("t5Btn").onclick = () => {
    test-county sites with an open booking show 📋 WO-… and the WO number goes out with the visit. Empty link = off. */
 const BK_KEY = "pocketsam-bkurl", BKS_KEY = "pocketsam-bookings";
 let bkUrl = lsGet(BK_KEY, ""), bookings = lsGet(BKS_KEY, []);
-function showBk() { $("bkLink").textContent = bkUrl ? `Bookings test: ON (${bookings.length})` : "Bookings test: off"; }
+function showBk() { showTests(); }
 function bookingFor(c, s) {
   if (!bkUrl || !c || !s) return null;
   const n = x => String(x || "").trim().toLowerCase();
@@ -2155,7 +2155,11 @@ showBk(); setTimeout(fetchBookings, 3000);
 const DYN_KEY = "pocketsam-dyn";
 let dynUrl = lsGet(DYN_KEY, "");
 const isTestCounty = c => /^zz|\btest\b/i.test(String(c).trim());   // only test counties (name starts with ZZ or has the word "test") are ever sent
-function showDyn() { $("dynLink").textContent = dynUrl ? "Dynamics test: ON" : "Dynamics test: off"; }
+function showDyn() { showTests(); }
+// One "Dynamics test" link at the bottom holds all three test links (visits, bookings, day)
+function showTests() { const v = f => { try { return f(); } catch (e) { return ""; } };   // some links aren't set up yet when the page first loads
+  const n = [v(() => dynUrl), v(() => bkUrl), v(() => dayUrl)].filter(Boolean).length;
+  $("dynLink").textContent = n ? `Dynamics test: ON (${n} of 3)` : "Dynamics test: off"; }
 function dynReading(rec, c, s, date, id, complete) {
   const n = k => num(rec[k]);
   const hrs = (rate, h) => n(rate) != null && n(h) == null ? 24 : n(h);      // blank timer = 24 hrs, same as the app's math
@@ -2484,7 +2488,7 @@ function showToday(date) {
    Site visits already go out on their own with each SAVE. The link stays on this phone. */
 const DAY_URL_KEY = "pocketsam-dayurl";
 let dayUrl = lsGet(DAY_URL_KEY, "");
-function showDayLink() { $("dayLink").textContent = dayUrl ? "Day test: ON" : "Day test: off"; }
+function showDayLink() { showTests(); }
 function dayPackage(date) {
   const d = days[date] || {}, tech = safeName(getName());
   const iso = hm => { if (!hm) return undefined; const [y, mo, dd] = date.split("-").map(Number), [h, mi] = hm.split(":").map(Number); return new Date(y, mo - 1, dd, h, mi).toISOString(); };
@@ -2520,6 +2524,25 @@ $("dayLink").onclick = e => {
   dialog("Day test", box, buttons);
 };
 showDayLink();
+$("dynLink").onclick = e => {
+  e.preventDefault();
+  const box = document.createElement("div");
+  box.innerHTML = `<p class="hint">Test only: these send ZZ / test sites to your test Dynamics tables. Each link comes from one Power Automate flow and stays on this phone. Leave a box empty to turn that part off.</p>
+    <label class="hint" for="tVisit"><b>1. Visits</b> ("PS Visit In"): each SAVE sends the visit, time, parts and readings</label><input id="tVisit" type="url" placeholder="https://…" autocomplete="off">
+    <label class="hint" for="tBk"><b>2. Bookings</b> ("PS Bookings Out"): REFRESH brings in test work orders (📋 WO)</label><input id="tBk" type="url" placeholder="https://…" autocomplete="off">
+    <label class="hint" for="tDay"><b>3. Day</b> ("PS Day In"): → Dynamics on Today sends clock in/out and indirect time</label><input id="tDay" type="url" placeholder="https://…" autocomplete="off">
+    <p class="hint" id="tErr"></p>`;
+  const q = id => box.querySelector("#" + id);
+  q("tVisit").value = dynUrl || ""; q("tBk").value = bkUrl || ""; q("tDay").value = dayUrl || "";
+  dialog("Dynamics test", box, [{ text: "Cancel" }, { text: "SAVE", cls: "primary", fn: () => {
+    const v = ["tVisit", "tBk", "tDay"].map(id => q(id).value.trim());
+    if (v.some(u => u && !/^https:\/\//.test(u))) { q("tErr").textContent = "A link should start with https://"; return false; }
+    const bkWas = bkUrl;
+    dynUrl = v[0]; lsSet(DYN_KEY, dynUrl); bkUrl = v[1]; lsSet(BK_KEY, bkUrl); dayUrl = v[2]; lsSet(DAY_URL_KEY, dayUrl);
+    if (!bkUrl) { bookings = []; lsSet(BKS_KEY, []); updateWo(); } else if (bkUrl !== bkWas) fetchBookings();
+    showTests(); toast("Dynamics test saved"); if (dynUrl) flushDyn();
+  } }]);
+};
 
 // Add or change one indirect time entry for a day (i = -1 for a new one)
 const IND_TYPES = ["Admin", "Vehicle maintenance", "Training", "Other"];
