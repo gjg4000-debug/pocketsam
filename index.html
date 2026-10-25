@@ -2186,6 +2186,7 @@ function dynVisit(rec, c, s, date, id, complete, times) {
     const [, , dd] = k.split("\u0001"); if (dd !== date || !v.l || k === visitKey(c, s, date)) continue;
     const l = hm2m(v.l); if (aM != null && l != null && l <= aM && (prevM == null || l > prevM)) prevM = l;
   }
+  for (const e of (days[date] && days[date].ind) || []) { const l = hm2m(e.l); if (aM != null && l != null && l <= aM && (prevM == null || l > prevM)) prevM = l; }   // admin etc. before this site isn't travel
   const travelMin = aM != null && prevM != null && aM >= prevM ? aM - prevM : undefined;
   const tech = safeName(getName()), comments = String(rec.chemInfo || ""), bk = bookingFor(c, s);
   const visit = { visitId: id, workOrder: bk ? bk.wo : undefined, takeFive: !!(visits[visitKey(c, s, date)] || {}).t5, takeFiveComments: (visits[visitKey(c, s, date)] || {}).t5c || undefined, county: c, site: s, tech, date, arrive: iso(times.a), leave: iso(times.l), travelMin, siteMin: siteMin ?? undefined,
@@ -2418,9 +2419,24 @@ function showToday(date) {
     .map(([k, v]) => ({ k, c: k.split("\u0001")[0], s: k.split("\u0001")[1], a: hm2m(v.a), l: hm2m(v.l) })).sort((x, y) => x.a - y.a);
   const t = document.createElement("div"); t.className = "tl";
   const line = (txt, cls) => { const e = document.createElement("div"); e.textContent = txt; if (cls) e.className = cls; t.append(e); };
-  let prev = w ? w.inM : null, onSite = 0, travel = 0;
+  let prev = w ? w.inM : null, onSite = 0, travel = 0, indirect = 0;
   if (w) line("▶ Check in  " + fmtTime(d.in));
-  for (const x of stops) {
+  // Indirect time (admin, vehicle maintenance, training…) sits in the timeline by its start time; no travel line before it
+  const ind = (d.ind || []).map((e, i) => ({ ...e, i, a: hm2m(e.a), l: hm2m(e.l), ind: true }));
+  const items = [...stops, ...ind].sort((x, y) => x.a - y.a);
+  for (const x of items) {
+    if (x.ind) {
+      const m = x.l != null && x.l >= x.a ? x.l - x.a : null; if (m != null) indirect += m;
+      line(`📋 ${x.type}  ${fmtTime(m2hm(x.a))} – ${x.l != null ? fmtTime(m2hm(x.l)) : "--"}  ${m != null ? dur(m) : ""}${x.note ? " · " + x.note : ""}`);
+      const ed = document.createElement("button"); ed.textContent = "✎"; ed.className = "rm"; ed.setAttribute("aria-label", "Change " + x.type);
+      ed.onclick = () => { closeDlg(); setTimeout(() => indirectForm(date, x.i), 0); };
+      const rm = document.createElement("button"); rm.textContent = "✕"; rm.className = "rm"; rm.setAttribute("aria-label", "Remove " + x.type);
+      rm.onclick = () => { closeDlg(); setTimeout(() => confirmBox(`Remove ${x.type} ${fmtTime(m2hm(x.a))} from ${fmtDate(date)}?`, "Remove", () => {
+        days[date].ind.splice(x.i, 1); saveDays(); setTimeout(() => showToday(date), 0); }), 0); };
+      t.lastChild.append(" ", ed, " ", rm);
+      if (x.l != null) prev = x.l;
+      continue;
+    }
     if (prev != null && x.a >= prev) { line("🚗 travel " + dur(x.a - prev), "travel"); travel += x.a - prev; }
     const m = x.l != null && x.l >= x.a ? x.l - x.a : null; if (m != null) onSite += m;
     line(`📍 ${x.s} (${x.c})  ${fmtTime(m2hm(x.a))} – ${x.l != null ? fmtTime(m2hm(x.l)) : "--"}  ${m != null ? dur(m) : ""}`);
@@ -2433,10 +2449,13 @@ function showToday(date) {
   }
   if (d.ls && d.le && hm2m(d.le) > hm2m(d.ls)) line(`☕ Lunch  ${fmtTime(d.ls)} – ${fmtTime(d.le)}  ${dur(hm2m(d.le) - hm2m(d.ls))}`);
   if (w && w.outM != null) line("■ Check out  " + fmtTime(m2hm(w.outM)));
-  if (!stops.length && !w) line("Nothing recorded for this day.");
-  if (stops.length) line(`On site ${dur(onSite)} · Travel ${dur(travel)} · ${stops.length} site(s)`, "tot");
+  if (!stops.length && !w && !ind.length) line("Nothing recorded for this day.");
+  if (stops.length || ind.length) line(`On site ${dur(onSite)} · Travel ${dur(travel)}` + (ind.length ? ` · Indirect ${dur(indirect)}` : "") + ` · ${stops.length} site(s)`, "tot");
   if (opened) line(`${opened} other site(s) opened but not saved: not counted.`, "travel");
   box.append(t);
+  const addInd = document.createElement("button"); addInd.style.marginTop = "10px"; addInd.textContent = "+ Indirect time (admin, vehicle, training…)";
+  addInd.onclick = () => { closeDlg(); setTimeout(() => indirectForm(date, -1), 0); };
+  box.append(addInd);
   if (dayVisits.length) {
     const clr = document.createElement("button"); clr.className = "danger"; clr.style.marginTop = "10px"; clr.textContent = "✕ Clear all sites from this day";
     clr.onclick = () => { closeDlg(); setTimeout(() => confirmBox(`Clear the arrived / left times of all ${dayVisits.length} site(s) on ${fmtDate(date)}? Readings stay. Check in / out stay.`, "Clear", () => {
@@ -2458,6 +2477,31 @@ function showToday(date) {
     (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(() => toast("Copied"), () => toast("Couldn't copy on this phone"));
     return false;
   } }, { text: "Close", cls: "primary" }]);
+}
+// Add or change one indirect time entry for a day (i = -1 for a new one)
+const IND_TYPES = ["Admin", "Vehicle maintenance", "Training", "Other"];
+function indirectForm(date, i) {
+  const list = ((days[date] ||= {}).ind ||= []), e = i >= 0 ? list[i] : null;
+  const now = new Date(), nowM = now.getHours() * 60 + now.getMinutes();
+  const box = document.createElement("div");
+  box.innerHTML = `<div class="row"><label for="indType">Type</label><select id="indType">${IND_TYPES.map(t => `<option>${t}</option>`).join("")}</select></div>
+    <div class="row"><label for="indA">Start</label><input type="time" id="indA"></div>
+    <div class="row"><label for="indL">End</label><input type="time" id="indL"></div>
+    <p class="hint" id="indMin"></p>
+    <label class="hint" for="indNote">What I did</label><textarea id="indNote" rows="3" style="width:100%" placeholder="e.g. Delta Dose report, tank orders"></textarea>
+    <p class="hint" id="indErr"></p>`;
+  const q = id => box.querySelector("#" + id);
+  q("indType").value = e ? e.type : "Admin";
+  q("indA").value = e ? e.a : m2hm(Math.max(0, nowM - 30)); q("indL").value = e ? e.l : m2hm(nowM); q("indNote").value = e ? e.note || "" : "";
+  const mins = () => { const a = hm2m(q("indA").value), l = hm2m(q("indL").value); return a != null && l != null && l > a ? l - a : null; };
+  const show = () => { const m = mins(); q("indMin").textContent = m == null ? "End must be after start." : dur(m); };
+  q("indA").oninput = q("indL").oninput = show; show();
+  dialog(e ? "Change indirect time" : "Indirect time", box, [{ text: "Cancel", fn: () => { setTimeout(() => showToday(date), 0); } }, { text: "SAVE", cls: "primary", fn: () => {
+    if (mins() == null) { q("indErr").textContent = "Pick a start and an end time (end after start)."; return false; }
+    const rec = { id: e ? e.id : newId(), type: q("indType").value, a: q("indA").value, l: q("indL").value, note: q("indNote").value.trim() };
+    if (e) list[i] = rec; else list.push(rec);
+    saveDays(); toast(`${rec.type} ${dur(mins())} saved`); setTimeout(() => showToday(date), 0);
+  } }]);
 }
 // Opening a site before checking in: offer it once a day
 let nudged = "";
