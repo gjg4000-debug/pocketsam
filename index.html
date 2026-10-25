@@ -261,7 +261,6 @@
 
   <section class="card">
     <div class="btns">
-      <button id="adminBtn">📋 ADD ADMIN TIME</button>
       <button id="tanksBtn">🛢 CHECK MY TANK LEVELS</button>
     </div>
   </section>
@@ -1753,7 +1752,6 @@ function withName(fn) {
 $("exportBtn").onclick = () => withName(n =>
   download(`${n}-PocketSAM-${today()}.json`, JSON.stringify(db, null, 2), "application/json"));
 
-$("adminBtn").onclick = () => indirectForm(today(), -1);   // admin, vehicle maintenance, training… right from the main screen
 $("tanksBtn").onclick = () => guardUnsaved(() => { location.href = "tanks.html"; });
 $("importBtn").onclick = () => guardUnsaved(() => { $("importFile").value = ""; $("importFile").click(); });
 /* Merge an imported site into the local one.
@@ -2341,12 +2339,12 @@ function showDay() {
 }
 setInterval(() => { if (dayCfg.on) showDay(); }, 30000);
 // Ask for a time (prefilled), then do something with it
-function askTime(title, note, hm, fn, okText, check) {
+function askTime(title, note, hm, fn, okText, check, extra) {
   const box = document.createElement("div");
   if (note) { const p = document.createElement("p"); p.className = "hint"; p.textContent = note; box.append(p); }
   const inp = document.createElement("input"); inp.type = "time"; inp.value = hm || nowHM(); box.append(inp);
   const err = document.createElement("p"); err.className = "hint"; err.style.color = "var(--danger)"; box.append(err);
-  dialog(title, box, [{ text: "Cancel" }, { text: okText || "OK", cls: "primary", fn: () => {
+  dialog(title, box, [{ text: "Cancel" }, ...(extra ? [{ text: extra.text, fn: () => { if (!/^\d\d:\d\d$/.test(inp.value)) return false; extra.fn(inp.value); } }] : []), { text: okText || "OK", cls: "primary", fn: () => {
     if (!/^\d\d:\d\d$/.test(inp.value)) return false;
     const bad = check && check(inp.value); if (bad) { err.textContent = bad + " Check AM / PM."; return false; }
     fn(inp.value);
@@ -2365,13 +2363,16 @@ function dayCheck(d, key, v) {
 function checkIn(after) {
   askTime("Check in", "Start of your day. Change the time if you started earlier.", nowHM(), v => {
     (days[today()] ||= {}).in = v; saveDays(); showDay(); toast("Checked in " + fmtTime(v)); if (after) after();
-  }, "CHECK IN");
+  }, "CHECK IN", null, { text: "📋 Admin", fn: v => {     // check in and start the day with admin time
+    (days[today()] ||= {}).in = v; saveDays(); showDay(); setTimeout(() => indirectForm(today(), -1, false, v), 0);
+  } });
 }
 function dayMenu() {
   const t = today(), d = days[t];
   if (!d || !d.in) { checkIn(); return; }
   const box = document.createElement("div"); box.className = "list";
   const add = (text, fn, cls) => { const b = document.createElement("button"); b.textContent = text; if (cls) b.className = cls; b.onclick = () => { closeDlg(); setTimeout(fn, 0); }; box.append(b); };
+  add("📋 Admin", () => indirectForm(t, -1));   // admin / vehicle / training time, any time of day
   if (!d.out) {
     if (!d.ls) add("☕ Start lunch", () => askTime("Lunch", "Start of your real lunch break.", nowHM(), v => { d.ls = v; delete d.le; saveDays(); showDay(); toast("Lunch started " + fmtTime(v)); }));
     else if (!d.le) add("▶ Back from lunch", () => askTime("Back from lunch", "", nowHM(), v => { d.le = v; saveDays(); showDay(); toast("Back " + fmtTime(v)); }, "OK", v => dayCheck(d, "le", v)));
@@ -2381,7 +2382,6 @@ function dayMenu() {
       askTime("Check out", note, nowHM(), v => { d.out = v; saveDays(); showDay(); const w2 = workday(d); toast("Workday Out " + fmtTime(m2hm(w2.repOut))); }, "CHECK OUT", v => dayCheck(d, "out", v));
     }, "danger");
   }
-  add("📋 Add admin time", () => indirectForm(t, -1));
   add("📋 Today", () => showToday(t));
   add("⚙ Lunch settings", lunchSettings);
   add("↺ Start today over", () => confirmBox("Clear today's check in, lunch and check out? (Site arrived / left times stay.)", "Clear", () => {
@@ -2549,7 +2549,7 @@ $("dynLink").onclick = e => {
 
 // Add or change one indirect time entry for a day (i = -1 for a new one)
 const IND_TYPES = ["Admin", "Vehicle maintenance", "Training", "Other"];
-function indirectForm(date, i, fromToday) {
+function indirectForm(date, i, fromToday, startHM) {
   const list = ((days[date] ||= {}).ind ||= []), e = i >= 0 ? list[i] : null;
   const now = new Date(), nowM = now.getHours() * 60 + now.getMinutes();
   const box = document.createElement("div");
@@ -2561,7 +2561,8 @@ function indirectForm(date, i, fromToday) {
     <p class="hint" id="indErr"></p>`;
   const q = id => box.querySelector("#" + id);
   q("indType").value = e ? e.type : "Admin";
-  q("indA").value = e ? e.a : m2hm(Math.max(0, nowM - 30)); q("indL").value = e ? e.l : m2hm(nowM); q("indNote").value = e ? e.note || "" : "";
+  const sM = startHM ? hm2m(startHM) : null;
+  q("indA").value = e ? e.a : sM != null ? startHM : m2hm(Math.max(0, nowM - 30)); q("indL").value = e ? e.l : sM != null ? m2hm(Math.min(1439, sM + 30)) : m2hm(nowM); q("indNote").value = e ? e.note || "" : "";
   const mins = () => { const a = hm2m(q("indA").value), l = hm2m(q("indL").value); return a != null && l != null && l > a ? l - a : null; };
   const show = () => { const m = mins(); q("indMin").textContent = m == null ? "End must be after start." : dur(m); };
   q("indA").oninput = q("indL").oninput = show; show();
