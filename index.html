@@ -331,6 +331,8 @@ const BIO = [
   { key: "h2sIn",   label: "H2S In ppm", hint: "ppm", num: true },
   { key: "h2sMid",  label: "H2S Middle ppm", hint: "ppm", num: true },
   { key: "h2sOut",  label: "H2S Out ppm", hint: "ppm", num: true },
+  { key: "drainNo3", label: "Drain Nitrate", hint: "ppm", num: true },
+  { key: "drainPh",  label: "Drain pH", hint: "pH", num: true },
 ];
 const BIO_INFO = { key: "bioInfo", label: "Biofilter info", hint: "e.g. belt size", num: false };
 const SAMPLE = [
@@ -1956,19 +1958,20 @@ function logFor(rec, date, times) {
   const sa = airCalc(rec, "scDuct", "scFpm", "scIn", "scOut"), ca = airCalc(rec, "cbDuct", "cbFpm", "cbIn", carbOutKey(rec));
   const r1 = (x, d) => x == null ? "" : x.toFixed(d);
   const AIR = ["ductDia", "fpm"];
+  const LAST = ["drainNo3", "drainPh"];   // added after "Other readings" (sheet columns only ever get added at the end)
   const EXTRA = ["waterGpm", ...SAMPLE.map(f => f.key), "chemName", "bioSystem", "h2sIn", "h2sMid", "h2sOut"];   // added later, in the order they were added
   const TAIL = ["vfdHz", "curve", ADJ_GLOBAL.key, ...ADJ_DAYS.map(f => f.key), "loc", "treatedBy"];                            // added after "H2S removal %" (then Arrived / Left at the very end: add any newer columns after Left)
-  const later = [...EXTRA, ...ALL.map(f => f.key).filter(x => !LOG_KEYS.includes(x) && !AIR.includes(x) && !EXTRA.includes(x) && !TAIL.includes(x) && !NEWER.includes(x) && !CARB_PORTS.includes(x) && x !== "chemTank" && x !== "chemTarget" && x !== "chemActual" && x !== "alarmType" && !x.endsWith("Timer"))];
+  const later = [...EXTRA, ...ALL.map(f => f.key).filter(x => !LOG_KEYS.includes(x) && !AIR.includes(x) && !EXTRA.includes(x) && !TAIL.includes(x) && !NEWER.includes(x) && !CARB_PORTS.includes(x) && x !== "chemTank" && x !== "chemTarget" && x !== "chemActual" && x !== "alarmType" && !x.endsWith("Timer") && !LAST.includes(x))];
   const val = x => x === "curve" ? curveSummary(rec.curve) : x === "loc" ? locText(rec.loc) : x === "treatedBy" ? linkName(rec.treatedBy) : (rec[x] || "");
   return { date, complete: rec.completeMonth === date.slice(0, 7),
     cols: [...LOG_KEYS.map(x => lab[x]), "Chem feed GPD", "Nutrient feed gal/day", "Tank empty in days", ...AIR.map(x => lab[x]), "Airflow CFM", ...later.map(x => lab[x]), "H2S removal %", ...TAIL.map(x => lab[x]), "Arrived", "Left",
-      ...NEWER.map(x => lab[x]), "Scrubber CFM", "Scrubber H2S removal %", "Carbon CFM", "Carbon H2S removal %", ...CARB_PORTS.map(x => lab[x]), lab.chemTank, "Chem tank empty in days", "Pump1 timer", "Pump2 timer", lab.chemTarget, lab.chemActual, lab.alarmType, "Other readings"],
+      ...NEWER.map(x => lab[x]), "Scrubber CFM", "Scrubber H2S removal %", "Carbon CFM", "Carbon H2S removal %", ...CARB_PORTS.map(x => lab[x]), lab.chemTank, "Chem tank empty in days", "Pump1 timer", "Pump2 timer", lab.chemTarget, lab.chemActual, lab.alarmType, "Other readings", ...LAST.map(x => lab[x])],
     vals: [...LOG_KEYS.map(val), k.gpd == null ? "" : k.gpd.toFixed(2), k.bioGpd == null ? "" : k.bioGpd.toFixed(2), k.days == null ? "" : k.days.toFixed(1),
       ...AIR.map(val), k.cfm == null ? "" : String(Math.round(k.cfm)), ...later.map(val), k.removal == null ? "" : remTxt(k.removal), ...TAIL.map(val),
       (times && times.a) || "", (times && times.l) || "",
       ...NEWER.map(val), r1(sa.cfm, 0), sa.removal == null ? "" : remTxt(sa.removal), r1(ca.cfm, 0), ca.removal == null ? "" : remTxt(ca.removal), ...CARB_PORTS.map(val),
       val("chemTank"), num(rec.chemTank) != null && k.gpd > 0 ? (num(rec.chemTank) / k.gpd).toFixed(1) : "",
-      timerSummary(rec.p1Timer), timerSummary(rec.p2Timer), val("chemTarget"), val("chemActual"), val("alarmType"), custText(rec)] };
+      timerSummary(rec.p1Timer), timerSummary(rec.p2Timer), val("chemTarget"), val("chemActual"), val("alarmType"), custText(rec), ...LAST.map(val)] };
 }
 function queue(op, noSend) {
   if (!syncCfg) return;
