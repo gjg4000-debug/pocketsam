@@ -893,7 +893,7 @@ function startVisit() {
   liveVisit = null;
   if (!county || !site || isDemo(county)) return;
   const k = visitKey(county, site, today()), v = visits[k];
-  if (!v) { visits[k] = { a: nowHM() }; saveVisits(); liveVisit = k; }
+  if (!v) { visits[k] = { a: nowHM(), c: Date.now() }; saveVisits(); liveVisit = k; }
   else if (!v.l) liveVisit = k;                                 // came back before leaving: same visit
 }
 function endVisit(date) {
@@ -930,7 +930,7 @@ function editTime(which) {
     saveTime();
   };
   const saveTime = async () => {
-    (visits[k] ||= {})[which] = inp.value;
+    (visits[k] ||= {})[which] = inp.value; visits[k][which + "At"] = Date.now();   // typed by hand: wins on other devices
     // A new arrival after the old Left time: that Left is out of date, so clear it. It fills again at the next SAVE / CONFIRM.
     let cleared = false;
     if (which === "a" && visits[k].l && inp.value > visits[k].l) { delete visits[k].l; liveVisit = k; cleared = true; }
@@ -940,7 +940,7 @@ function editTime(which) {
     if (e) { e[which === "a" ? "arrived" : "left"] = inp.value; if (cleared) delete e.left; await persist(); queue({ op: "put", c: county, s: site }); }
     updateTimes(); toast((which === "a" ? "Arrived " : "Left ") + fmtTime(inp.value) + (cleared ? " · old Left time cleared, it fills in at SAVE / CONFIRM" : ""));
   };
-  const clear = () => { if (visits[k]) { delete visits[k][which]; saveVisits(); } updateTimes(); };
+  const clear = () => { if (visits[k]) { delete visits[k][which]; visits[k][which + "At"] = Date.now(); saveVisits(); } updateTimes(); };
   dialog(which === "a" ? `Arrived at ${site}` : `Left ${site}`, box, [{ text: "Clear", cls: "danger", fn: clear }, { text: "Cancel" }, { text: "OK", cls: "primary", fn: ok }]);
   setTimeout(() => inp.focus(), 50);
 }
@@ -1634,7 +1634,7 @@ let dirPending = null;
 $("dirBtn").addEventListener("click", () => {
   if (!county || !site) return;
   const k = visitKey(county, site, today()), v = visits[k];
-  if (v && !v.l) { delete visits[k]; saveVisits(); }
+  if (v && !v.l) { delete visits[k]; ((days[today()] ||= {}).goneV ||= {})[k] = Date.now(); saveDays(); saveVisits(); }
   dirPending = k; if (liveVisit === k) liveVisit = null; updateTimes();
 });
 document.addEventListener("visibilitychange", () => {
@@ -2468,7 +2468,8 @@ function dayMenu() {
   add("📋 Today", () => showToday(t));
   add("⚙ Lunch settings", lunchSettings);
   add("↺ Start today over", () => confirmBox("Clear today's check in, lunch and check out? (Site arrived / left times stay.)", "Clear", () => {
-    delete days[t]; saveDays(); showDay(); toast("Today cleared");
+    const old = days[t] || {}, now = Date.now(), gone = { ...(old.gone || {}) }; (old.ind || []).forEach(e => { if (e.id) gone[e.id] = now; });
+    days[t] = { resetAt: now, ...(Object.keys(gone).length ? { gone } : {}), ...(old.goneV ? { goneV: old.goneV } : {}) }; saveDays(); showDay(); toast("Today cleared");
   }));
   dialog("Day", box, [{ text: "Close" }]);
 }
@@ -2490,7 +2491,7 @@ function showToday(date) {
       key === "out" ? (w && w.outM != null ? m2hm(w.outM) : "") : (m == null ? "" : m2hm(m)), v => {
         const dd = (days[date] ||= {});
         if ((key === "ls" || key === "le") && w && w.added) { dd.ls = m2hm(w.ms); dd.le = m2hm(w.me); }   // editing an added meal makes it a real one
-        dd[key] = v; saveDays(); showDay(); setTimeout(() => showToday(date), 0);
+        dd[key] = v; dd[key + "At"] = Date.now(); saveDays(); showDay(); setTimeout(() => showToday(date), 0);
       }, "OK", v => dayCheck({ ...(days[date] || {}), ...(w && w.added && (key === "ls" || key === "le") ? { ls: m2hm(w.ms), le: m2hm(w.me) } : {}) }, key, v)), 0); };
     grid.append(a, b, c);
   };
@@ -2522,7 +2523,7 @@ function showToday(date) {
       ed.onclick = () => { closeDlg(); setTimeout(() => indirectForm(date, x.i, true), 0); };
       const rm = document.createElement("button"); rm.textContent = "✕"; rm.className = "rm"; rm.setAttribute("aria-label", "Remove " + x.type);
       rm.onclick = () => { closeDlg(); setTimeout(() => confirmBox(`Remove ${x.type} ${fmtTime(m2hm(x.a))} from ${fmtDate(date)}?`, "Remove", () => {
-        days[date].ind.splice(x.i, 1); saveDays(); setTimeout(() => showToday(date), 0); }), 0); };
+        const gid = days[date].ind[x.i] && days[date].ind[x.i].id; days[date].ind.splice(x.i, 1); if (gid) (days[date].gone ||= {})[gid] = Date.now(); saveDays(); setTimeout(() => showToday(date), 0); }), 0); };
       t.lastChild.append(" ", ed, " ", rm);
       if (x.l != null) prev = x.l;
       continue;
@@ -2532,7 +2533,7 @@ function showToday(date) {
     line(`📍 ${x.s} (${x.c})  ${fmtTime(m2hm(x.a))} – ${x.l != null ? fmtTime(m2hm(x.l)) : "--"}  ${m != null ? dur(m) : ""}`);
     const rm = document.createElement("button"); rm.textContent = "✕"; rm.className = "rm"; rm.setAttribute("aria-label", "Remove " + x.s + " from this day");
     rm.onclick = () => { closeDlg(); setTimeout(() => confirmBox(`Remove ${x.s} from ${fmtDate(date)}? (Only its times. Readings stay.)`, "Remove", () => {
-      delete visits[x.k]; saveVisits(); updateTimes(); setTimeout(() => showToday(date), 0);
+      delete visits[x.k]; ((days[date] ||= {}).goneV ||= {})[x.k] = Date.now(); saveDays(); saveVisits(); updateTimes(); setTimeout(() => showToday(date), 0);
     }), 0); };
     t.lastChild.append(" ", rm);
     prev = x.l != null ? x.l : x.a;
@@ -2549,7 +2550,7 @@ function showToday(date) {
   if (dayVisits.length) {
     const clr = document.createElement("button"); clr.className = "danger"; clr.style.marginTop = "10px"; clr.textContent = "✕ Clear all sites from this day";
     clr.onclick = () => { closeDlg(); setTimeout(() => confirmBox(`Clear the arrived / left times of all ${dayVisits.length} site(s) on ${fmtDate(date)}? Readings stay. Check in / out stay.`, "Clear", () => {
-      for (const [k] of dayVisits) delete visits[k]; saveVisits(); liveVisit = null; updateTimes(); setTimeout(() => showToday(date), 0);
+      for (const [k] of dayVisits) { delete visits[k]; ((days[date] ||= {}).goneV ||= {})[k] = Date.now(); } saveDays(); saveVisits(); liveVisit = null; updateTimes(); setTimeout(() => showToday(date), 0);
     }), 0); };
     box.append(clr);
   }
@@ -2702,8 +2703,45 @@ const DAYU_KEY = "pocketsam-dayu";            // when each day was last changed 
 let dayU = lsGet(DAYU_KEY, {}), daySnap = {}, dayTimer = null;
 const dayRecName = d => `Day · ${safeName(getName())} · ${d}`;
 const daySlice = d => ({ day: days[d] || null, visits: Object.fromEntries(Object.entries(visits).filter(([k]) => k.split("\u0001")[2] === d)) });
+const canon = o => JSON.stringify(o, (k, v) => v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.keys(v).sort().map(x => [x, v[x]])) : v);
+/* Merge two copies of one day (this device's and the synced one) so nothing typed on either device is lost:
+   - check in / lunch start / arrived: earliest; check out / back from lunch / left: latest
+   - a time you corrected by hand (✎) wins over the automatic ones; the later correction wins if both were corrected
+   - admin entries and site visits from both are kept, except ones you removed (✕), "Start today over" clears the day's times */
+function mergeSlices(A, B) {
+  const a = A.day || {}, b = B.day || {}, now = Date.now();
+  const lo = (x, y) => x && y ? (x < y ? x : y) : x || y, hi = (x, y) => x && y ? (x > y ? x : y) : x || y;
+  const pick = (p, q, f, rule, rp, rq) => {
+    const pa = p[f + "At"], qa = q[f + "At"];
+    let pv = p[f], qv = q[f];
+    if (rq > rp && !(pa > rq)) pv = undefined;                 // the other copy was reset after this was set
+    if (rp > rq && !(qa > rp)) qv = undefined;
+    if (pa || qa) { const w = (pa || 0) >= (qa || 0) ? [pv, pa] : [qv, qa]; return { v: w[0], at: w[1] }; }
+    return { v: rule(pv, qv) };
+  };
+  const day = {}, ra = a.resetAt || 0, rb = b.resetAt || 0;
+  for (const [f, rule] of [["in", lo], ["ls", lo], ["le", hi], ["out", hi]]) {
+    const r = pick(a, b, f, rule, ra, rb); if (r.v) day[f] = r.v; if (r.at) day[f + "At"] = r.at;
+  }
+  if (ra || rb) day.resetAt = Math.max(ra, rb);
+  const gone = { ...(a.gone || {}) }; for (const [k, t] of Object.entries(b.gone || {})) gone[k] = Math.max(gone[k] || 0, t);
+  const goneV = { ...(a.goneV || {}) }; for (const [k, t] of Object.entries(b.goneV || {})) goneV[k] = Math.max(goneV[k] || 0, t);
+  const ind = {}; [...(a.ind || []), ...(b.ind || [])].forEach(e => { if (e && e.id && !gone[e.id]) ind[e.id] = e; });
+  const il = Object.values(ind).sort((x, y) => String(x.a).localeCompare(String(y.a)) || String(x.id).localeCompare(String(y.id)));
+  if (il.length) day.ind = il; if (Object.keys(gone).length) day.gone = gone; if (Object.keys(goneV).length) day.goneV = goneV;
+  const vis = {};
+  for (const k of new Set([...Object.keys(A.visits || {}), ...Object.keys(B.visits || {})])) {
+    const p = (A.visits || {})[k] || {}, q = (B.visits || {})[k] || {};
+    const v = { ...p, ...q };
+    for (const [f, rule] of [["a", lo], ["l", hi]]) { const r = pick(p, q, f, rule, 0, 0); if (r.v) v[f] = r.v; else delete v[f]; if (r.at) v[f + "At"] = r.at; }
+    const c = Math.max(p.c || 0, q.c || 0); if (c) v.c = c;
+    if (goneV[k] && goneV[k] >= (v.c || 0)) continue;           // removed with ✕ after it was made
+    vis[k] = v;
+  }
+  return { day: Object.keys(day).length ? day : null, visits: vis };
+}
 function daySyncSoon() { clearTimeout(dayTimer); dayTimer = setTimeout(pushDays, 800); }
-const dirtyDay = d => { const js = JSON.stringify(daySlice(d)); return daySnap[d] !== js && !(daySnap[d] === undefined && js === '{"day":null,"visits":{}}'); };
+const dirtyDay = d => { const js = canon(daySlice(d)); return daySnap[d] !== js && !(daySnap[d] === undefined && js === '{"day":null,"visits":{}}'); };
 async function pushDays() {
   if (!syncCfg || !safeName(getName())) return;
   const cutoff = new Date(Date.now() - 60 * 864e5).toISOString().slice(0, 10);
@@ -2713,7 +2751,7 @@ async function pushDays() {
     if (!d || d < cutoff || !dirtyDay(d)) continue;
     const prev = (db[SETTINGS] || {})[dayRecName(d)];
     if (prev && prev.dayU > (dayU[d] || 0)) continue;           // another device changed it: take theirs first (pullDays), then send
-    const sl = daySlice(d); daySnap[d] = JSON.stringify(sl);
+    const sl = daySlice(d); daySnap[d] = canon(sl);
     dayU[d] = Date.now();
     (db[SETTINGS] ||= {})[dayRecName(d)] = { dayU: dayU[d], ...sl, updated: new Date().toISOString() };
     queue({ op: "put", c: SETTINGS, s: dayRecName(d) }, true); n++;
@@ -2730,30 +2768,18 @@ function pullDays() {
     if (!name.startsWith(pre) || !rec || typeof rec !== "object") continue;
     const d = name.slice(pre.length);
     if (d < cutoff || !(rec.dayU > (dayU[d] || 0))) continue;
-    const mine = daySlice(d), dirty = dirtyDay(d);
+    const theirs = { day: rec.day || null, visits: rec.visits || {} }, m = mergeSlices(theirs, daySlice(d));
     for (const k of Object.keys(visits)) if (k.split("\u0001")[2] === d) delete visits[k];
-    if (!dirty) {
-      if (rec.day) days[d] = rec.day; else delete days[d];
-      Object.assign(visits, rec.visits || {});
-    } else {
-      const a = rec.day || {}, b = mine.day || {}, ind = {};
-      [...(a.ind || []), ...(b.ind || [])].forEach(e => { if (e && e.id) ind[e.id] = e; });
-      const m = { ...a, ...b }; if (Object.keys(ind).length) m.ind = Object.values(ind); else delete m.ind;
-      // Both devices have a time: the day starts at the earliest check in and ends at the latest check out
-      const lo = (x, y) => x && y ? (x < y ? x : y) : x || y, hi = (x, y) => x && y ? (x > y ? x : y) : x || y;
-      if (a.in || b.in) m.in = lo(a.in, b.in); if (a.out || b.out) m.out = hi(a.out, b.out);
-      if (Object.keys(m).length) days[d] = m; else delete days[d];
-      for (const [k, v] of Object.entries(rec.visits || {})) visits[k] = { ...v, ...(mine.visits[k] || {}) };
-      Object.assign(visits, Object.fromEntries(Object.entries(mine.visits).filter(([k]) => !(k in (rec.visits || {})))));
-      resend = true;
-    }
-    dayU[d] = rec.dayU; if (!dirty) daySnap[d] = JSON.stringify(daySlice(d)); changed = true;
+    if (m.day) days[d] = m.day; else delete days[d];
+    Object.assign(visits, m.visits);
+    dayU[d] = rec.dayU; daySnap[d] = canon(theirs); changed = true;
+    if (canon(m) !== canon(theirs)) resend = true;              // this device had something the synced copy didn't: send the combined day
   }
   if (changed) { lsSet(DAY_KEY, days); lsSet(VISIT_KEY, visits); lsSet(DAYU_KEY, dayU); showDay(); updateTimes(); }
   if (resend || Object.keys(days).some(dirtyDay)) daySyncSoon();
 }
 // Days this device already synced are "clean"; anything never sent goes out after the first sync
-for (const d of Object.keys(days)) if (dayU[d]) daySnap[d] = JSON.stringify(daySlice(d));
+for (const d of Object.keys(days)) if (dayU[d]) daySnap[d] = canon(daySlice(d));
 
 // Another copy of Pocket SAM (an older tab, or the home-screen app and a browser tab) may have saved since this one last looked.
 // Re-read the phone-only lists (check in/out, admin time, site arrived/left, waiting visits) whenever this copy comes back,
