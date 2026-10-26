@@ -261,6 +261,7 @@
 
   <section class="card">
     <div class="btns">
+      <button id="todoBtn">📝 STILL TO DO</button>
       <button id="tanksBtn">🛢 CHECK MY TANK LEVELS</button>
     </div>
   </section>
@@ -1755,6 +1756,28 @@ function withName(fn) {
 $("exportBtn").onclick = () => withName(n =>
   download(`${n}-PocketSAM-${today()}.json`, JSON.stringify(db, null, 2), "application/json"));
 
+// Sites not marked Complete this month: counties first (with how many are left), then that county's sites; tap one to open it
+function todoList() {
+  const left = c => sites(c).filter(s => !isDone(c, s));
+  const cs = counties().filter(c => !isDemo(c) && left(c).length);
+  const total = counties().filter(c => !isDemo(c)).reduce((n, c) => n + sites(c).length, 0), n = cs.reduce((k, c) => k + left(c).length, 0);
+  const box = document.createElement("div"); box.className = "list";
+  const p = document.createElement("p"); p.className = "hint";
+  p.textContent = n ? `${n} of ${total} site(s) not done this month. Tap a county.` : "Every site is done this month ✓"; box.append(p);
+  cs.forEach(c => { const b = document.createElement("button"); b.textContent = c; const sp = document.createElement("span"); sp.className = "count"; sp.textContent = left(c).length + " left"; b.append(sp);
+    b.onclick = () => { closeDlg(); setTimeout(() => todoSites(c), 0); }; box.append(b); });
+  dialog("Still to do this month", box, [{ text: "Close" }]);
+}
+function todoSites(c) {
+  const box = document.createElement("div"); box.className = "list";
+  sites(c).filter(s => !isDone(c, s)).forEach(s => {
+    const wo = (bookingFor(c, s) || {}).wo, wait = bkUrl && waitFor(c, s).length;
+    const b = document.createElement("button"); b.textContent = s + (wo ? "  📋 " + wo : wait ? "  ⏳ waiting for WO" : "");
+    b.onclick = () => { closeDlg(); guardUnsaved(() => { selectCounty(c); loadSite(s); }); }; box.append(b);
+  });
+  dialog(`Still to do · ${c}`, box, [{ text: "◀ Counties", fn: () => { setTimeout(todoList, 0); } }, { text: "Close" }]);
+}
+$("todoBtn").onclick = () => todoList();
 $("tanksBtn").onclick = () => guardUnsaved(() => { location.href = "tanks.html"; });
 $("importBtn").onclick = () => guardUnsaved(() => { $("importFile").value = ""; $("importFile").click(); });
 /* Merge an imported site into the local one.
