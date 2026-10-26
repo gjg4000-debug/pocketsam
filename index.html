@@ -1762,7 +1762,7 @@ const safeName = (n) => n.replace(/[\\/:*?"<>|]+/g, "").trim();
 function getName() { try { return localStorage.getItem(NAME_KEY) || ""; } catch (e) { return $("techName").value.trim(); } }
 function setName(n) { $("techName").value = n; try { localStorage.setItem(NAME_KEY, n); } catch (e) {} }
 $("techName").value = getName();
-$("techName").addEventListener("change", () => setName(safeName($("techName").value)));
+$("techName").addEventListener("change", () => { setName(safeName($("techName").value)); if (syncCfg) syncNow(); });   // new name: pull and send this tech's days
 // Ask once for a name, then run the export (the OK tap counts as a fresh tap, so the share menu still opens).
 function withName(fn) {
   const n = safeName(getName() || $("techName").value);
@@ -2742,8 +2742,14 @@ function mergeSlices(A, B) {
 }
 function daySyncSoon() { clearTimeout(dayTimer); dayTimer = setTimeout(pushDays, 800); }
 const dirtyDay = d => { const js = canon(daySlice(d)); return daySnap[d] !== js && !(daySnap[d] === undefined && js === '{"day":null,"visits":{}}'); };
+// What was synced is per name: after "Your name" changes, every day counts as not sent yet under the new name
+function dayNameCheck() {
+  const n = safeName(getName());
+  if (lsGet("pocketsam-dayname", null) !== n) { dayU = {}; daySnap = {}; lsSet(DAYU_KEY, dayU); lsSet("pocketsam-dayname", n); }
+}
 async function pushDays() {
   if (!syncCfg || !safeName(getName())) return;
+  dayNameCheck();
   const cutoff = new Date(Date.now() - 60 * 864e5).toISOString().slice(0, 10);
   const dates = new Set([...Object.keys(days), ...Object.keys(visits).map(k => k.split("\u0001")[2]), ...Object.keys(daySnap)]);
   let n = 0;
@@ -2762,6 +2768,7 @@ async function pushDays() {
 // keep both (check in from one, admin time from the other, every site's times) and send the combined day back.
 function pullDays() {
   const me = safeName(getName()); if (!me) return;
+  dayNameCheck();
   const pre = `Day · ${me} · `, cutoff = new Date(Date.now() - 60 * 864e5).toISOString().slice(0, 10);
   let changed = false, resend = false;
   for (const [name, rec] of Object.entries(db[SETTINGS] || {})) {
