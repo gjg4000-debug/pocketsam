@@ -1628,6 +1628,20 @@ function autoHere(anySite) {
 }
 document.addEventListener("visibilitychange", () => { if (!document.hidden) autoHere(); });
 setInterval(() => { if (!document.hidden) autoHere(); }, 60000);
+// DIRECTIONS means you're not at that site yet: drop the Arrived time that opening it set, and start it again
+// when you come back to Pocket SAM (you've usually just pulled in)
+let dirPending = null;
+$("dirBtn").addEventListener("click", () => {
+  if (!county || !site) return;
+  const k = visitKey(county, site, today()), v = visits[k];
+  if (v && !v.l) { delete visits[k]; saveVisits(); }
+  dirPending = k; if (liveVisit === k) liveVisit = null; updateTimes();
+});
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden || !dirPending) return;
+  const k = dirPending; dirPending = null;
+  if (county && site && visitKey(county, site, today()) === k && !visits[k]) startVisit(), updateTimes(), toast("Arrived " + fmtTime(nowHM()) + " · tap it to change");
+});
 function updateLocUi() {
   $("locBar").hidden = !(county && site);
   const l = parseLoc(inputs.loc.value);
@@ -1635,7 +1649,8 @@ function updateLocUi() {
     : here ? "📍 " + awayText(distM(here, l))
     : hereBusy ? "📍 Checking distance…" : "📍 Location saved · tap for distance";
   const d = $("dirBtn");
-  if (l) { d.href = `https://www.google.com/maps/dir/?api=1&destination=${l.lat},${l.lng}`; d.hidden = false; }
+  // dir_action=navigate starts the route right away (Maps sometimes just shows the map when it's already open)
+  if (l) { d.href = `https://www.google.com/maps/dir/?api=1&destination=${l.lat},${l.lng}&travelmode=driving&dir_action=navigate`; d.hidden = false; }
   else { d.removeAttribute("href"); d.hidden = true; }
   $("locSetBtn").textContent = l ? "SET" : "SET LOCATION";
 }
