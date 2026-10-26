@@ -20,6 +20,7 @@ button.p{background:var(--brand);color:#fff;border-color:var(--brand)}
 .chip{border-radius:999px;padding:6px 12px;font-size:13.5px}
 .chip.on{background:var(--brand);color:#fff;border-color:var(--brand)}
 .warn .x{float:right;margin:-4px -4px 4px 8px;border:none;background:transparent;font-size:16px;line-height:1;padding:4px 6px;color:var(--muted)}
+.warn .noshow{display:block;text-align:right;margin-top:8px;font-size:12.5px;color:var(--muted)}
 .warn{background:var(--note);border:1px solid var(--noteline);border-radius:10px;padding:10px 12px;font-size:13.5px;margin:4px 0 12px}
 .sum{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:12px}
 .box{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
@@ -56,9 +57,11 @@ a{color:var(--brand)}
     <button id="ddBtn" title="Delta Dose summary for your morning email">📋 DD summary</button>
     <input type="file" id="impFile" accept=".csv,text/csv,.txt" hidden>
     <span class="status" id="status"></span>
+    <button id="backBtn" title="Back to Pocket SAM">← Pocket SAM</button>
   </div>
   <div class="chips" id="chems" aria-label="Show only these chemicals"></div>
-  <div class="warn" id="warn"><button class="x" id="warnX" aria-label="Close this note" title="Close">✕</button><b>Levels are estimates between readings.</b> Each tank starts from its newest reading: a site visit, an <b>Import levels</b> from the monitoring export (a .csv file), or an <b>Update level</b> you type in. From there it counts down using the feed rate. It won't know about a Delta Dose, a pump losing prime, a leak, or a delivery until the next reading, so import often.</div>
+  <div class="warn" id="warn"><button class="x" id="warnX" aria-label="Close this note" title="Close">✕</button><b>Levels are estimates between readings.</b> Each tank starts from its newest reading: a site visit, an <b>Import levels</b> from the monitoring export (a .csv file), or an <b>Update level</b> you type in. From there it counts down using the feed rate. It won't know about a Delta Dose, a pump losing prime, a leak, or a delivery until the next reading, so import often.
+    <label class="noshow"><input type="checkbox" id="warnNo"> Don't show this again</label></div>
   <div class="sum" id="sum"></div>
   <h2 id="h1">Soonest empty first</h2>
   <div id="list"></div>
@@ -468,6 +471,9 @@ async function refresh() {
   $("refresh").disabled = false; fillCounties(); fillChems(); render();
 }
 $("refresh").onclick = refresh;
-$("warnX").onclick = () => { $("warn").hidden = true; };   // comes back every time the page is opened
+// The note comes back every time the page opens, unless "Don't show this again" was checked when it was closed
+try { if (localStorage.getItem("pocketsam-tankwarn-off") === "1") $("warn").hidden = true; } catch (e) {}
+$("warnX").onclick = () => { $("warn").hidden = true; if ($("warnNo").checked) { try { localStorage.setItem("pocketsam-tankwarn-off", "1"); } catch (e) {} } };
+$("backBtn").onclick = () => { location.href = "./"; };
 (async () => { db = await loadLocal(); fillCounties(); fillChems(); render(); refresh(); })();
 </script></body></html>
