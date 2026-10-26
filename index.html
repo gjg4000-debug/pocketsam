@@ -2457,12 +2457,12 @@ function dayMenu() {
   const add = (text, fn, cls) => { const b = document.createElement("button"); b.textContent = text; if (cls) b.className = cls; b.onclick = () => { closeDlg(); setTimeout(fn, 0); }; box.append(b); };
   add("📋 Admin", () => indirectForm(t, -1));   // admin / vehicle / training time, any time of day
   if (!d.out) {
-    if (!d.ls) add("☕ Start lunch", () => askTime("Lunch", "Start of your real lunch break.", nowHM(), v => { d.ls = v; delete d.le; saveDays(); showDay(); toast("Lunch started " + fmtTime(v)); }));
-    else if (!d.le) add("▶ Back from lunch", () => askTime("Back from lunch", "", nowHM(), v => { d.le = v; saveDays(); showDay(); toast("Back " + fmtTime(v)); }, "OK", v => dayCheck(d, "le", v)));
+    if (!d.ls) add("☕ Start lunch", () => askTime("Lunch", "Start of your real lunch break.", nowHM(), v => { const d = (days[t] ||= {}); d.ls = v; delete d.le; saveDays(); showDay(); toast("Lunch started " + fmtTime(v)); }));
+    else if (!d.le) add("▶ Back from lunch", () => askTime("Back from lunch", "", nowHM(), v => { const d = (days[t] ||= {}); d.le = v; saveDays(); showDay(); toast("Back " + fmtTime(v)); }, "OK", v => dayCheck(days[t] || {}, "le", v)));
     add("■ Check out", () => {
       const w = workday({ ...d, out: nowHM() });
       const note = w && w.added ? `You didn't take lunch, so Workday will show Meal ${fmtTime(m2hm(w.ms))}–${fmtTime(m2hm(w.me))} and your Out time ${dayCfg.lunchMin} min later than this.` : "End of your day.";
-      askTime("Check out", note, nowHM(), v => { d.out = v; saveDays(); showDay(); const w2 = workday(d); toast("Workday Out " + fmtTime(m2hm(w2.repOut))); }, "CHECK OUT", v => dayCheck(d, "out", v));
+      askTime("Check out", note, nowHM(), v => { const d = (days[t] ||= {}); d.out = v; saveDays(); showDay(); const w2 = workday(d); toast("Workday Out " + fmtTime(m2hm(w2.repOut))); }, "CHECK OUT", v => dayCheck(days[t] || {}, "out", v));
     }, "danger");
   }
   add("📋 Today", () => showToday(t));
@@ -2656,7 +2656,8 @@ function indirectForm(date, i, fromToday, startHM) {
   dialog(e ? "Change admin / indirect time" : "Admin / indirect time", box, [{ text: "Cancel", fn: back }, { text: "SAVE", cls: "primary", fn: () => {
     if (mins() == null) { q("indErr").textContent = "Pick a start and an end time (end after start)."; return false; }
     const rec = { id: e ? e.id : newId(), type: q("indType").value, a: q("indA").value, l: q("indL").value, note: q("indNote").value.trim() };
-    if (e) list[i] = rec; else list.push(rec);
+    const cur = ((days[date] ||= {}).ind ||= []), at = e ? cur.findIndex(x => x.id === e.id) : -1;   // the list may have been replaced by a sync meanwhile
+    if (at >= 0) cur[at] = rec; else cur.push(rec);
     saveDays(); toast(`${rec.type} ${dur(mins())} saved · see it on 📋 Today`); back();
   } }]);
 }
