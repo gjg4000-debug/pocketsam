@@ -2675,6 +2675,16 @@ function lunchSettings() {
 }
 showDay();
 
+// Another copy of Pocket SAM (an older tab, or the home-screen app and a browser tab) may have saved since this one last looked.
+// Re-read the phone-only lists (check in/out, admin time, site arrived/left, waiting visits) whenever this copy comes back,
+// so an old copy never saves over newer times.
+function reloadLocal() {
+  days = lsGet(DAY_KEY, {}); visits = lsGet(VISIT_KEY, {}); woWait = lsGet(WAIT_KEY, []);
+  showDay(); updateTimes(); updateWo();
+}
+window.addEventListener("storage", e => { if ([DAY_KEY, VISIT_KEY, WAIT_KEY].includes(e.key)) reloadLocal(); });
+document.addEventListener("visibilitychange", () => { if (!document.hidden) reloadLocal(); });
+window.addEventListener("pageshow", e => { if (e.persisted) reloadLocal(); });
 window.addEventListener("online", () => { if (syncCfg) syncNow(); });
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && syncCfg && Date.now() - (syncCfg.last || 0) > 60000) syncNow();
