@@ -887,6 +887,7 @@ function saveVisits() {
   const cutoff = new Date(Date.now() - 60 * 864e5).toISOString().slice(0, 10);   // keep 60 days
   for (const k of Object.keys(visits)) if (k.split("\u0001")[2] < cutoff) delete visits[k];
   lsSet(VISIT_KEY, visits);
+  try { daySyncSoon(); } catch (e) {}
 }
 function startVisit() {
   liveVisit = null;
@@ -2038,6 +2039,7 @@ async function syncNow(manual) {
       pending = pending.slice(sending.length); lsSet(QUEUE_KEY, pending);
       if (pending.length) { syncAgain = true; continue; }    // something new was saved meanwhile: send it first
       applyServer(res.data || {}, res.deleted || []);
+      try { pullDays(); } catch (e) {}
       await persist();
       syncCfg.last = Date.now(); lsSet(SYNC_KEY, syncCfg);
     } while (syncAgain);
@@ -2377,6 +2379,7 @@ function saveDays() {
   const cutoff = new Date(Date.now() - 60 * 864e5).toISOString().slice(0, 10);
   for (const d of Object.keys(days)) if (d < cutoff) delete days[d];
   lsSet(DAY_KEY, days);
+  try { daySyncSoon(); } catch (e) {}
 }
 // What goes into Workday for one day
 function workday(d) {
@@ -2674,6 +2677,64 @@ function lunchSettings() {
   dialog("Lunch settings", box, [{ text: "Cancel" }, { text: "SAVE", cls: "primary", fn: save }]);
 }
 showDay();
+
+/* ---------- Day times across your own devices ----------
+   Check in/out, lunch, admin time and site arrived/left go through the team sync as one hidden record per tech per day
+   ("Day · Gary · 2026-10-26" in the team settings), so the phone and the laptop show the same day. Newest change to a day wins.
+   Each tech only reads and writes their own name's records. Needs "Your name" set. */
+const DAYU_KEY = "pocketsam-dayu";            // when each day was last changed or pulled on this device
+let dayU = lsGet(DAYU_KEY, {}), daySnap = {}, dayTimer = null;
+const dayRecName = d => `Day · ${safeName(getName())} · ${d}`;
+const daySlice = d => ({ day: days[d] || null, visits: Object.fromEntries(Object.entries(visits).filter(([k]) => k.split("\u0001")[2] === d)) });
+function daySyncSoon() { clearTimeout(dayTimer); dayTimer = setTimeout(pushDays, 800); }
+const dirtyDay = d => { const js = JSON.stringify(daySlice(d)); return daySnap[d] !== js && !(daySnap[d] === undefined && js === '{"day":null,"visits":{}}'); };
+async function pushDays() {
+  if (!syncCfg || !safeName(getName())) return;
+  const cutoff = new Date(Date.now() - 60 * 864e5).toISOString().slice(0, 10);
+  const dates = new Set([...Object.keys(days), ...Object.keys(visits).map(k => k.split("\u0001")[2]), ...Object.keys(daySnap)]);
+  let n = 0;
+  for (const d of dates) {
+    if (!d || d < cutoff || !dirtyDay(d)) continue;
+    const prev = (db[SETTINGS] || {})[dayRecName(d)];
+    if (prev && prev.dayU > (dayU[d] || 0)) continue;           // another device changed it: take theirs first (pullDays), then send
+    const sl = daySlice(d); daySnap[d] = JSON.stringify(sl);
+    dayU[d] = Date.now();
+    (db[SETTINGS] ||= {})[dayRecName(d)] = { dayU: dayU[d], ...sl, updated: new Date().toISOString() };
+    queue({ op: "put", c: SETTINGS, s: dayRecName(d) }, true); n++;
+  }
+  if (n) { lsSet(DAYU_KEY, dayU); await persist(); syncNow(); }
+}
+// After a sync: take my day records that are newer than this device's. If this device also has unsent changes to that day,
+// keep both (check in from one, admin time from the other, every site's times) and send the combined day back.
+function pullDays() {
+  const me = safeName(getName()); if (!me) return;
+  const pre = `Day · ${me} · `, cutoff = new Date(Date.now() - 60 * 864e5).toISOString().slice(0, 10);
+  let changed = false, resend = false;
+  for (const [name, rec] of Object.entries(db[SETTINGS] || {})) {
+    if (!name.startsWith(pre) || !rec || typeof rec !== "object") continue;
+    const d = name.slice(pre.length);
+    if (d < cutoff || !(rec.dayU > (dayU[d] || 0))) continue;
+    const mine = daySlice(d), dirty = dirtyDay(d);
+    for (const k of Object.keys(visits)) if (k.split("\u0001")[2] === d) delete visits[k];
+    if (!dirty) {
+      if (rec.day) days[d] = rec.day; else delete days[d];
+      Object.assign(visits, rec.visits || {});
+    } else {
+      const a = rec.day || {}, b = mine.day || {}, ind = {};
+      [...(a.ind || []), ...(b.ind || [])].forEach(e => { if (e && e.id) ind[e.id] = e; });
+      const m = { ...a, ...b }; if (Object.keys(ind).length) m.ind = Object.values(ind); else delete m.ind;
+      if (Object.keys(m).length) days[d] = m; else delete days[d];
+      for (const [k, v] of Object.entries(rec.visits || {})) visits[k] = { ...v, ...(mine.visits[k] || {}) };
+      Object.assign(visits, Object.fromEntries(Object.entries(mine.visits).filter(([k]) => !(k in (rec.visits || {})))));
+      resend = true;
+    }
+    dayU[d] = rec.dayU; if (!dirty) daySnap[d] = JSON.stringify(daySlice(d)); changed = true;
+  }
+  if (changed) { lsSet(DAY_KEY, days); lsSet(VISIT_KEY, visits); lsSet(DAYU_KEY, dayU); showDay(); updateTimes(); }
+  if (resend || Object.keys(days).some(dirtyDay)) daySyncSoon();
+}
+// Days this device already synced are "clean"; anything never sent goes out after the first sync
+for (const d of Object.keys(days)) if (dayU[d]) daySnap[d] = JSON.stringify(daySlice(d));
 
 // Another copy of Pocket SAM (an older tab, or the home-screen app and a browser tab) may have saved since this one last looked.
 // Re-read the phone-only lists (check in/out, admin time, site arrived/left, waiting visits) whenever this copy comes back,
