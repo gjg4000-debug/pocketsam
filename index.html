@@ -1766,7 +1766,12 @@ function todoList() {
   p.textContent = n ? `${n} of ${total} site(s) not done this month. Tap a county.` : "Every site is done this month ✓"; box.append(p);
   cs.forEach(c => { const b = document.createElement("button"); b.textContent = c; const sp = document.createElement("span"); sp.className = "count"; sp.textContent = left(c).length + " left"; b.append(sp);
     b.onclick = () => { closeDlg(); setTimeout(() => todoSites(c), 0); }; box.append(b); });
-  dialog("Still to do this month", box, [{ text: "Close" }]);
+  // COPY: every county with its sites left, written downward for an email
+  const text = () => cs.map(c => `${c}:\n` + left(c).join("\n")).join("\n\n");
+  dialog("Still to do this month", box, [...(n ? [{ text: "COPY", fn: () => {
+    (navigator.clipboard ? navigator.clipboard.writeText(text()) : Promise.reject()).then(() => toast("Copied · paste it in your email"), () => toast("Couldn't copy on this phone"));
+    return false;
+  } }] : []), { text: "Close" }]);
 }
 function todoSites(c) {
   const box = document.createElement("div"); box.className = "list";
