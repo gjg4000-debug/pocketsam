@@ -2739,6 +2739,9 @@ function pullDays() {
       const a = rec.day || {}, b = mine.day || {}, ind = {};
       [...(a.ind || []), ...(b.ind || [])].forEach(e => { if (e && e.id) ind[e.id] = e; });
       const m = { ...a, ...b }; if (Object.keys(ind).length) m.ind = Object.values(ind); else delete m.ind;
+      // Both devices have a time: the day starts at the earliest check in and ends at the latest check out
+      const lo = (x, y) => x && y ? (x < y ? x : y) : x || y, hi = (x, y) => x && y ? (x > y ? x : y) : x || y;
+      if (a.in || b.in) m.in = lo(a.in, b.in); if (a.out || b.out) m.out = hi(a.out, b.out);
       if (Object.keys(m).length) days[d] = m; else delete days[d];
       for (const [k, v] of Object.entries(rec.visits || {})) visits[k] = { ...v, ...(mine.visits[k] || {}) };
       Object.assign(visits, Object.fromEntries(Object.entries(mine.visits).filter(([k]) => !(k in (rec.visits || {})))));
