@@ -246,7 +246,7 @@ function render() {
     r.querySelector(".name").textContent = x.label + (pick ? "" : ` · ${x.c}`);
     r.querySelector(".meta").textContent = `${x.chem} · ~${Math.round(e.now).toLocaleString()}${size ? " of " + size.toLocaleString() : ""} gal now` + (e.noRate ? "" : ` · ${e.rate < 10 ? e.rate.toFixed(2) : e.rate.toFixed(1)} gal/day` + (e.rateSrc ? " (actual feed)" : e.fill ? " (monitor shows a delivery, using pump rate)" : "")) + (x.rateNote ? ` (${x.rateNote})` : "");
     const w = r.querySelector(".when");
-    if (e.full) w.textContent = "Reads full, no feed yet: may be over-filled or pumps off for testing. Feed rate usually shows in a few days.";
+    if (e.full) w.textContent = "Tank may be over-filled or off for testing. Feed rate shows when under 100%.";
     else if (e.noRate) w.textContent = `Can't predict empty date: ${x.why.replace("no tank level recorded yet", "no feed rate")}`;
     else { w.textContent = e.left < 0.5 ? "Probably empty now" : `Empty by ${fmtW(e.by)}`; if (cls) w.classList.add(cls); }
     const sr = r.querySelector(".src");
