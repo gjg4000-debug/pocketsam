@@ -210,9 +210,11 @@ function est(x) {
   const m = mine[x.key], im = teamGet("levels", x.key), c = [];
   if (x.tech) c.push({ ...x.tech, ts: d0(x.tech.date).getTime(), who: "tech" });
   if (m) c.push({ gal: m.gal, date: m.date, ts: d0(m.date).getTime() + 1, who: "mine" });
-  if (im && isFinite(im.ts)) c.push({ gal: im.gal, ts: im.ts, at: im.at, feed: im.feed, who: "import" });
+  if (im && isFinite(im.ts)) c.push({ gal: im.gal, ts: im.ts, at: im.at, feed: im.feed, full: im.full, who: "import" });
   if (!c.length) return null;
   const base = c.sort((a, b) => b.ts - a.ts)[0];
+  // Monitor reads full with no feed: over-filled (reads 100% until it drops) or pumps off for testing. Hold at full, no countdown.
+  if (base.who === "import" && base.full && !(base.feed > 0)) return { now: base.gal, left: Infinity, noRate: true, full: true, base };
   const rate = base.who === "import" && base.feed > 0 ? base.feed : x.gpd;         // the monitor's actual feed beats the pump math
   if (!rate) return { now: base.gal, left: Infinity, noRate: true, base };   // level known, no feed rate: show the level, no countdown
   const days = Math.max(0, (Date.now() - base.ts) / DAY);
@@ -244,7 +246,8 @@ function render() {
     r.querySelector(".name").textContent = x.label + (pick ? "" : ` · ${x.c}`);
     r.querySelector(".meta").textContent = `${x.chem} · ~${Math.round(e.now).toLocaleString()}${size ? " of " + size.toLocaleString() : ""} gal now` + (e.noRate ? "" : ` · ${e.rate < 10 ? e.rate.toFixed(2) : e.rate.toFixed(1)} gal/day` + (e.rateSrc ? " (actual feed)" : e.fill ? " (monitor shows a delivery, using pump rate)" : "")) + (x.rateNote ? ` (${x.rateNote})` : "");
     const w = r.querySelector(".when");
-    if (e.noRate) w.textContent = `Can't predict empty date: ${x.why.replace("no tank level recorded yet", "no feed rate")}`;
+    if (e.full) w.textContent = "Reads full, no feed yet: may be over-filled or pumps off for testing. Feed rate usually shows in a few days.";
+    else if (e.noRate) w.textContent = `Can't predict empty date: ${x.why.replace("no tank level recorded yet", "no feed rate")}`;
     else { w.textContent = e.left < 0.5 ? "Probably empty now" : `Empty by ${fmtW(e.by)}`; if (cls) w.classList.add(cls); }
     const sr = r.querySelector(".src");
     if (e.base.who === "mine") { sr.classList.add("mine"); sr.textContent = `Your reading ${fmt(d0(e.base.date))}: ${e.base.gal} gal (this phone)`; }
@@ -438,7 +441,7 @@ function saveImport() {
     if (r.key === "skip") return;
     const key = own ? ik : r.key, cur = teamGet("levels", key);
     // Replace it if it's newer, or if the stored level came from a different export row (an old wrong match)
-    if (!cur || cur.id !== r.id || !(cur.ts > r.ts)) { pending.levels[key] = { gal: r.inv, ts: r.ts, at: r.whenTxt, id: r.id, ...(r.feed ? { feed: r.feed } : {}), ...(own ? { name: tankName(r.name), cust: r.cust, prod: r.prod } : {}) }; n++; }
+    if (!cur || cur.id !== r.id || !(cur.ts > r.ts)) { pending.levels[key] = { gal: r.inv, ts: r.ts, at: r.whenTxt, id: r.id, ...(r.feed ? { feed: r.feed } : {}), ...(!r.feed && (r.cap || sizeOf(key)) > 0 && r.inv >= (r.cap || sizeOf(key)) * 0.99 ? { full: 1 } : {}), ...(own ? { name: tankName(r.name), cust: r.cust, prod: r.prod } : {}) }; n++; }
     if (r.cap > 0) pending.sizes[key] = r.cap;
   });
   ["matches", "levels", "sizes"].forEach(savePending);
