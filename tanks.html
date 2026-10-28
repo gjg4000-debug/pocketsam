@@ -85,6 +85,10 @@ a{color:var(--brand)}
 <label class="small" for="tgt">Target GPD (optional, the monitor's target feed rate)</label><input id="tgt" inputmode="decimal" autocomplete="off"></div>
 <div class="db"><button id="clr">Use Pocket SAM level</button><button id="cx">Cancel</button><button class="p" id="ok">Save</button></div></dialog>
 
+<dialog id="gpdDlg"><b id="gpdT"></b><div class="small" id="gpdNote"></div>
+<label class="small" for="gpdIn">Feed rate (gal/day)</label><input id="gpdIn" inputmode="decimal" autocomplete="off">
+<div class="db"><button id="gpdClr">Use Pocket SAM's</button><button id="gpdCx">Cancel</button><button class="p" id="gpdOk">Save</button></div></dialog>
+
 <script>
 /* Tank Forecast: reads the same data as Pocket SAM on this phone (and its team sync if connected).
    Never changes Pocket SAM data. "Update level" readings are kept on this phone only. */
@@ -110,7 +114,8 @@ let db = {}, mine = lsGet(MINE_KEY, {}), cur = null;
 const SET = "~Team settings", SIZES_SITE = "Tank sizes", SIZE_PENDING = "pocketsam-tanksize-pending";
 // Shared team records: tank sizes, levels imported from the monitoring export, and how export names match sites.
 // dd: each site's own Delta Dose alarm % and the monitor's target GPD, typed once in Update level
-const TEAM = { sizes: SIZES_SITE, levels: "Tank levels", matches: "Import matches", dd: "DD settings" };
+// rates: a feed rate (gal/day) typed on the tank page, used instead of Pocket SAM's pump math
+const TEAM = { sizes: SIZES_SITE, levels: "Tank levels", matches: "Import matches", dd: "DD settings", rates: "Feed rates" };
 const pendKey = f => f === "sizes" ? SIZE_PENDING : "pocketsam-team-pending-" + f;
 const pending = {}; for (const f in TEAM) pending[f] = lsGet(pendKey(f), {});
 const savePending = f => lsSet(pendKey(f), pending[f]);
@@ -196,6 +201,8 @@ function chemSites() {
     if (SKIP.has(c)) continue;
     out.push({ c, s: v.name, key, label: v.name, chem: v.prod || "Chemical", gpd: null, tech: null, imp: true, why: "no feed rate in the last import" });
   }
+  // A feed rate typed here replaces Pocket SAM's pump math (a fresh monitor reading's actual feed still wins)
+  for (const x of out) { x.gpdSam = x.gpd; const ov = teamGet("rates", x.key); if (ov > 0) { x.gpd = ov; x.rateNote = "you set"; } }
   return out;
 }
 function est(x) {
@@ -243,7 +250,7 @@ function render() {
     if (e.base.who === "mine") { sr.classList.add("mine"); sr.textContent = `Your reading ${fmt(d0(e.base.date))}: ${e.base.gal} gal (this phone)`; }
     else if (e.base.who === "import") { sr.classList.add("imp"); sr.textContent = `Monitor reading ${new Date(e.base.ts).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}: ${e.base.gal} gal (imported)` + (e.noRate ? "" : " · estimated since"); }
     else sr.textContent = `Reading ${fmt(d0(e.base.date))}: ${e.base.gal} gal` + (e.noRate ? "" : " · estimated since");
-    const b = document.createElement("button"); b.textContent = "Update level"; b.onclick = () => openDlg(x); r.append(b); L.append(r);
+    r.append(rowBtns(x)); L.append(r);
   });
   const N = $("none"); N.replaceChildren(); $("h2").hidden = !none.length;
   none.forEach(({ x }) => {
@@ -252,7 +259,7 @@ function render() {
     r.querySelector(".name").textContent = x.label + (pick ? "" : ` · ${x.c}`);
     r.querySelector(".meta").textContent = `${x.chem} · ${x.why}`;
     const m = mine[x.key]; r.querySelector(".src").textContent = m ? `Your reading ${fmt(d0(m.date))}: ${m.gal} gal (this phone)` : "";
-    const b = document.createElement("button"); b.textContent = "Update level"; b.onclick = () => openDlg(x); r.append(b); N.append(r);
+    r.append(rowBtns(x)); N.append(r);
   });
 }
 function fillCounties() {
@@ -272,6 +279,34 @@ function fillChems() {
   all.forEach(c => chip(c, chemPick.has(c), () => { chemPick.has(c) ? chemPick.delete(c) : chemPick.add(c); lsSet(CHEM_KEY, [...chemPick]); fillChems(); render(); }));
 }
 
+// Right side of each tank: Update level, and under it the feed rate (tap to set or change it)
+function rowBtns(x) {
+  const w = document.createElement("div"); w.style.cssText = "display:flex;flex-direction:column;gap:6px;flex:none";
+  const b = document.createElement("button"); b.textContent = "Update level"; b.onclick = () => openDlg(x);
+  const g = document.createElement("button"); const f = v => v < 10 ? +v.toFixed(2) : +v.toFixed(1);
+  g.textContent = x.gpd > 0 ? `GPD ${f(x.gpd)}` : "Set GPD"; g.title = "Feed rate, gallons per day"; g.onclick = () => openGpd(x);
+  w.append(b, g); return w;
+}
+let gpdCur = null;
+function openGpd(x) {
+  gpdCur = x; $("gpdT").textContent = x.label;
+  const ov = teamGet("rates", x.key), f = v => v < 10 ? +v.toFixed(2) : +v.toFixed(1);
+  $("gpdIn").value = ov > 0 ? f(ov) : x.gpdSam > 0 ? f(x.gpdSam) : "";
+  $("gpdNote").textContent = (x.gpdSam > 0 ? `Pocket SAM's pump settings give ${f(x.gpdSam)} gal/day. ` : "Pocket SAM has no feed rate for this tank. ")
+    + "Type the real rate if it's different. A fresh monitor reading's actual feed still wins. Shared with the team.";
+  $("gpdClr").hidden = !(ov > 0);
+  $("gpdDlg").showModal(); setTimeout(() => $("gpdIn").select(), 50);
+}
+$("gpdCx").onclick = () => $("gpdDlg").close();
+$("gpdClr").onclick = () => { pending.rates[gpdCur.key] = null; savePending("rates"); $("gpdDlg").close(); toast(`${gpdCur.label}: back to Pocket SAM's rate`); refresh(); };
+$("gpdOk").onclick = () => {
+  const t = $("gpdIn").value.trim(), v = t ? galOf(t) : null;
+  if (t && !(v > 0)) { $("gpdNote").textContent = "Type the gallons per day as a number, like 36.5."; return; }
+  const same = v != null && gpdCur.gpdSam > 0 && Math.abs(v - gpdCur.gpdSam) < 0.005 && !(teamGet("rates", gpdCur.key) > 0);
+  if (!same) { pending.rates[gpdCur.key] = v; savePending("rates"); }
+  $("gpdDlg").close(); if (!same) { toast(v ? `${gpdCur.label}: ${v} gal/day saved` : `${gpdCur.label}: back to Pocket SAM's rate`); flash(gpdCur.key); refresh(); }
+};
+$("gpdIn").addEventListener("keydown", e => { if (e.key === "Enter") $("gpdOk").click(); });
 function openDlg(x) {
   cur = x; $("dt").textContent = x.label;
   $("dd").textContent = "Saved on this phone only, dated today. A newer Pocket SAM reading replaces it.";
@@ -423,7 +458,7 @@ function ddSummary() {
     const im = teamGet("levels", x.key);
     if (!im || !(im.feed > 0) || !(im.ts >= fresh)) return;
     withFeed++;
-    const ds = teamGet("dd", x.key) || {}, set = ds.target > 0 ? ds.target : x.gpd, off = ds.pct > 0 ? ds.pct / 100 : ddOff();
+    const ds = teamGet("dd", x.key) || {}, set = ds.target > 0 ? ds.target : (x.gpdSam > 0 ? x.gpdSam : x.gpd), off = ds.pct > 0 ? ds.pct / 100 : ddOff();
     if (!(set > 0)) return;
     if (Math.abs(im.feed - set) / set < off) return;
     // Leave the sample point part off the name: "5 and 5 SP" → "5"
