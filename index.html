@@ -273,9 +273,10 @@
       <input type="text" id="techName" placeholder="e.g. Gary" autocomplete="off" autocapitalize="words">
     </div>
     <div class="btns">
-      <button id="exportBtn">EXPORT BACKUP</button>
-      <button id="importBtn">IMPORT BACKUP / SITE LIST</button>
-      <button id="csvBtn">EXPORT CSV</button>
+      <button id="siteListBtn">📍 SITE LIST (copy)</button>
+      <button id="exportBtn">EXPORT SAM BACKUP</button>
+      <button id="importBtn">IMPORT SAM BACKUP / SITE LIST</button>
+      <button id="csvBtn">EXPORT READINGS CSV</button>
     </div>
     <p class="hint">Backup files are named with your name (set once) and work with the Android app too. Import merges by date: a reading on the same
       site and date is replaced by the imported one; other dates are kept. CSV opens in Excel / Google Sheets.
@@ -1799,6 +1800,20 @@ function todoSites(c) {
   dialog(`Still to do · ${c}`, box, [{ text: "◀ Counties", fn: () => { setTimeout(todoList, 0); } }, { text: "Close" }]);
 }
 $("todoBtn").onclick = () => todoList();
+// Every county with all its sites, written downward, for copying into a WO request
+$("siteListBtn").onclick = () => {
+  const cs = counties().filter(c => !isDemo(c) && sites(c).length);
+  const text = cs.map(c => `${c}:\n` + sites(c).join("\n")).join("\n\n");
+  const box = document.createElement("div");
+  const p = document.createElement("p"); p.className = "hint";
+  p.textContent = cs.length ? `${cs.length} county(s), ${cs.reduce((n, c) => n + sites(c).length, 0)} site(s). Delete any you don't need, then COPY.` : "No sites yet.";
+  const ta = document.createElement("textarea"); ta.rows = 14; ta.value = text; ta.style.cssText = "width:100%;font:inherit;padding:8px;box-sizing:border-box";
+  box.append(p, ta);
+  dialog("Site list", box, [...(cs.length ? [{ text: "COPY", fn: () => {
+    (navigator.clipboard ? navigator.clipboard.writeText(ta.value) : Promise.reject()).then(() => toast("Copied · paste it in your WO request"), () => { ta.select(); try { document.execCommand("copy"); toast("Copied"); } catch (e) { toast("Couldn't copy on this phone"); } });
+    return false;
+  } }] : []), { text: "Close" }]);
+};
 $("tanksBtn").onclick = () => guardUnsaved(() => { location.href = "tanks.html"; });
 $("importBtn").onclick = () => guardUnsaved(() => { $("importFile").value = ""; $("importFile").click(); });
 /* Merge an imported site into the local one.
