@@ -177,6 +177,8 @@
     <button id="siteBtn"><small>Site</small><span>2. Select Site</span></button>
     <button id="equipBtn" class="wide"><small>Equipment</small><span>3. Select Equipment</span></button>
   </div>
+  <div class="hint" id="persBar" hidden style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin:6px 2px">
+    <span>🔒 Personal · only on this device, never shared or backed up</span><button type="button" id="persBack" style="flex:none">◀ Back</button></div>
   <div class="latest" id="latest"></div>
   <div class="locbar" id="locBar" hidden>
     <span class="what" id="locWhat"></span>
@@ -285,6 +287,7 @@
   </section>
   <p class="hint version">Pocket SAM version <span id="appVersion">2026-10-03 (v20)</span></p>
   <p class="hint version"><a href="#" id="demoLink" hidden>Load demo county</a></p>
+  <p class="hint version"><a href="#" id="persLink">🔒 Personal</a></p>
   <p class="hint version"><a href="#" id="dynLink">Dynamics test: off</a><span id="bkLink" hidden></span><span id="dayLink" hidden></span></p>
 </main>
 
@@ -634,7 +637,15 @@ function refreshUi() {
   updateStatus(); updateLocUi(); applyEquip(); updateTimes(); updateWo(); updateT5();
   for (const k of ["chemTarget", "chemActual", "alarmType"]) inputs[k].closest(".row").hidden = !tlOn(county);
   $("demoLink").hidden = !!db["Demo County"];
+  const pers = isPersonal(county); $("persBar").hidden = !pers; $("persBar").style.display = pers ? "flex" : "none"; $("persLink").hidden = pers;
 }
+// Personal area: opened from the small link at the bottom, never from the county list. ◀ Back returns to the last county.
+let workCounty = null;
+$("persLink").onclick = e => { e.preventDefault(); guardUnsaved(() => {
+  if (!db[PERSONAL]) { db[PERSONAL] = {}; persist(); }
+  if (!isPersonal(county)) workCounty = county;
+  selectCounty(PERSONAL); window.scrollTo(0, 0); }); };
+$("persBack").onclick = () => guardUnsaved(() => { const c = workCounty && db[workCounty] ? workCounty : null; if (c) selectCounty(c); else { county = null; site = null; fill(null); refreshUi(); } });
 function updateStatus() {
   $("status").textContent = !county ? "Pick or add a county / city to start."
     : !site ? `${county} — pick or add a site.`
@@ -1199,8 +1210,7 @@ function editType(t, done, personalDefault) {
 }
 
 $("countyBtn").onclick = () => guardUnsaved(() =>
-  listDialog("Select county / city", [...counties(), PERSONAL], "+ Add new county / city…",
-    c => { if (isPersonal(c) && !db[PERSONAL]) { db[PERSONAL] = {}; persist(); toast("Personal: only on this device, never shared or backed up"); } selectCounty(c); },
+  listDialog("Select county / city", counties(), "+ Add new county / city…", selectCounty,
     () => askName("New county / city", async n => { if (isPersonal(n)) { toast("That name is for Personal"); return; } if (!db[n]) { db[n] = {}; await persist(); } selectCounty(n); }),
     c => { const all = sites(c); return all.length ? { count: `${all.filter(s => isDone(c, s)).length} of ${all.length} done` } : {}; }));
 
