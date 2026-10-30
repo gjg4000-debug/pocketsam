@@ -235,7 +235,9 @@ function est(x) {
 function render() {
   const pick = $("county").value;
   const allT = chemSites(), present = new Set(allT.map(x => chemOf(x.chem)).filter(Boolean)), eff = new Set([...chemPick].filter(c => present.has(c)));
-  const rows = allT.filter(x => (!pick || x.c === pick) && (!eff.size || eff.has(chemOf(x.chem)))).map(x => ({ x, e: est(x) }));
+  // VL button = the H2S monitors. Only VL picked: monitors only. Chemicals picked without VL: tanks only.
+  const vlOn = chemPick.has(VL) && airList().length > 0, onlyVL = vlOn && !eff.size;
+  const rows = onlyVL ? [] : allT.filter(x => (!pick || x.c === pick) && (!eff.size || eff.has(chemOf(x.chem)))).map(x => ({ x, e: est(x) }));
   const have = rows.filter(r => r.e).sort((a, b) => a.e.left - b.e.left), none = rows.filter(r => !r.e);
   const soon = have.filter(r => r.e.left < HORIZON), counted = have.filter(r => !r.e.noRate);
   $("sum").innerHTML = "";
@@ -243,7 +245,7 @@ function render() {
   box(`${soon.length} of ${counted.length}`, `tanks empty within ${HORIZON} days`);
   box(String(none.length), "tank(s) with no data yet");
   const L = $("list"); L.replaceChildren();
-  if (!have.length) { const p = document.createElement("div"); p.className = "empty"; p.textContent = rows.length ? "No tank levels saved yet." : "No tanks yet. Use Import levels with the monitoring export (.csv), or REFRESH Pocket SAM on this device first."; L.append(p); }
+  if (!have.length && !onlyVL) { const p = document.createElement("div"); p.className = "empty"; p.textContent = rows.length ? "No tank levels saved yet." : "No tanks yet. Use Import levels with the monitoring export (.csv), or REFRESH Pocket SAM on this device first."; L.append(p); }
   have.forEach(({ x, e }) => {
     // With a tank size: the picture is % full. Without one: full = 30 days or more left.
     const size = tankSize(x, e.now), pct = size ? Math.max(0, Math.min(100, Math.round(e.now / size * 100))) : null;
@@ -274,7 +276,7 @@ function render() {
     const m = mine[x.key]; r.querySelector(".src").textContent = m ? `Your reading ${fmt(d0(m.date))}: ${m.gal} gal (this phone)` : "";
     r.append(rowBtns(x)); N.append(r);
   });
-  renderAir(pick, allT);
+  renderAir(pick, allT, !eff.size || vlOn);
 }
 // H2S monitors: latest air reading, and the feed site that treats it (picked once, or a guess by name)
 function airFeed(id, v, allT) {
@@ -284,11 +286,12 @@ function airFeed(id, v, allT) {
   const g = guessSite(v.cust, v.name, feeds.filter(f => !f.imp)); const x = g && feeds.find(f => f.key === g);
   return x ? { x, guess: true } : {};
 }
-function renderAir(pick, allT) {
+const VL = "VL";
+const airList = () => Object.entries({ ...shared("air"), ...pending.air }).filter(([, v]) => v && v.name)
+  .map(([id, v]) => ({ id, v, c: custName(v.cust) || "Monitoring export" })).filter(m => !SKIP.has(m.c));
+function renderAir(pick, allT, show) {
   const A = $("air"); A.replaceChildren();
-  const list = Object.entries({ ...shared("air"), ...pending.air }).filter(([, v]) => v && v.name)
-    .map(([id, v]) => ({ id, v, c: custName(v.cust) || "Monitoring export" })).filter(m => !SKIP.has(m.c) && (!pick || m.c === pick))
-    .sort((a, b) => (b.v.ppm ?? -1) - (a.v.ppm ?? -1));
+  const list = show ? airList().filter(m => !pick || m.c === pick).sort((a, b) => (b.v.ppm ?? -1) - (a.v.ppm ?? -1)) : [];
   $("h2air").hidden = !list.length;
   const f2 = v => v < 10 ? +v.toFixed(2) : +v.toFixed(1);
   list.forEach(({ id, v, c }) => {
@@ -329,7 +332,7 @@ function fillCounties() {
 $("county").onchange = () => { lsSet(COUNTY_KEY, $("county").value); render(); };
 // Chemical filter: tap one or more (Bioxide, Nutrient…); none picked = all
 function fillChems() {
-  const all = CHEMS.map(([c]) => c).filter(c => chemSites().some(x => chemOf(x.chem) === c));
+  const all = CHEMS.map(([c]) => c).filter(c => chemSites().some(x => chemOf(x.chem) === c)).concat(airList().length ? [VL] : []);
   const box = $("chems"); box.replaceChildren(); box.hidden = all.length < 2;
   const chip = (label, on, fn) => { const b = document.createElement("button"); b.className = "chip" + (on ? " on" : ""); b.textContent = label; b.setAttribute("aria-pressed", on); b.onclick = fn; box.append(b); };
   chip("All", ![...chemPick].some(c => all.includes(c)), () => { chemPick.clear(); lsSet(CHEM_KEY, []); fillChems(); render(); });
