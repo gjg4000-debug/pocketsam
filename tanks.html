@@ -176,13 +176,15 @@ function chemSites() {
       const lastWith = k => [...h].reverse().find(e => num(e[k]) != null && e.date);
       const base = (k) => { const e = lastWith(k); return e ? { gal: num(e[k]), date: e.date } : null; };
       // Chemical feed: GPD the same way Pocket SAM does (its saved result, else the pump math; blank hours = 24)
-      if (eq.includes("chem") || eq.includes("all") || last.chemName || last.p1Rate || last.p2Rate || last.curve) {
+      // Equipment picked: go by it (a sample point with an old chemical name isn't a feed site). Not picked: go by what's filled in.
+      const picked = eq.some(Boolean), shows = k => eq.includes(k) || eq.includes("all");
+      if (picked ? shows("chem") : (last.chemName || last.p1Rate || last.p2Rate || last.curve)) {
         let gpd = num(last.chemGpd);
         if (gpd == null) { const r1 = num(last.p1Rate) ?? 0, r2 = num(last.p2Rate) ?? 0; gpd = (r1 || r2) ? (r1 * 60 * (num(last.p1Hrs) ?? 24) + r2 * 60 * (num(last.p2Hrs) ?? 24)) / 3785.41 : null; }
         out.push({ c, s, key: c + "\u0001" + s, label: s, chem: last.chemName || "No chemical name", gpd, tech: base("chemTank"), why: gpd ? "no tank level recorded yet" : "no pump rates recorded yet" });
       }
       // Biofilter nutrient: pump GPH × speed % × stroke % × run time (ON sec / OFF min timer), same as Pocket SAM
-      if (eq.includes("bio") || has("bioGph") || has("tankGal")) {
+      if (eq.includes("bio") || ((!picked || eq.includes("all")) && (has("bioGph") || has("tankGal")))) {
         let gpd = num(last.bioGalPerDay);
         if (gpd == null) {
           const gph = num(last.bioGph), on = num(last.onSec), off = num(last.offMin);
