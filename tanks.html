@@ -223,7 +223,7 @@ function est(x) {
   const m = mine[x.key], im = teamGet("levels", x.key), c = [];
   if (x.tech) c.push({ ...x.tech, ts: d0(x.tech.date).getTime(), who: "tech" });
   if (m) c.push({ gal: m.gal, date: m.date, ts: d0(m.date).getTime() + 1, who: "mine" });
-  if (im && isFinite(im.ts)) c.push({ gal: im.gal, ts: im.ts, at: im.at, feed: im.feed, full: im.full, who: "import" });
+  if (im && isFinite(im.ts)) c.push({ gal: im.gal, ts: im.ts, at: im.at, feed: im.feed, full: im.full, hb: im.hb, who: "import" });
   if (!c.length) return null;
   const base = c.sort((a, b) => b.ts - a.ts)[0];
   // Monitor reads full with no feed: over-filled (reads 100% until it drops) or pumps off for testing. Hold at full, no countdown.
@@ -265,6 +265,7 @@ function render() {
     else if (e.noRate) w.textContent = `Can't predict empty date: ${x.why.replace("no tank level recorded yet", "no feed rate")}`;
     else { w.textContent = e.left < 0.5 ? "Probably empty now" : `Empty by ${fmtW(e.by)}`; if (cls) w.classList.add(cls); }
     const sr = r.querySelector(".src");
+    if (e.base.who === "import" && e.base.hb) { const hw = document.createElement("div"); hw.className = "when crit"; hw.textContent = "⚠ Heartbeat: tank monitor isn't reporting, level may be old"; r.querySelector(".info").insertBefore(hw, sr); }
     if (e.base.who === "mine") { sr.classList.add("mine"); sr.textContent = `Your reading ${fmt(d0(e.base.date))}: ${e.base.gal} gal (this phone)`; }
     else if (e.base.who === "import") { sr.classList.add("imp"); sr.textContent = `Monitor reading ${new Date(e.base.ts).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}: ${e.base.gal} gal (imported)` + (e.noRate ? "" : " · estimated since"); }
     else sr.textContent = `Reading ${fmt(d0(e.base.date))}: ${e.base.gal} gal` + (e.noRate ? "" : " · estimated since");
@@ -296,7 +297,7 @@ const airList = () => Object.entries({ ...shared("air"), ...pending.air }).filte
   .map(([id, v]) => ({ id, v, c: countyOf(v.cust) || "Monitoring export" })).filter(m => !SKIP.has(m.c));
 function renderAir(pick, allT, show) {
   const A = $("air"); A.replaceChildren();
-  const list = show ? airList().filter(m => !pick || m.c === pick).sort((a, b) => (b.v.ppm ?? -1) - (a.v.ppm ?? -1)) : [];
+  const list = show ? airList().filter(m => !pick || m.c === pick).sort((a, b) => (b.v.hb ? 1 : 0) - (a.v.hb ? 1 : 0) || (b.v.ppm ?? -1) - (a.v.ppm ?? -1)) : [];
   $("h2air").hidden = !list.length;
   const f2 = v => v < 10 ? +v.toFixed(2) : +v.toFixed(1);
   list.forEach(({ id, v, c }) => {
@@ -310,6 +311,7 @@ function renderAir(pick, allT, show) {
     if (fd.none) feedTxt = "No feed site";
     else if (fd.xs.length) feedTxt = "Fed from " + fd.xs.map(one).join("\n+ ") + (fd.guess ? " (guess)" : "");
     const mt = r.querySelector(".meta"); mt.style.whiteSpace = "pre-line"; mt.textContent = feedTxt;
+    if (v.hb) { const w = document.createElement("div"); w.className = "when crit"; w.textContent = "⚠ Heartbeat: monitor isn't reporting, check it"; r.querySelector(".info").insertBefore(w, r.querySelector(".src")); r.querySelector(".air").style.borderColor = "var(--crit)"; }
     r.querySelector(".src").textContent = `${v.ppm != null ? f2(v.ppm) + " ppm H2S" : "No H2S reading"} · ${new Date(v.ts).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} (imported)`;
     const b = document.createElement("button"); b.textContent = "Feed site"; b.style.flex = "none"; b.onclick = () => openAir(id, v, allT);
     r.append(b); A.append(r);
@@ -471,17 +473,19 @@ $("impFile").onchange = async () => {
   const head = (rows[0] || []).map(h => String(h).trim().toLowerCase());
   const col = n => head.indexOf(n), colStart = n => head.findIndex(h => h.replace(/[^a-z]/g, "").startsWith(n));
   const ci = { cust: col("customer"), site: col("sitename"), when: col("lastupdate"), inv: col("inventory"), cap: col("capacity"), feed: colStart("actualfeed"), prod: col("product"),
-    type: colStart("sitetype"), h2s: head.findIndex(h => h.replace(/[^a-z0-9]/g, "").startsWith("h2slevel")) };
+    type: colStart("sitetype"), status: (i => i >= 0 ? i : 1)(colStart("sitestatus")), h2s: head.findIndex(h => h.replace(/[^a-z0-9]/g, "").startsWith("h2slevel")) };
   if (ci.site < 0 || ci.inv < 0) { toast("That isn't the monitoring export (.csv with SiteName and Inventory). Pocket SAM backups and site lists go in Pocket SAM's IMPORT."); return; }
   const tanks = chemSites().filter(x => x.chem !== "Nutrient" && !x.imp);
   // Air H2S monitors (site type says vapor): saved as H2S readings at the bottom, never as tanks
+  // Site status "Heartbeat" = the monitor has a problem (not reporting): goes on top, flagged red
+  const hbOf = r => /heart\s*beat/i.test(String(r[ci.status] || ""));
   const isAir = r => ci.type >= 0 && /vapou?r/i.test(String(r[ci.type] || ""));
   let nAir = 0;
   rows.slice(1).filter(r => r[ci.site] && isAir(r)).forEach(r => {
     const cust = ci.cust >= 0 ? r[ci.cust] : "", name = r[ci.site], id = norm(cust) + "|" + norm(name);
     const ppm = ci.h2s >= 0 ? galOf(r[ci.h2s]) : null, ts = ci.when >= 0 ? parseWhen(r[ci.when]) : Date.now(), cur = teamGet("air", id);
     if (cur && cur.ts > ts) return;
-    pending.air[id] = { name: tankName(name), cust, ppm, ts, at: ci.when >= 0 ? r[ci.when] : "" }; nAir++;
+    pending.air[id] = { name: tankName(name), cust, ppm, ts, at: ci.when >= 0 ? r[ci.when] : "", ...(hbOf(r) ? { hb: 1 } : {}) }; nAir++;
   });
   if (nAir) savePending("air");
   impRows = rows.slice(1).filter(r => !isAir(r)).map(r => {
@@ -490,7 +494,7 @@ $("impFile").onchange = async () => {
     const rem = teamGet("matches", id), remKey = rem && typeof rem === "object" ? rem.key : rem, manual = !!(rem && rem.manual);
     const remembered = manual ? remKey : (remKey && remKey !== "skip" && countyFits(cust, remKey) ? remKey : null);
     const feed = ci.feed >= 0 ? feedOf(r[ci.feed]) : null;
-    return { id, cust, name, inv: galOf(r[ci.inv]), cap: ci.cap >= 0 ? galOf(r[ci.cap]) : null, feed: feed ? feed : null, prod: ci.prod >= 0 ? String(r[ci.prod] || "").trim() : "", ts: ci.when >= 0 ? parseWhen(r[ci.when]) : Date.now(), whenTxt: ci.when >= 0 ? r[ci.when] : "",
+    return { hb: hbOf(r), id, cust, name, inv: galOf(r[ci.inv]), cap: ci.cap >= 0 ? galOf(r[ci.cap]) : null, feed: feed ? feed : null, prod: ci.prod >= 0 ? String(r[ci.prod] || "").trim() : "", ts: ci.when >= 0 ? parseWhen(r[ci.when]) : Date.now(), whenTxt: ci.when >= 0 ? r[ci.when] : "",
       key: remembered === "skip" ? "skip" : (remembered || guessSite(cust, name, tanks) || NEW), remembered };
   }).filter(r => r.name && r.inv != null);
   if (!impRows.length) { if (nAir) { toast(`${nAir} H2S monitor reading(s) saved`); render(); refresh(); } else toast("No tank rows found in that file"); return; }
@@ -525,7 +529,7 @@ function saveImport() {
     if (r.key === "skip") return;
     const key = own ? ik : r.key, cur = teamGet("levels", key);
     // Replace it if it's newer, or if the stored level came from a different export row (an old wrong match)
-    if (!cur || cur.id !== r.id || !(cur.ts > r.ts)) { pending.levels[key] = { gal: r.inv, ts: r.ts, at: r.whenTxt, id: r.id, ...(r.feed ? { feed: r.feed } : {}), ...(!r.feed && (r.cap || sizeOf(key)) > 0 && r.inv >= (r.cap || sizeOf(key)) * 0.99 ? { full: 1 } : {}), ...(own ? { name: tankName(r.name), cust: r.cust, prod: r.prod } : {}) }; n++; }
+    if (!cur || cur.id !== r.id || !(cur.ts > r.ts)) { pending.levels[key] = { gal: r.inv, ts: r.ts, at: r.whenTxt, id: r.id, ...(r.feed ? { feed: r.feed } : {}), ...(r.hb ? { hb: 1 } : {}), ...(!r.feed && (r.cap || sizeOf(key)) > 0 && r.inv >= (r.cap || sizeOf(key)) * 0.99 ? { full: 1 } : {}), ...(own ? { name: tankName(r.name), cust: r.cust, prod: r.prod } : {}) }; n++; }
     if (r.cap > 0) pending.sizes[key] = r.cap;
   });
   ["matches", "levels", "sizes"].forEach(savePending);
