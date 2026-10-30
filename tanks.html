@@ -105,6 +105,8 @@ const SKIP = new Set(["Demo County", "~Team settings"]);
 // Import-only tanks are stored under this key prefix; "Apopka, FL City of" → "Apopka", "LS 19 4G" → "LS 19"
 const IMP = "~imp\u0001";
 const custName = c => String(c || "").replace(/,?\s*\b(FL|Florida)\b\.?/gi, " ").replace(/\bcity of\b/gi, " ").replace(/\s+/g, " ").replace(/^[\s,]+|[\s,]+$/g, "").trim();
+// The export's customer as Pocket SAM's county name when one matches ("Wildwood, FL City of" → "Wild Wood")
+const countyOf = cust => { const cn = custName(cust), k = String(cn).toLowerCase().replace(/[^a-z0-9]/g, ""); return (k && Object.keys(db).find(c => !SKIP.has(c) && c.toLowerCase().replace(/[^a-z0-9]/g, "") === k)) || cn; };
 const tankName = n => String(n || "").replace(/\s+4G\b/gi, "").replace(/\s+/g, " ").trim();
 const MINE_KEY = "pocketsam-tankmine", COUNTY_KEY = "pocketsam-tankcounty", CHEM_KEY = "pocketsam-tankchems";
 const $ = id => document.getElementById(id);
@@ -208,7 +210,7 @@ function chemSites() {
   const lv = { ...shared("levels") }; for (const [k, v] of Object.entries(pending.levels)) { if (v) lv[k] = v; else delete lv[k]; }
   for (const [key, v] of Object.entries(lv)) {
     if (!key.startsWith(IMP) || !v || !v.name) continue;
-    const c = custName(v.cust) || "Monitoring export";
+    const c = countyOf(v.cust) || "Monitoring export";
     if (SKIP.has(c)) continue;
     out.push({ c, s: v.name, key, label: v.name, chem: v.prod || "Chemical", gpd: null, tech: null, imp: true, why: "no feed rate in the last import" });
   }
@@ -291,7 +293,7 @@ function airFeed(id, v, allT) {
 }
 const VL = "VL";
 const airList = () => Object.entries({ ...shared("air"), ...pending.air }).filter(([, v]) => v && v.name)
-  .map(([id, v]) => ({ id, v, c: custName(v.cust) || "Monitoring export" })).filter(m => !SKIP.has(m.c));
+  .map(([id, v]) => ({ id, v, c: countyOf(v.cust) || "Monitoring export" })).filter(m => !SKIP.has(m.c));
 function renderAir(pick, allT, show) {
   const A = $("air"); A.replaceChildren();
   const list = show ? airList().filter(m => !pick || m.c === pick).sort((a, b) => (b.v.ppm ?? -1) - (a.v.ppm ?? -1)) : [];
@@ -316,7 +318,7 @@ function renderAir(pick, allT, show) {
 let airCur = null;
 function openAir(id, v, allT) {
   airCur = id; $("airT").textContent = v.name + " · H2S monitor";
-  const c = custName(v.cust), link = airLinks(id), fd = airFeed(id, v, allT), on = new Set(fd.xs ? fd.xs.map(x => x.key) : []);   // the guess starts checked
+  const c = countyOf(v.cust), link = airLinks(id), fd = airFeed(id, v, allT), on = new Set(fd.xs ? fd.xs.map(x => x.key) : []);   // the guess starts checked
   // This county's feed sites first, then the rest
   const feeds = allT.filter(x => x.chem !== "Nutrient").sort((a, b) => (a.c === c ? 0 : 1) - (b.c === c ? 0 : 1) || a.label.localeCompare(b.label, undefined, { numeric: true }));
   const box = $("airSel"); box.replaceChildren();
@@ -336,7 +338,7 @@ $("airOk").onclick = () => {
 };
 function fillCounties() {
   const sel = $("county"), keep = sel.value || lsGet(COUNTY_KEY, "");
-  const cs = [...new Set(chemSites().map(x => x.c))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const cs = [...new Set([...chemSites().map(x => x.c), ...airList().map(m => m.c)])].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   sel.replaceChildren();
   [["", "All counties / cities"], ...cs.map(c => [c, c])].forEach(([v, t]) => { const o = document.createElement("option"); o.value = v; o.textContent = t; sel.append(o); });
   sel.value = cs.includes(keep) ? keep : "";
