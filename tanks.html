@@ -320,7 +320,8 @@ function openAir(id, v, allT) {
   airCur = id; $("airT").textContent = v.name + " · H2S monitor";
   const c = countyOf(v.cust), link = airLinks(id), fd = airFeed(id, v, allT), on = new Set(fd.xs ? fd.xs.map(x => x.key) : []);   // the guess starts checked
   // This county's feed sites first, then the rest
-  const feeds = allT.filter(x => x.chem !== "Nutrient").sort((a, b) => (a.c === c ? 0 : 1) - (b.c === c ? 0 : 1) || a.label.localeCompare(b.label, undefined, { numeric: true }));
+  const pick = $("county").value;   // a county picked: only its feed sites; All: every feed site, this one's county first
+  const feeds = allT.filter(x => x.chem !== "Nutrient" && (!pick || x.c === pick)).sort((a, b) => (a.c === c ? 0 : 1) - (b.c === c ? 0 : 1) || a.label.localeCompare(b.label, undefined, { numeric: true }));
   const box = $("airSel"); box.replaceChildren();
   feeds.forEach(x => { const l = document.createElement("label"); l.style.cssText = "display:flex;gap:8px;align-items:center;padding:4px 0";
     const cb = document.createElement("input"); cb.type = "checkbox"; cb.value = x.key; cb.checked = on.has(x.key); cb.style.cssText = "width:auto;margin:0";
