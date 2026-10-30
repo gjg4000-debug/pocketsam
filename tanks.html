@@ -35,7 +35,7 @@ h2{font-size:13.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--mu
 .info{flex:1;min-width:0}.name{font-weight:700}.meta{font-size:13px;color:var(--muted)}
 .src{font-size:12.5px;margin-top:2px}.src.mine{color:var(--mine);font-weight:600}.src.imp{color:#0f766e;font-weight:600}
 @media (prefers-color-scheme: dark){.src.imp{color:#5eead4}}
-#imp select,#airSel{width:100%;padding:6px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+#imp select{width:100%;padding:6px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
 #imp .il{max-height:55vh;overflow:auto;margin:8px 0}#imp .ir{padding:6px 0;border-bottom:1px solid var(--line);font-size:13.5px}
 .when{font-weight:700;font-size:14px}.when.crit{color:var(--crit)}.when.low{color:var(--low)}
 .row.flash{outline:3px solid var(--mine);outline-offset:2px}
@@ -88,8 +88,9 @@ a{color:var(--brand)}
 <label class="small" for="tgt">Target GPD (optional, the monitor's target feed rate)</label><input id="tgt" inputmode="decimal" autocomplete="off"></div>
 <div class="db"><button id="clr">Use Pocket SAM level</button><button id="cx">Cancel</button><button class="p" id="ok">Save</button></div></dialog>
 
-<dialog id="airDlg"><b id="airT"></b><div class="small">Which feed site treats this spot? Picked once for the team.</div>
-<select id="airSel" style="margin:8px 0 10px"></select>
+<dialog id="airDlg"><b id="airT"></b><div class="small">Check every feed site that treats this spot. Picked once for the team. None checked = guess by name.</div>
+<div class="il" id="airSel" style="margin:8px 0 10px"></div>
+<label class="small" style="display:flex;gap:8px;align-items:center;margin-bottom:10px"><input type="checkbox" id="airNone" style="width:auto;margin:0"> No feed site</label>
 <div class="db"><button id="airCx">Cancel</button><button class="p" id="airOk">Save</button></div></dialog>
 
 <dialog id="gpdDlg"><b id="gpdT"></b><div class="small" id="gpdNote"></div>
@@ -279,12 +280,14 @@ function render() {
   renderAir(pick, allT, !eff.size || vlOn);
 }
 // H2S monitors: latest air reading, and the feed site that treats it (picked once, or a guess by name)
+// The link is a list of feed site keys (one or more), "none", or nothing yet (guess one by name)
+const airLinks = id => { const l = teamGet("airlink", id); return l === "none" ? "none" : Array.isArray(l) ? l : l ? [l] : []; };
 function airFeed(id, v, allT) {
-  const link = teamGet("airlink", id), feeds = allT.filter(x => x.chem !== "Nutrient");
+  const link = airLinks(id), feeds = allT.filter(x => x.chem !== "Nutrient");
   if (link === "none") return { none: true };
-  if (link) { const x = feeds.find(f => f.key === link); return x ? { x } : {}; }
+  if (link.length) return { xs: link.map(k => feeds.find(f => f.key === k)).filter(Boolean) };
   const g = guessSite(v.cust, v.name, feeds.filter(f => !f.imp)); const x = g && feeds.find(f => f.key === g);
-  return x ? { x, guess: true } : {};
+  return x ? { xs: [x], guess: true } : { xs: [] };
 }
 const VL = "VL";
 const airList = () => Object.entries({ ...shared("air"), ...pending.air }).filter(([, v]) => v && v.name)
@@ -300,12 +303,11 @@ function renderAir(pick, allT, show) {
     r.querySelector(".pv").textContent = v.ppm != null ? f2(v.ppm) : "?";
     r.querySelector(".name").textContent = v.name + (pick ? "" : ` · ${c}`) + " · H2S monitor";
     const fd = airFeed(id, v, allT); let feedTxt = "Feed site: none picked";
+    const one = x => { const im = teamGet("levels", x.key), act = im && im.feed > 0 ? im.feed : null, set = x.gpd;
+      return `${x.label} · ${x.chem}` + (act != null ? ` · ${f2(act)}${set > 0 ? " of " + f2(set) : ""} GPD actual` : set > 0 ? ` · ${f2(set)} GPD` : ""); };
     if (fd.none) feedTxt = "No feed site";
-    else if (fd.x) {
-      const im = teamGet("levels", fd.x.key), act = im && im.feed > 0 ? im.feed : null, set = fd.x.gpd;
-      feedTxt = `Fed from ${fd.x.label} · ${fd.x.chem}` + (act != null ? ` · ${f2(act)}${set > 0 ? " of " + f2(set) : ""} GPD actual` : set > 0 ? ` · ${f2(set)} GPD` : "") + (fd.guess ? " (guess)" : "");
-    }
-    r.querySelector(".meta").textContent = feedTxt;
+    else if (fd.xs.length) feedTxt = "Fed from " + fd.xs.map(one).join("\n+ ") + (fd.guess ? " (guess)" : "");
+    const mt = r.querySelector(".meta"); mt.style.whiteSpace = "pre-line"; mt.textContent = feedTxt;
     r.querySelector(".src").textContent = `${v.ppm != null ? f2(v.ppm) + " ppm H2S" : "No H2S reading"} · ${new Date(v.ts).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} (imported)`;
     const b = document.createElement("button"); b.textContent = "Feed site"; b.style.flex = "none"; b.onclick = () => openAir(id, v, allT);
     r.append(b); A.append(r);
@@ -314,14 +316,24 @@ function renderAir(pick, allT, show) {
 let airCur = null;
 function openAir(id, v, allT) {
   airCur = id; $("airT").textContent = v.name + " · H2S monitor";
-  const c = custName(v.cust), feeds = allT.filter(x => x.chem !== "Nutrient").sort((a, b) => (a.c === c ? 0 : 1) - (b.c === c ? 0 : 1) || a.label.localeCompare(b.label, undefined, { numeric: true }));
-  const sel = $("airSel"); sel.replaceChildren();
-  [["", "— guess by name —"], ["none", "— no feed site —"], ...feeds.map(x => [x.key, `${x.label} (${x.c}) · ${x.chem}`])].forEach(([k, t]) => { const o = document.createElement("option"); o.value = k; o.textContent = t; sel.append(o); });
-  const link = teamGet("airlink", id); sel.value = link && [...sel.options].some(o => o.value === link) ? link : "";
+  const c = custName(v.cust), link = airLinks(id), fd = airFeed(id, v, allT), on = new Set(fd.xs ? fd.xs.map(x => x.key) : []);   // the guess starts checked
+  // This county's feed sites first, then the rest
+  const feeds = allT.filter(x => x.chem !== "Nutrient").sort((a, b) => (a.c === c ? 0 : 1) - (b.c === c ? 0 : 1) || a.label.localeCompare(b.label, undefined, { numeric: true }));
+  const box = $("airSel"); box.replaceChildren();
+  feeds.forEach(x => { const l = document.createElement("label"); l.style.cssText = "display:flex;gap:8px;align-items:center;padding:4px 0";
+    const cb = document.createElement("input"); cb.type = "checkbox"; cb.value = x.key; cb.checked = on.has(x.key); cb.style.cssText = "width:auto;margin:0";
+    cb.onchange = () => { if (cb.checked) $("airNone").checked = false; };
+    l.append(cb, document.createTextNode(`${x.label} (${x.c}) · ${x.chem}`)); box.append(l); });
+  $("airNone").checked = link === "none";
+  $("airNone").onchange = () => { if ($("airNone").checked) box.querySelectorAll("input").forEach(i => i.checked = false); };
   $("airDlg").showModal();
 }
 $("airCx").onclick = () => $("airDlg").close();
-$("airOk").onclick = () => { const k = $("airSel").value; pending.airlink[airCur] = k || null; savePending("airlink"); $("airDlg").close(); toast("Feed site saved"); render(); refresh(); };
+$("airOk").onclick = () => {
+  const ks = [...$("airSel").querySelectorAll("input:checked")].map(i => i.value);
+  pending.airlink[airCur] = $("airNone").checked ? "none" : ks.length ? ks : null; savePending("airlink");
+  $("airDlg").close(); toast(ks.length > 1 ? `${ks.length} feed sites saved` : "Feed site saved"); render(); refresh();
+};
 function fillCounties() {
   const sel = $("county"), keep = sel.value || lsGet(COUNTY_KEY, "");
   const cs = [...new Set(chemSites().map(x => x.c))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
