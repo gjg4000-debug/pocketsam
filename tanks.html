@@ -28,13 +28,14 @@ button.p{background:var(--brand);color:#fff;border-color:var(--brand)}
 h2{font-size:13.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:16px 0 8px}
 .row{display:flex;gap:14px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:10px}
 .tank{position:relative;flex:none;width:58px;height:84px;border:3px solid #6b7280;border-radius:12px 12px 8px 8px;overflow:hidden;background:#0b1220}
+.air{flex:none;width:58px;height:58px;border-radius:50%;border:3px solid #6b7280;display:flex;flex-direction:column;align-items:center;justify-content:center;font-weight:800;line-height:1.05}.air small{font-size:10px;font-weight:600;color:var(--muted)}
 .tank:before{content:"";position:absolute;top:-3px;left:19px;width:14px;height:6px;background:#6b7280;border-radius:0 0 3px 3px;z-index:2}
 .fill{position:absolute;left:0;right:0;bottom:0}
 .d{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;color:#fff;z-index:3;text-shadow:0 1px 3px #000}
 .info{flex:1;min-width:0}.name{font-weight:700}.meta{font-size:13px;color:var(--muted)}
 .src{font-size:12.5px;margin-top:2px}.src.mine{color:var(--mine);font-weight:600}.src.imp{color:#0f766e;font-weight:600}
 @media (prefers-color-scheme: dark){.src.imp{color:#5eead4}}
-#imp select{width:100%;padding:6px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+#imp select,#airSel{width:100%;padding:6px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
 #imp .il{max-height:55vh;overflow:auto;margin:8px 0}#imp .ir{padding:6px 0;border-bottom:1px solid var(--line);font-size:13.5px}
 .when{font-weight:700;font-size:14px}.when.crit{color:var(--crit)}.when.low{color:var(--low)}
 .row.flash{outline:3px solid var(--mine);outline-offset:2px}
@@ -67,6 +68,8 @@ a{color:var(--brand)}
   <div id="list"></div>
   <h2 id="h2">No tank data</h2>
   <div id="none"></div>
+  <h2 id="h2air" hidden>H2S monitors (air)</h2>
+  <div id="air"></div>
   <p class="small"><a href="./">← Back to Pocket SAM</a> · page version T10</p>
 </div>
 
@@ -84,6 +87,10 @@ a{color:var(--brand)}
 <div id="ddSet"><label class="small" for="ddp">Delta Dose alarm % (optional, from the monitor's site settings)</label><input id="ddp" inputmode="decimal" autocomplete="off" placeholder="blank = 15">
 <label class="small" for="tgt">Target GPD (optional, the monitor's target feed rate)</label><input id="tgt" inputmode="decimal" autocomplete="off"></div>
 <div class="db"><button id="clr">Use Pocket SAM level</button><button id="cx">Cancel</button><button class="p" id="ok">Save</button></div></dialog>
+
+<dialog id="airDlg"><b id="airT"></b><div class="small">Which feed site treats this spot? Picked once for the team.</div>
+<select id="airSel" style="margin:8px 0 10px"></select>
+<div class="db"><button id="airCx">Cancel</button><button class="p" id="airOk">Save</button></div></dialog>
 
 <dialog id="gpdDlg"><b id="gpdT"></b><div class="small" id="gpdNote"></div>
 <label class="small" for="gpdIn">Feed rate (gal/day)</label><input id="gpdIn" inputmode="decimal" autocomplete="off">
@@ -115,7 +122,8 @@ const SET = "~Team settings", SIZES_SITE = "Tank sizes", SIZE_PENDING = "pockets
 // Shared team records: tank sizes, levels imported from the monitoring export, and how export names match sites.
 // dd: each site's own Delta Dose alarm % and the monitor's target GPD, typed once in Update level
 // rates: a feed rate (gal/day) typed on the tank page, used instead of Pocket SAM's pump math
-const TEAM = { sizes: SIZES_SITE, levels: "Tank levels", matches: "Import matches", dd: "DD settings", rates: "Feed rates" };
+// air: H2S monitors from the export (air readings, not tanks); airlink: which feed site treats each one
+const TEAM = { sizes: SIZES_SITE, levels: "Tank levels", matches: "Import matches", dd: "DD settings", rates: "Feed rates", air: "H2S monitors", airlink: "H2S monitor feeds" };
 const pendKey = f => f === "sizes" ? SIZE_PENDING : "pocketsam-team-pending-" + f;
 const pending = {}; for (const f in TEAM) pending[f] = lsGet(pendKey(f), {});
 const savePending = f => lsSet(pendKey(f), pending[f]);
@@ -266,7 +274,51 @@ function render() {
     const m = mine[x.key]; r.querySelector(".src").textContent = m ? `Your reading ${fmt(d0(m.date))}: ${m.gal} gal (this phone)` : "";
     r.append(rowBtns(x)); N.append(r);
   });
+  renderAir(pick, allT);
 }
+// H2S monitors: latest air reading, and the feed site that treats it (picked once, or a guess by name)
+function airFeed(id, v, allT) {
+  const link = teamGet("airlink", id), feeds = allT.filter(x => x.chem !== "Nutrient");
+  if (link === "none") return { none: true };
+  if (link) { const x = feeds.find(f => f.key === link); return x ? { x } : {}; }
+  const g = guessSite(v.cust, v.name, feeds.filter(f => !f.imp)); const x = g && feeds.find(f => f.key === g);
+  return x ? { x, guess: true } : {};
+}
+function renderAir(pick, allT) {
+  const A = $("air"); A.replaceChildren();
+  const list = Object.entries({ ...shared("air"), ...pending.air }).filter(([, v]) => v && v.name)
+    .map(([id, v]) => ({ id, v, c: custName(v.cust) || "Monitoring export" })).filter(m => !SKIP.has(m.c) && (!pick || m.c === pick))
+    .sort((a, b) => (b.v.ppm ?? -1) - (a.v.ppm ?? -1));
+  $("h2air").hidden = !list.length;
+  const f2 = v => v < 10 ? +v.toFixed(2) : +v.toFixed(1);
+  list.forEach(({ id, v, c }) => {
+    const r = document.createElement("div"); r.className = "row";
+    r.innerHTML = `<div class="air"><span class="pv"></span><small>ppm</small></div><div class="info"><div class="name"></div><div class="meta"></div><div class="src imp"></div></div>`;
+    r.querySelector(".pv").textContent = v.ppm != null ? f2(v.ppm) : "?";
+    r.querySelector(".name").textContent = v.name + (pick ? "" : ` · ${c}`) + " · H2S monitor";
+    const fd = airFeed(id, v, allT); let feedTxt = "Feed site: none picked";
+    if (fd.none) feedTxt = "No feed site";
+    else if (fd.x) {
+      const im = teamGet("levels", fd.x.key), act = im && im.feed > 0 ? im.feed : null, set = fd.x.gpd;
+      feedTxt = `Fed from ${fd.x.label} · ${fd.x.chem}` + (act != null ? ` · ${f2(act)}${set > 0 ? " of " + f2(set) : ""} GPD actual` : set > 0 ? ` · ${f2(set)} GPD` : "") + (fd.guess ? " (guess)" : "");
+    }
+    r.querySelector(".meta").textContent = feedTxt;
+    r.querySelector(".src").textContent = `${v.ppm != null ? f2(v.ppm) + " ppm H2S" : "No H2S reading"} · ${new Date(v.ts).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} (imported)`;
+    const b = document.createElement("button"); b.textContent = "Feed site"; b.style.flex = "none"; b.onclick = () => openAir(id, v, allT);
+    r.append(b); A.append(r);
+  });
+}
+let airCur = null;
+function openAir(id, v, allT) {
+  airCur = id; $("airT").textContent = v.name + " · H2S monitor";
+  const c = custName(v.cust), feeds = allT.filter(x => x.chem !== "Nutrient").sort((a, b) => (a.c === c ? 0 : 1) - (b.c === c ? 0 : 1) || a.label.localeCompare(b.label, undefined, { numeric: true }));
+  const sel = $("airSel"); sel.replaceChildren();
+  [["", "— guess by name —"], ["none", "— no feed site —"], ...feeds.map(x => [x.key, `${x.label} (${x.c}) · ${x.chem}`])].forEach(([k, t]) => { const o = document.createElement("option"); o.value = k; o.textContent = t; sel.append(o); });
+  const link = teamGet("airlink", id); sel.value = link && [...sel.options].some(o => o.value === link) ? link : "";
+  $("airDlg").showModal();
+}
+$("airCx").onclick = () => $("airDlg").close();
+$("airOk").onclick = () => { const k = $("airSel").value; pending.airlink[airCur] = k || null; savePending("airlink"); $("airDlg").close(); toast("Feed site saved"); render(); refresh(); };
 function fillCounties() {
   const sel = $("county"), keep = sel.value || lsGet(COUNTY_KEY, "");
   const cs = [...new Set(chemSites().map(x => x.c))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
@@ -400,10 +452,21 @@ $("impFile").onchange = async () => {
   const text = await file.text(), rows = parseCsv(text.replace(/^﻿/, ""));
   const head = (rows[0] || []).map(h => String(h).trim().toLowerCase());
   const col = n => head.indexOf(n), colStart = n => head.findIndex(h => h.replace(/[^a-z]/g, "").startsWith(n));
-  const ci = { cust: col("customer"), site: col("sitename"), when: col("lastupdate"), inv: col("inventory"), cap: col("capacity"), feed: colStart("actualfeed"), prod: col("product") };
+  const ci = { cust: col("customer"), site: col("sitename"), when: col("lastupdate"), inv: col("inventory"), cap: col("capacity"), feed: colStart("actualfeed"), prod: col("product"),
+    type: colStart("sitetype"), h2s: head.findIndex(h => h.replace(/[^a-z0-9]/g, "").startsWith("h2slevel")) };
   if (ci.site < 0 || ci.inv < 0) { toast("That isn't the monitoring export (.csv with SiteName and Inventory). Pocket SAM backups and site lists go in Pocket SAM's IMPORT."); return; }
   const tanks = chemSites().filter(x => x.chem !== "Nutrient" && !x.imp);
-  impRows = rows.slice(1).map(r => {
+  // Air H2S monitors (site type says vapor): saved as H2S readings at the bottom, never as tanks
+  const isAir = r => ci.type >= 0 && /vapou?r/i.test(String(r[ci.type] || ""));
+  let nAir = 0;
+  rows.slice(1).filter(r => r[ci.site] && isAir(r)).forEach(r => {
+    const cust = ci.cust >= 0 ? r[ci.cust] : "", name = r[ci.site], id = norm(cust) + "|" + norm(name);
+    const ppm = ci.h2s >= 0 ? galOf(r[ci.h2s]) : null, ts = ci.when >= 0 ? parseWhen(r[ci.when]) : Date.now(), cur = teamGet("air", id);
+    if (cur && cur.ts > ts) return;
+    pending.air[id] = { name: tankName(name), cust, ppm, ts, at: ci.when >= 0 ? r[ci.when] : "" }; nAir++;
+  });
+  if (nAir) savePending("air");
+  impRows = rows.slice(1).filter(r => !isAir(r)).map(r => {
     const cust = ci.cust >= 0 ? r[ci.cust] : "", name = r[ci.site], id = norm(cust) + "|" + norm(name);
     // Remembered picks: ones you chose by hand always count; older automatic ones only if the county fits
     const rem = teamGet("matches", id), remKey = rem && typeof rem === "object" ? rem.key : rem, manual = !!(rem && rem.manual);
@@ -412,7 +475,8 @@ $("impFile").onchange = async () => {
     return { id, cust, name, inv: galOf(r[ci.inv]), cap: ci.cap >= 0 ? galOf(r[ci.cap]) : null, feed: feed ? feed : null, prod: ci.prod >= 0 ? String(r[ci.prod] || "").trim() : "", ts: ci.when >= 0 ? parseWhen(r[ci.when]) : Date.now(), whenTxt: ci.when >= 0 ? r[ci.when] : "",
       key: remembered === "skip" ? "skip" : (remembered || guessSite(cust, name, tanks) || NEW), remembered };
   }).filter(r => r.name && r.inv != null);
-  if (!impRows.length) { toast("No tank rows found in that file"); return; }
+  if (!impRows.length) { if (nAir) { toast(`${nAir} H2S monitor reading(s) saved`); render(); refresh(); } else toast("No tank rows found in that file"); return; }
+  if (nAir) setTimeout(() => toast(`Also saved ${nAir} H2S monitor reading(s), at the bottom`), 2800);
   const L = $("impList"); L.replaceChildren();
   const opts = [[NEW, "— own tank from the export —"], ["skip", "— skip (don't show) —"], ...tanks.map(x => [x.key, `${x.s} (${x.c})`]).sort((a, b) => a[1].localeCompare(b[1], undefined, { numeric: true }))];
   impRows.forEach(r => {
