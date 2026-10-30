@@ -101,7 +101,7 @@ a{color:var(--brand)}
 /* Tank Forecast: reads the same data as Pocket SAM on this phone (and its team sync if connected).
    Never changes Pocket SAM data. "Update level" readings are kept on this phone only. */
 const HORIZON = 10, DAY = 864e5, HIST = "_history";
-const SKIP = new Set(["Demo County", "~Team settings"]);
+const SKIP = new Set(["Demo County", "~Team settings", "🔒 Personal"]);
 // Import-only tanks are stored under this key prefix; "Apopka, FL City of" → "Apopka", "LS 19 4G" → "LS 19"
 const IMP = "~imp\u0001";
 const custName = c => String(c || "").replace(/,?\s*\b(FL|Florida)\b\.?/gi, " ").replace(/\bcity of\b/gi, " ").replace(/\s+/g, " ").replace(/^[\s,]+|[\s,]+$/g, "").trim();

@@ -615,7 +615,11 @@ const fmtShort = (iso) => { const [y, m, d] = iso.split("-").map(Number); return
 const fmtDate = (iso) => { const [y, m, d] = iso.split("-").map(Number); return new Date(y, m - 1, d).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }); };
 const byName = (a, b) => a.localeCompare(b, undefined, { sensitivity: "base", numeric: true });
 const SETTINGS = "~Team settings";          // hidden: shared team settings (like the parts list) ride along with sync as one record
-const counties = () => Object.keys(db).filter(c => c !== SETTINGS).sort(byName);
+/* Personal: sites and equipment types that stay on this device only. Never synced, never in backups, the sheet, CSV,
+   STILL TO DO, the site list, the tank page or Dynamics. counties() leaves it out; the county picker adds it at the bottom. */
+const PERSONAL = "🔒 Personal";
+const isPersonal = c => c === PERSONAL;
+const counties = () => Object.keys(db).filter(c => c !== SETTINGS && c !== PERSONAL).sort(byName);
 const sites = (c) => Object.keys(db[c] || {}).sort(byName);
 const siteRec = () => (county && site && db[county] && db[county][site]) || null;
 
@@ -892,14 +896,14 @@ function saveVisits() {
 }
 function startVisit() {
   liveVisit = null;
-  if (!county || !site || isDemo(county)) return;
+  if (!county || !site || isDemo(county) || isPersonal(county)) return;
   const k = visitKey(county, site, today()), v = visits[k];
   if (!v) { visits[k] = { a: nowHM(), c: Date.now() }; saveVisits(); liveVisit = k; }
   else if (!v.l) liveVisit = k;                                 // came back before leaving: same visit
 }
 function endVisit(date) {
   const k = visitKey(county, site, date);
-  if (date === today()) {
+  if (date === today() && !isPersonal(county)) {     // Personal: no site times (not work)
     const v = (visits[k] ||= {});
     if (!v.a) v.a = nowHM();
     if (liveVisit === k || !v.l) v.l = nowHM();
@@ -909,7 +913,7 @@ function endVisit(date) {
 }
 function updateTimes() {
   const row = $("timesRow");
-  if (!county || !site) { row.hidden = true; return; }
+  if (!county || !site || isPersonal(county)) { row.hidden = true; return; }   // Personal: no work times
   const date = $("readingDate").value || today();
   const v = visits[visitKey(county, site, date)] || (siteRec() && (siteRec()[HIST] || []).find(e => e.date === date) ? (() => { const e = siteRec()[HIST].find(e => e.date === date); return { a: e.arrived, l: e.left }; })() : {});
   row.hidden = false;
@@ -996,7 +1000,7 @@ function applyEquip() {
   const { ids, guess } = currentEquip();
   label.textContent = !site || !ids.length ? "3. Select Equipment" : equipNames(ids) + (guess ? "  (guess)" : "");
   // No site open: no equipment cards. A site with nothing picked (and nothing to guess from): show everything.
-  const show = !site ? [] : ids.length ? EQUIP_TYPES.filter(t => ids.includes(t.id)).flatMap(t => t.cards) : EQUIP_CARDS;
+  const show = !site ? [] : ids.length ? EQUIP_TYPES.filter(t => ids.includes(t.id)).flatMap(t => t.cards) : isPersonal(county) ? [] : EQUIP_CARDS;
   EQUIP_CARDS.forEach(id => $(id).hidden = !show.includes(id));
   renderCust(site ? ids.filter(id => isCustId(id)) : []);
 }
@@ -1021,7 +1025,9 @@ function pickEquip(isNew, keep) {
   const p = document.createElement("p"); p.className = "hint";
   p.textContent = (isNew ? `What's at ${site}? ` : "") + "Tap to check one or more, then DONE.";
   box.append(p);
-  EQUIP_TYPES.forEach(t => {
+  const mine = isPersonal(county);
+  if (mine) { const n = document.createElement("p"); n.className = "hint"; n.textContent = "🔒 Personal: only personal types here. They stay on this device."; box.append(n); }
+  if (!mine) EQUIP_TYPES.forEach(t => {
     const b = document.createElement("button");
     const show = () => { const on = picked.has(t.id); b.textContent = (on ? "✓ " : "☐ ") + t.name; b.className = on ? "done" : ""; };
     b.onclick = () => { picked.has(t.id) ? picked.delete(t.id) : picked.add(t.id); show(); };
@@ -1029,21 +1035,26 @@ function pickEquip(isNew, keep) {
   });
   // Equipment types someone on your team made (shared through sync), each with ✎ to change its readings
   const hidden = ctHidden();
-  Object.values(knownTypes()).filter(t => !hidden.includes(t.id) || picked.has(t.id)).sort((a, b) => byName(a.name, b.name)).forEach(t => {
+  Object.values(knownTypes()).filter(t => (!hidden.includes(t.id) || picked.has(t.id)) && !!t.personal === mine).sort((a, b) => byName(a.name, b.name)).forEach(t => {
     const row = document.createElement("div"); row.className = "ctrow";
     const b = document.createElement("button");
-    const show = () => { const on = picked.has(t.id); b.textContent = (on ? "✓ " : "☐ ") + t.name; b.className = on ? "done" : ""; };
+    const show = () => { const on = picked.has(t.id); b.textContent = (on ? "✓ " : "☐ ") + (t.personal ? "🔒 " : "") + t.name; b.className = on ? "done" : ""; };
     b.onclick = () => { picked.has(t.id) ? picked.delete(t.id) : picked.add(t.id); show(); };
     const ed = document.createElement("button"); ed.className = "ced"; ed.textContent = "✎"; ed.title = "Change the readings for " + t.name;
     ed.onclick = () => { closeDlg(); editType(t, () => pickEquip(isNew, picked)); };
     show(); row.append(b, ed); box.append(row);
   });
   const add = document.createElement("button"); add.className = "add"; add.textContent = "+ New equipment type…";
-  add.onclick = () => { closeDlg(); editType(null, t => { if (t) picked.add(t.id); pickEquip(isNew, picked); }); };
+  add.onclick = () => { closeDlg(); editType(null, t => {
+    if (t && !!t.personal === mine) picked.add(t.id);
+    else if (t) toast(t.personal ? `${t.name} is personal: use it on a site in ${PERSONAL}` : `${t.name} is shared: use it on a company site`);
+    pickEquip(isNew, picked); }, mine); };
   box.append(add);
   const done = () => {
     if (!picked.size) { p.textContent = "Check at least one."; return false; }
-    const v = allTypes().map(t => t.id).filter(id => picked.has(id)).join(",");
+    const kt = knownTypes(), ok = id => !isCustId(id) ? !mine : !!(kt[id] && kt[id].personal) === mine;   // never a personal type on a company site
+    const v = allTypes().map(t => t.id).filter(id => picked.has(id) && ok(id)).join(",");
+    if (!v) { p.textContent = "Check at least one."; return false; }
     setEquip(v).then(() => toast(`${site}: ${equipNames(equipIds(v))}` + (isNew ? " · fill in the fields, then SAVE" : "")));
   };
   dialog(isNew ? "Equipment" : `Equipment at ${site}`, box, [{ text: isNew ? "Later" : "Cancel" }, { text: "DONE", cls: "primary", fn: done }]);
@@ -1120,15 +1131,21 @@ function custText(rec) {
   return parts.join(" | ");
 }
 // Make or change a type. done(def) is called after SAVE (def = null after Cancel or Delete).
-function editType(t, done) {
-  const draft = t ? JSON.parse(JSON.stringify(t)) : { id: "x_" + rid(), name: "", fields: [] };
+function editType(t, done, personalDefault) {
+  const draft = t ? JSON.parse(JSON.stringify(t)) : { id: "x_" + rid(), name: "", fields: [], ...(personalDefault ? { personal: true } : {}) };
   if (!draft.fields.length) draft.fields.push({ k: rid(), label: "", unit: "", kind: "num" });
   const box = document.createElement("div");
-  box.innerHTML = `<p class="hint">Name the equipment, then add the readings you take there. Everyone on your sync link gets it once a site uses it.</p>
+  box.innerHTML = `<p class="hint">Name the equipment, then add the readings you take there. Shared: everyone on your sync link gets it once a site uses it. Personal: only on this device, for sites in 🔒 Personal.</p>
     <label class="hint" for="ctName">Equipment type</label><input id="ctName" placeholder="e.g. Disinfection" autocapitalize="words" autocomplete="off">
+    <div id="ctShare" style="display:flex;flex-wrap:wrap;gap:6px 16px;margin:6px 0 10px"><label style="display:flex;gap:6px;align-items:center"><input type="radio" name="ctShare" value="shared" style="width:auto;margin:0"> Shared (team)</label>
+    <label style="display:flex;gap:6px;align-items:center"><input type="radio" name="ctShare" value="personal" style="width:auto;margin:0"> 🔒 Personal (this device only)</label></div>
     <div id="ctFields"></div><button type="button" id="ctAdd" class="add">+ Add a reading</button><p class="hint" id="ctErr"></p>`;
   const q = id => box.querySelector("#" + id);
   q("ctName").value = draft.name;
+  // Shared or personal is picked when the type is made; after that it's fixed (a personal type's readings must never reach the team)
+  box.querySelector(`input[name=ctShare][value=${draft.personal ? "personal" : "shared"}]`).checked = true;
+  if (t) { box.querySelectorAll("input[name=ctShare]").forEach(i => i.disabled = true); }
+  box.querySelectorAll("input[name=ctShare]").forEach(i => i.onchange = () => { if (i.checked) { if (i.value === "personal") draft.personal = true; else delete draft.personal; } });
   const list = q("ctFields");
   const draw = () => {
     list.replaceChildren();
@@ -1182,8 +1199,9 @@ function editType(t, done) {
 }
 
 $("countyBtn").onclick = () => guardUnsaved(() =>
-  listDialog("Select county / city", counties(), "+ Add new county / city…", selectCounty,
-    () => askName("New county / city", async n => { if (!db[n]) { db[n] = {}; await persist(); } selectCounty(n); }),
+  listDialog("Select county / city", [...counties(), PERSONAL], "+ Add new county / city…",
+    c => { if (isPersonal(c) && !db[PERSONAL]) { db[PERSONAL] = {}; persist(); toast("Personal: only on this device, never shared or backed up"); } selectCounty(c); },
+    () => askName("New county / city", async n => { if (isPersonal(n)) { toast("That name is for Personal"); return; } if (!db[n]) { db[n] = {}; await persist(); } selectCounty(n); }),
     c => { const all = sites(c); return all.length ? { count: `${all.filter(s => isDone(c, s)).length} of ${all.length} done` } : {}; }));
 
 $("siteBtn").onclick = () => {
@@ -1772,7 +1790,7 @@ function withName(fn) {
   askName("Your name (used to name your backup files)", v => { const c = safeName(v); if (!c) return; setName(c); fn(c); });
 }
 $("exportBtn").onclick = () => withName(n =>
-  download(`${n}-PocketSAM-${today()}.json`, JSON.stringify(db, null, 2), "application/json"));
+  download(`${n}-PocketSAM-${today()}.json`, JSON.stringify(Object.fromEntries(Object.entries(db).filter(([c]) => !isPersonal(c))), null, 2), "application/json"));
 
 // Sites not marked Complete this month: counties first (with how many are left), then that county's sites; tap one to open it
 function todoList() {
@@ -2038,7 +2056,7 @@ function logFor(rec, date, times) {
 }
 function queue(op, noSend) {
   if (!syncCfg) return;
-  if (op && isDemo(op.c)) return;                          // the demo county stays on this phone                                  // not connected: nothing to send
+  if (op && (isDemo(op.c) || isPersonal(op.c))) return;     // the demo county and Personal stay on this phone                          // the demo county stays on this phone                                  // not connected: nothing to send
   pending.push(op); lsSet(QUEUE_KEY, pending); showSync();
   if (!noSend) syncNow();
 }
@@ -2681,7 +2699,7 @@ function indirectForm(date, i, fromToday, startHM) {
 // Opening a site before checking in: offer it once a day
 let nudged = "";
 function dayNudge() {
-  if (!dayCfg.on || nudged === today() || isDemo(county)) return;
+  if (!dayCfg.on || nudged === today() || isDemo(county) || isPersonal(county)) return;
   const d = days[today()];
   if (d && d.in) return;
   nudged = today();
@@ -2718,7 +2736,7 @@ showDay();
 const DAYU_KEY = "pocketsam-dayu";            // when each day was last changed or pulled on this device
 let dayU = lsGet(DAYU_KEY, {}), daySnap = {}, dayTimer = null;
 const dayRecName = d => `Day · ${safeName(getName())} · ${d}`;
-const daySlice = d => ({ day: days[d] || null, visits: Object.fromEntries(Object.entries(visits).filter(([k]) => k.split("\u0001")[2] === d)) });
+const daySlice = d => ({ day: days[d] || null, visits: Object.fromEntries(Object.entries(visits).filter(([k]) => k.split("\u0001")[2] === d && !isPersonal(k.split("\u0001")[0]))) });
 const canon = o => JSON.stringify(o, (k, v) => v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.keys(v).sort().map(x => [x, v[x]])) : v);
 /* Merge two copies of one day (this device's and the synced one) so nothing typed on either device is lost:
    - check in / lunch start / arrived: earliest; check out / back from lunch / left: latest
