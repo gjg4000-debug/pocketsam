@@ -995,7 +995,8 @@ function applyEquip() {
   btn.disabled = !site;
   const { ids, guess } = currentEquip();
   label.textContent = !site || !ids.length ? "3. Select Equipment" : equipNames(ids) + (guess ? "  (guess)" : "");
-  const show = site && ids.length ? EQUIP_TYPES.filter(t => ids.includes(t.id)).flatMap(t => t.cards) : EQUIP_CARDS;   // nothing picked yet: show everything
+  // No site open: no equipment cards. A site with nothing picked (and nothing to guess from): show everything.
+  const show = !site ? [] : ids.length ? EQUIP_TYPES.filter(t => ids.includes(t.id)).flatMap(t => t.cards) : EQUIP_CARDS;
   EQUIP_CARDS.forEach(id => $(id).hidden = !show.includes(id));
   renderCust(site ? ids.filter(id => isCustId(id)) : []);
 }
