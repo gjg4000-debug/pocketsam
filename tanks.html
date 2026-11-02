@@ -544,13 +544,13 @@ function saveImport() {
 const DD_HOURS = 24;
 const ddOff = () => { const v = Number(localStorage.getItem("pocketsam-ddpct")); return (v > 0 && v < 100 ? v : 15) / 100; };
 function ddSummary() {
-  const byCounty = {}, fresh = Date.now() - DD_HOURS * 3600e3; let n = 0, withFeed = 0;
+  const byCounty = {}, fresh = Date.now() - DD_HOURS * 3600e3, noSet = []; let n = 0, withFeed = 0;
   chemSites().filter(x => x.chem !== "Nutrient").forEach(x => {
     const im = teamGet("levels", x.key);
     if (!im || !(im.feed > 0) || !(im.ts >= fresh)) return;
     withFeed++;
     const ds = teamGet("dd", x.key) || {}, set = ds.target > 0 ? ds.target : (x.gpdSam > 0 ? x.gpdSam : x.gpd), off = ds.pct > 0 ? ds.pct / 100 : ddOff();
-    if (!(set > 0)) return;
+    if (!(set > 0)) { noSet.push(`${x.label} (${Math.round(im.feed * 10) / 10} GPD)`); return; }   // nothing to compare against: list it so it isn't missed
     if (Math.abs(im.feed - set) / set < off) return;
     // Leave the sample point part off the name: "5 and 5 SP" → "5"
     const nm = x.s.replace(/\s+(and|&|\+|\/)\s+.*\bSP\b.*$/i, "").replace(/\s*[-(]?\s*\bSP\b\)?\s*$/i, "").trim() || x.s;
@@ -558,7 +558,7 @@ function ddSummary() {
   });
   const lines = Object.keys(byCounty).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
     .map(c => `${c}:\n` + byCounty[c].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).join("\n"));
-  return { text: lines.join("\n\n"), n, withFeed };
+  return { text: lines.join("\n\n"), n, withFeed, noSet };
 }
 function ddShow() {
   const r = ddSummary(), pc = Math.round(ddOff() * 100);
@@ -566,6 +566,7 @@ function ddShow() {
   $("ddMsg").textContent = !r.withFeed ? "No actual feed rates from the last 24 hours. Import today's monitoring export (.csv) first."
     : r.n ? `${r.n} Delta Dose(s): pumped / set for (gal/day). Each site uses its own DD % and target if you saved them in Update level, otherwise ${pc}% and Pocket SAM\'s GPD. Edit if needed, then COPY.`
     : `No Delta Doses in today's import. Every pump is within its DD alarm % (${pc}% if not set).`;
+  if (r.noSet.length) $("ddMsg").textContent += ` ⚠ No target GPD, so not checked: ${r.noSet.join(", ")}. Set one with Set GPD or Update level → Target GPD.`;
 }
 $("ddBtn").onclick = () => { $("ddPct").value = Math.round(ddOff() * 100); ddShow(); $("ddDlg").showModal(); };
 $("ddPct").oninput = () => { const v = Number($("ddPct").value); if (v > 0 && v < 100) { try { localStorage.setItem("pocketsam-ddpct", String(v)); } catch (e) {} ddShow(); } };
