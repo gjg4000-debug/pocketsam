@@ -9,6 +9,7 @@ self.addEventListener("activate", e => {
 // Network first (always re-checks with GitHub so updates show up right away), cache when offline.
 self.addEventListener("fetch", e => {
   if (e.request.method !== "GET") return;
+  if (new URL(e.request.url).origin !== self.location.origin) return;   // map tiles and the map library: straight from the web, not stored
   e.respondWith(fetch(e.request, { cache: "no-cache" }).then(r => {
     const copy = r.clone(); caches.open(VERSION).then(c => c.put(e.request, copy)); return r;
   }).catch(() => caches.match(e.request, { ignoreSearch: true }).then(m => m || caches.match("./index.html"))));

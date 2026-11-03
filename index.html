@@ -1829,20 +1829,124 @@ function todoSites(c) {
   dialog(`Still to do · ${c}`, box, [{ text: "◀ Counties", fn: () => { setTimeout(todoList, 0); } }, { text: "Close" }]);
 }
 $("todoBtn").onclick = () => todoList();
-// Every county with all its sites, written downward, for copying into a WO request
-$("siteListBtn").onclick = () => {
-  const cs = counties().filter(c => !isDemo(c) && sites(c).length);
-  const text = cs.map(c => `${c}:\n` + sites(c).join("\n")).join("\n\n");
-  const box = document.createElement("div");
+// Every county with all its sites, written downward, for copying into a WO request.
+// Groups (yours only): pick sites from any counties, on a map or a list, and copy just those.
+const siteKey = (c, st) => c + "\u0001" + st;
+const groupsRec = () => `Groups · ${safeName(getName())}`;
+const myGroups = () => { const r = (db[SETTINGS] || {})[groupsRec()]; return r && r.groups && typeof r.groups === "object" ? r.groups : {}; };
+async function saveGroups(gs) {
+  (db[SETTINGS] ||= {})[groupsRec()] = { groups: gs, updated: new Date().toISOString() };
+  await persist(); queue({ op: "put", c: SETTINGS, s: groupsRec() });
+}
+// "County:\nsite\nsite\n\nCounty:\nsite" for a list of site keys (or every site)
+function listText(keys) {
+  const by = {};
+  if (keys) keys.forEach(k => { const [c, st] = k.split("\u0001"); if (db[c] && db[c][st]) (by[c] ||= []).push(st); });
+  else counties().filter(c => !isDemo(c)).forEach(c => { if (sites(c).length) by[c] = sites(c); });
+  return Object.keys(by).sort(byName).map(c => `${c}:\n` + by[c].sort(byName).join("\n")).join("\n\n");
+}
+function siteListDlg(showId) {
+  const gs = myGroups(), box = document.createElement("div");
+  const gl = document.createElement("div"); gl.className = "list";
   const p = document.createElement("p"); p.className = "hint";
-  p.textContent = cs.length ? `${cs.length} county(s), ${cs.reduce((n, c) => n + sites(c).length, 0)} site(s). Delete any you don't need, then COPY.` : "No sites yet.";
-  const ta = document.createElement("textarea"); ta.rows = 14; ta.value = text; ta.style.cssText = "width:100%;font:inherit;padding:8px;box-sizing:border-box";
-  box.append(p, ta);
-  dialog("Site list", box, [...(cs.length ? [{ text: "COPY", fn: () => {
+  const ta = document.createElement("textarea"); ta.rows = 12; ta.style.cssText = "width:100%;font:inherit;padding:8px;box-sizing:border-box";
+  const show = id => {
+    const g = id && gs[id];
+    ta.value = listText(g ? g.sites : null);
+    const n = ta.value ? ta.value.split("\n").filter(l => l && !l.endsWith(":")).length : 0;
+    p.textContent = g ? `${g.name}: ${n} site(s). Delete any you don't need, then COPY.` : n ? `All sites: ${n}. Delete any you don't need, then COPY.` : "No sites yet.";
+    gl.querySelectorAll("button[data-g]").forEach(b => b.classList.toggle("done", b.dataset.g === (id || "")));
+  };
+  const head = document.createElement("p"); head.className = "hint"; head.textContent = "Groups (only you see these):"; gl.append(head);
+  const all = document.createElement("button"); all.dataset.g = ""; all.textContent = "All sites"; all.onclick = () => show(null); gl.append(all);
+  Object.entries(gs).sort((a, b) => byName(a[1].name, b[1].name)).forEach(([id, g]) => {
+    const row = document.createElement("div"); row.className = "ctrow";
+    const b = document.createElement("button"); b.dataset.g = id; b.textContent = `${g.name} · ${g.sites.length}`; b.onclick = () => show(id);
+    const ed = document.createElement("button"); ed.className = "ced"; ed.textContent = "✎"; ed.title = "Change " + g.name;
+    ed.onclick = () => { closeDlg(); setTimeout(() => editGroup(id), 0); };
+    row.append(b, ed); gl.append(row);
+  });
+  const add = document.createElement("button"); add.className = "add"; add.textContent = "+ New group (pick on a map)…";
+  add.onclick = () => { closeDlg(); setTimeout(() => withName(() => editGroup(null)), 0); }; gl.append(add);
+  box.append(gl, p, ta);
+  dialog("Site list", box, [{ text: "COPY", fn: () => {
     (navigator.clipboard ? navigator.clipboard.writeText(ta.value) : Promise.reject()).then(() => toast("Copied · paste it in your WO request"), () => { ta.select(); try { document.execCommand("copy"); toast("Copied"); } catch (e) { toast("Couldn't copy on this phone"); } });
     return false;
-  } }] : []), { text: "Close" }]);
-};
+  } }, { text: "Close" }]);
+  show(showId && gs[showId] ? showId : null);
+}
+$("siteListBtn").onclick = () => siteListDlg(null);
+// Free street map (Leaflet + OpenStreetMap), loaded only when a group is being picked
+function loadMapLib() {
+  if (window.L) return Promise.resolve();
+  return loadMapLib.p ||= new Promise((res, rej) => {
+    const css = document.createElement("link"); css.rel = "stylesheet"; css.href = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"; document.head.append(css);
+    const js = document.createElement("script"); js.src = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js";
+    js.onload = () => res(); js.onerror = () => { loadMapLib.p = null; rej(); }; document.head.append(js);
+  });
+}
+const PIN_COLORS = ["#2563eb", "#dc2626", "#16a34a", "#9333ea", "#ea580c", "#0891b2", "#ca8a04", "#db2777", "#4b5563", "#65a30d"];
+function editGroup(id) {
+  const gs = myGroups(), g = id ? gs[id] : null, picked = new Set(g ? g.sites : []);
+  const cs = counties().filter(c => !isDemo(c) && sites(c).length), col = c => PIN_COLORS[cs.indexOf(c) % PIN_COLORS.length];
+  const box = document.createElement("div");
+  box.innerHTML = `<label class="hint" for="grpName">Group name</label><input id="grpName" placeholder="e.g. Orange NW" autocomplete="off" autocapitalize="words">
+    <p class="hint" id="grpCount"></p><div id="grpMap" style="height:40vh;border-radius:10px;border:1px solid var(--line);margin:4px 0 6px;display:flex;align-items:center;justify-content:center;color:var(--muted)">Loading map…</div>
+    <p class="hint">Tap a pin to add or remove it. Sites with no saved location are only in the list below.</p><div id="grpList"></div><p class="hint" id="grpErr"></p>`;
+  const q = s => box.querySelector(s);
+  q("#grpName").value = g ? g.name : "";
+  const marks = {}, boxes = {};
+  const paint = k => {
+    const on = picked.has(k);
+    if (marks[k]) marks[k].setStyle({ fillOpacity: on ? 0.95 : 0.12, weight: on ? 3 : 2, radius: on ? 11 : 8 });
+    if (boxes[k]) boxes[k].checked = on;
+    q("#grpCount").textContent = `${picked.size} site(s) picked`;
+  };
+  const toggle = k => { picked.has(k) ? picked.delete(k) : picked.add(k); paint(k); };
+  // Every site, by county, with a tick box (closed counties open when they have picks)
+  cs.forEach(c => {
+    const d = document.createElement("details"); d.open = sites(c).some(st => picked.has(siteKey(c, st)));
+    const sm = document.createElement("summary"); sm.style.cssText = "padding:6px 0;font-weight:600;cursor:pointer";
+    sm.innerHTML = `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;background:${col(c)}"></span>`; sm.append(c); d.append(sm);
+    sites(c).forEach(st => {
+      const k = siteKey(c, st), l = document.createElement("label"); l.style.cssText = "display:flex;gap:8px;align-items:center;padding:3px 0 3px 16px";
+      const cb = document.createElement("input"); cb.type = "checkbox"; cb.style.cssText = "width:auto;margin:0"; cb.onchange = () => { if (cb.checked !== picked.has(k)) toggle(k); };
+      boxes[k] = cb; l.append(cb, document.createTextNode(st + (parseLoc((db[c][st] || {}).loc) ? "  📍" : ""))); d.append(l);
+    });
+    q("#grpList").append(d);
+  });
+  const save = () => {
+    const name = q("#grpName").value.trim(), err = q("#grpErr");
+    if (!name) { err.textContent = "Give the group a name."; return false; }
+    if (!picked.size) { err.textContent = "Pick at least one site."; return false; }
+    const nid = id || "g" + Date.now().toString(36);
+    const ng = { ...myGroups(), [nid]: { name, sites: [...picked] } };
+    saveGroups(ng).then(() => { toast(`${name} saved · ${picked.size} site(s)`); setTimeout(() => siteListDlg(nid), 0); });
+  };
+  const buttons = [{ text: "Cancel", fn: () => { setTimeout(() => siteListDlg(id), 0); } }, { text: "SAVE", cls: "primary", fn: save }];
+  if (id) buttons.unshift({ text: "Delete", cls: "danger", fn: () => { setTimeout(() => confirmBox(`Delete the group ${g.name}? The sites stay.`, "Delete", () => {
+    const ng = { ...myGroups() }; delete ng[id]; saveGroups(ng).then(() => { toast(`${g.name} deleted`); siteListDlg(null); }); }), 0); } });
+  dialog(id ? `Change ${g.name}` : "New group", box, buttons);
+  Object.keys(boxes).forEach(paint); q("#grpCount").textContent = `${picked.size} site(s) picked`;
+  loadMapLib().then(() => {
+    const el = q("#grpMap"); if (!el.isConnected) return;
+    el.textContent = ""; el.style.display = "block";
+    const map = L.map(el, { zoomControl: true }).setView([28.54, -81.38], 9);   // a view first, so pins can be drawn
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18, attribution: "© OpenStreetMap" }).addTo(map);
+    const pts = [];
+    cs.forEach(c => sites(c).forEach(st => {
+      const l = parseLoc((db[c][st] || {}).loc); if (!l) return;
+      const k = siteKey(c, st);
+      marks[k] = L.circleMarker([l.lat, l.lng], { color: col(c), fillColor: col(c), radius: 8, weight: 2, fillOpacity: 0.12 })
+        .bindTooltip(`${st} · ${c}`, { direction: "top" }).on("click", () => { toggle(k); toast(`${st} ${picked.has(k) ? "added" : "removed"}`); }).addTo(map);
+      pts.push([l.lat, l.lng]); paint(k);
+    }));
+    const me = () => { if (here) L.circleMarker([here.lat, here.lng], { radius: 7, color: "#fff", weight: 2, fillColor: "#1d4ed8", fillOpacity: 1 }).bindTooltip("You").addTo(map); };
+    if (here) me(); else if (navigator.geolocation) navigator.geolocation.getCurrentPosition(pos => { here = { lat: pos.coords.latitude, lng: pos.coords.longitude }; if (el.isConnected) me(); }, () => {}, { maximumAge: 120000, timeout: 10000 });
+    setTimeout(() => { map.invalidateSize(); if (pts.length) map.fitBounds(pts, { padding: [20, 20], maxZoom: 13 }); }, 60);
+    if (!pts.length) q("#grpCount").textContent += " · no sites have a saved location yet (SET LOCATION at a site puts it on the map)";
+  }).catch(e => { if (e) console.warn("map", e); const el = q("#grpMap"); el.style.height = "auto"; el.style.padding = "10px"; el.textContent = "The map needs signal. You can still tick sites in the list below."; });
+}
 $("tanksBtn").onclick = () => guardUnsaved(() => { location.href = "tanks.html"; });
 $("importBtn").onclick = () => guardUnsaved(() => { $("importFile").value = ""; $("importFile").click(); });
 /* Merge an imported site into the local one.
