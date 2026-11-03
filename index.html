@@ -1891,7 +1891,9 @@ function editGroup(id) {
   const cs = counties().filter(c => !isDemo(c) && sites(c).length), col = c => PIN_COLORS[cs.indexOf(c) % PIN_COLORS.length];
   const box = document.createElement("div");
   box.innerHTML = `<label class="hint" for="grpName">Group name</label><input id="grpName" placeholder="e.g. Orange NW" autocomplete="off" autocapitalize="words">
-    <p class="hint" id="grpCount"></p><div id="grpMap" style="height:40vh;border-radius:10px;border:1px solid var(--line);margin:4px 0 6px;display:flex;align-items:center;justify-content:center;color:var(--muted)">Loading map…</div>
+    <p class="hint" id="grpCount"></p>
+    <input id="grpFind" list="grpFindList" placeholder="🔍 Find a site on the map, e.g. Independence" autocomplete="off" style="margin:2px 0 4px"><datalist id="grpFindList"></datalist>
+    <div id="grpMap" style="height:40vh;border-radius:10px;border:1px solid var(--line);margin:4px 0 6px;display:flex;align-items:center;justify-content:center;color:var(--muted)">Loading map…</div>
     <p class="hint">Tap a pin to add or remove it. Sites with no saved location are only in the list below.</p><div id="grpList"></div><p class="hint" id="grpErr"></p>`;
   const q = s => box.querySelector(s);
   q("#grpName").value = g ? g.name : "";
@@ -1941,6 +1943,20 @@ function editGroup(id) {
         .bindTooltip(`${st} · ${c}`, { direction: "top" }).on("click", () => { toggle(k); toast(`${st} ${picked.has(k) ? "added" : "removed"}`); }).addTo(map);
       pts.push([l.lat, l.lng]); paint(k);
     }));
+    // Find a site: the map goes there and widens to show the closest sites around it
+    const located = Object.keys(marks).map(k => { const [c, st] = k.split("\u0001"); return { k, c, st, ll: marks[k].getLatLng() }; });
+    const dl = q("#grpFindList"); located.forEach(x => { const o = document.createElement("option"); o.value = `${x.st} · ${x.c}`; dl.append(o); });
+    const find = () => {
+      const t = q("#grpFind").value.trim().toLowerCase(); if (!t) return;
+      const hit = located.find(x => `${x.st} · ${x.c}`.toLowerCase() === t) || located.find(x => x.st.toLowerCase() === t) || located.find(x => x.st.toLowerCase().includes(t.split(" · ")[0]));
+      if (!hit) { toast("No site with a saved location matches that"); return; }
+      // Up to the 5 closest sites within about 10 miles; none that close: just zoom in on it
+      const near = located.filter(x => x !== hit && x.ll.distanceTo(hit.ll) < 16000).sort((a, b) => a.ll.distanceTo(hit.ll) - b.ll.distanceTo(hit.ll)).slice(0, 5);
+      if (near.length) map.fitBounds([hit.ll, ...near.map(x => x.ll)], { padding: [30, 30], maxZoom: 14 }); else map.setView(hit.ll, 13);
+      marks[hit.k].openTooltip(); q("#grpFind").blur();
+    };
+    q("#grpFind").addEventListener("change", find);
+    q("#grpFind").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); find(); } });
     const me = () => { if (here) L.circleMarker([here.lat, here.lng], { radius: 7, color: "#fff", weight: 2, fillColor: "#1d4ed8", fillOpacity: 1 }).bindTooltip("You").addTo(map); };
     if (here) me(); else if (navigator.geolocation) navigator.geolocation.getCurrentPosition(pos => { here = { lat: pos.coords.latitude, lng: pos.coords.longitude }; if (el.isConnected) me(); }, () => {}, { maximumAge: 120000, timeout: 10000 });
     setTimeout(() => { map.invalidateSize(); if (pts.length) map.fitBounds(pts, { padding: [20, 20], maxZoom: 13 }); }, 60);
