@@ -1315,6 +1315,7 @@ function allCountiesDlg(find) {
   dialog("📁 All counties", box, [{ text: "◀ My counties", fn: () => { setTimeout(myCountiesDlg, 0); } }, { text: "Remove list", cls: "danger", fn: () => { setTimeout(() => confirmBox("Take the full company site list off this device? Your own sites stay, and your team keeps its copy. The next REFRESH brings it back if the team has it.", "Remove", () => { try { localStorage.removeItem(ALLS_KEY); } catch (e) {} toast("Full site list removed"); }), 0); } }, { text: "Close" }]);
 }
 // The company sites for a county in Pocket SAM ("Ocala" ← "OCALA, CITY OF"), not counting ones already in your list
+let freshSite = null;   // the company site open on screen that hasn't been saved yet
 const companySitesFor = c => { const A = allSitesData(); return A ? A.rows.filter(x => allToCounty(x.cust) === c && !(db[c] && db[c][x.site])) : []; };
 function allSitesDlg(c) {
   const box = document.createElement("div"); box.className = "list";
@@ -1334,7 +1335,7 @@ function openCompanySite(x) {
     const c = allToCounty(x.cust); allMode = true;
     if (county !== c) selectCounty(c);
     if (db[c] && db[c][x.site]) { loadSite(x.site); return; }
-    site = x.site; startVisit(); fill(null);
+    site = x.site; freshSite = { c, s: x.site }; startVisit(); fill(null);
     if (x.lat && x.lng) { loading = true; inputs.loc.value = `${x.lat},${x.lng}`; loading = false; }
     dirty = false; refreshUi();   // the tech picks the equipment with the Equipment box when ready
   });
@@ -2397,8 +2398,10 @@ function applyServer(data, deleted) {
     db[c] ||= {};
     for (const [s, rec] of Object.entries(ss)) if (rec && typeof rec === "object") db[c][s] = mergeSite(db[c][s], rec, true);
   }
-  if (county && !db[county]) { county = null; site = null; fill(null); }
-  else if (county && site && !db[county][site] && !dirty) { site = null; fill(null); }
+  // A site just brought in from All counties isn't saved yet: a sync must not close it
+  const opened = freshSite && freshSite.c === county && freshSite.s === site;
+  if (county && !db[county] && !opened) { county = null; site = null; fill(null); }
+  else if (county && site && !(db[county] || {})[site] && !dirty && !opened) { site = null; fill(null); }
 }
 function setupSync(problem) {
   const box = document.createElement("div");
