@@ -1224,7 +1224,7 @@ $("countyBtn").onclick = () => guardUnsaved(() => { if (allMode && allSitesData(
 
 /* ---------- All counties / all sites: the company's full site list ----------
    Imported with IMPORT SAM BACKUP from the full site sheet saved as .csv (Service Center, Customer, Site, Type, City, State, Lat, Long,
-   Technicians, monitors, Status, Date Added). Kept on this device only: never synced, never in backups, never in the app's code. */
+   Technicians, monitors, Status, Date Added). Shared with the team through sync (pushAllSites); never in backups, never in the app's code. */
 const ALLS_KEY = "pocketsam-allsites";
 const allSitesData = () => { const d = lsGet(ALLS_KEY, null); return d && Array.isArray(d.rows) && d.rows.length ? d : null; };
 function csvParse(text) {
@@ -1253,11 +1253,36 @@ function importAllSites(text) {
     .filter(x => x.cust && x.site);
   if (!out.length) { toast("No sites found in that sheet"); return; }
   const p = document.createElement("p");
-  p.textContent = `${out.length} sites in ${new Set(out.map(x => x.cust)).size} customers. They go under 📁 All counties at the bottom of the county list, on this device only (not shared, not in backups). Importing again replaces the list.`;
+  p.textContent = `${out.length} sites in ${new Set(out.map(x => x.cust)).size} customers. They go under 📁 All counties at the bottom of the county list` + (syncCfg ? " and are sent to your team, so everyone has directions to every site" : "") + ". Not in backups. Importing again replaces the list.";
   dialog("Import the full site list?", p, [{ text: "Cancel" }, { text: "Import", cls: "primary", fn: () => {
-    try { localStorage.setItem(ALLS_KEY, JSON.stringify({ date: today(), rows: out })); toast(`${out.length} sites added to 📁 All counties`); }
+    const d = { date: today(), stamp: Date.now(), rows: out };
+    try { localStorage.setItem(ALLS_KEY, JSON.stringify(d)); toast(`${out.length} sites added to 📁 All counties` + (syncCfg ? " · sending to your team" : "")); pushAllSites(d); }
     catch (e) { toast("Not enough room on this device for that list"); }
   } }]);
+}
+/* The full list also goes to the team through sync, so everyone has directions to every site.
+   It's split into parts ("All sites · 1", "· 2"…) in the hidden team settings, each small enough for one cell of the sheet.
+   A newer import (stamp) replaces the list on every device at its next REFRESH. */
+const ALLS_REC = i => `All sites · ${i}`, ALLS_F = ["cust", "site", "type", "city", "st", "lat", "lng", "tech", "vl", "tm", "fm", "status", "added"];
+function pushAllSites(d) {
+  if (!syncCfg || !d) return;
+  const parts = []; let cur = [], len = 0;
+  d.rows.forEach(x => { const a = ALLS_F.map(f => x[f] ?? ""), n = JSON.stringify(a).length + 1; if (len + n > 38000 && cur.length) { parts.push(cur); cur = []; len = 0; } cur.push(a); len += n; });
+  if (cur.length) parts.push(cur);
+  const S = (db[SETTINGS] ||= {});
+  parts.forEach((rows, i) => { S[ALLS_REC(i + 1)] = { stamp: d.stamp, part: i + 1, of: parts.length, date: d.date, rows, updated: new Date().toISOString() }; queue({ op: "put", c: SETTINGS, s: ALLS_REC(i + 1) }, true); });
+  for (let i = parts.length + 1; S[ALLS_REC(i)]; i++) { delete S[ALLS_REC(i)]; queue({ op: "del", c: SETTINGS, s: ALLS_REC(i) }, true); }   // left over from a bigger list
+  persist(); syncNow();
+}
+// After a sync: take the team's list if it's newer than this device's (all its parts must have arrived)
+function pullAllSites() {
+  const S = db[SETTINGS] || {}, mine = lsGet(ALLS_KEY, null);
+  const parts = Object.keys(S).filter(k => k.startsWith("All sites · ")).map(k => S[k]).filter(p => p && Array.isArray(p.rows));
+  if (!parts.length) { if (mine && mine.rows && mine.rows.length && !mine.stamp && syncCfg) { mine.stamp = Date.now(); lsSet(ALLS_KEY, mine); pushAllSites(mine); } return; }   // imported before sharing: send it once
+  const top = Math.max(...parts.map(p => p.stamp || 0)), set = parts.filter(p => p.stamp === top);
+  if (!(top > ((mine && mine.stamp) || 0)) || set.length < (set[0].of || 1)) return;
+  const rows = set.sort((a, b) => a.part - b.part).flatMap(p => p.rows).map(a => Object.fromEntries(ALLS_F.map((f, i) => [f, a[i]])));
+  try { localStorage.setItem(ALLS_KEY, JSON.stringify({ date: set[0].date, stamp: top, rows })); toast(`📁 All counties updated from your team · ${rows.length} sites`); } catch (e) {}
 }
 // Company list → county name in Pocket SAM: "OCALA, CITY OF" → "Ocala" (or an existing county that matches)
 function allToCounty(cust) {
@@ -1271,7 +1296,7 @@ function allCountiesDlg(find) {
   const inp = document.createElement("input"); inp.placeholder = "🔍 Find a customer or site"; inp.autocomplete = "off"; inp.value = find || "";
   const list = document.createElement("div"); list.className = "list";
   const hint = document.createElement("p"); hint.className = "hint";
-  hint.textContent = `Full company list from ${fmtDate(A.date)} · on this device only.`;
+  hint.textContent = `Full company list from ${fmtDate(A.date)}` + (syncCfg ? " · shared with your team." : " · on this device only.");
   const draw = () => {
     list.replaceChildren(); const t = inp.value.trim().toLowerCase();
     const byC = {}; A.rows.forEach(x => (byC[x.cust] ||= []).push(x));
@@ -1287,7 +1312,7 @@ function allCountiesDlg(find) {
     if (!list.children.length) { const n = document.createElement("p"); n.className = "hint"; n.textContent = "Nothing matches."; list.append(n); }
   };
   inp.oninput = draw; box.append(inp, hint, list); draw();
-  dialog("📁 All counties", box, [{ text: "◀ My counties", fn: () => { setTimeout(myCountiesDlg, 0); } }, { text: "Remove list", cls: "danger", fn: () => { setTimeout(() => confirmBox("Take the full company site list off this device? Your own sites stay.", "Remove", () => { try { localStorage.removeItem(ALLS_KEY); } catch (e) {} toast("Full site list removed"); }), 0); } }, { text: "Close" }]);
+  dialog("📁 All counties", box, [{ text: "◀ My counties", fn: () => { setTimeout(myCountiesDlg, 0); } }, { text: "Remove list", cls: "danger", fn: () => { setTimeout(() => confirmBox("Take the full company site list off this device? Your own sites stay, and your team keeps its copy. The next REFRESH brings it back if the team has it.", "Remove", () => { try { localStorage.removeItem(ALLS_KEY); } catch (e) {} toast("Full site list removed"); }), 0); } }, { text: "Close" }]);
 }
 // The company sites for a county in Pocket SAM ("Ocala" ← "OCALA, CITY OF"), not counting ones already in your list
 const companySitesFor = c => { const A = allSitesData(); return A ? A.rows.filter(x => allToCounty(x.cust) === c && !(db[c] && db[c][x.site])) : []; };
@@ -2342,6 +2367,7 @@ async function syncNow(manual) {
       if (pending.length) { syncAgain = true; continue; }    // something new was saved meanwhile: send it first
       applyServer(res.data || {}, res.deleted || []);
       try { pullDays(); } catch (e) {}
+      try { pullAllSites(); } catch (e) {}
       await persist();
       syncCfg.last = Date.now(); lsSet(SYNC_KEY, syncCfg);
     } while (syncAgain);
