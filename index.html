@@ -628,6 +628,7 @@ const siteRec = () => (county && site && db[county] && db[county][site]) || null
 
 function refreshUi() {
   $("countyBtn").querySelector("span").textContent = county || "1. Select County";
+  $("countyBtn").querySelector("small").textContent = allMode ? "📁 All counties" : "County / City";
   $("siteBtn").querySelector("span").textContent = site || "2. Select Site";
   const rec = siteRec(); const h = rec && Array.isArray(rec[HIST]) ? rec[HIST] : [];
   $("latest").textContent = h.length ? `${h.length} reading(s) · latest ${fmtDate(h[h.length - 1].date)}` : "";
@@ -1209,16 +1210,18 @@ function editType(t, done, personalDefault) {
   if (!t) setTimeout(() => q("ctName").focus(), 50);
 }
 
-$("countyBtn").onclick = () => guardUnsaved(() =>
-{
-  listDialog("Select county / city", counties(), "+ Add new county / city…", selectCounty,
+// allMode: the county and site lists show the full company list (📁 All counties) instead of just your sites
+let allMode = false;
+function myCountiesDlg() {
+  listDialog("Select county / city", counties(), "+ Add new county / city…", c => { allMode = false; selectCounty(c); },
     () => askName("New county / city", async n => { if (isPersonal(n)) { toast("That name is for Personal"); return; } if (!db[n]) { db[n] = {}; await persist(); } selectCounty(n); }),
     c => { const all = sites(c); return all.length ? { count: `${all.filter(s => isDone(c, s)).length} of ${all.length} done` } : {}; });
   // The company's full site list (imported, this device only) sits behind one entry so the list stays short
   const A = allSitesData(), box = document.querySelector("#dlgBody .list");
   if (A && box) { const b = document.createElement("button"); b.textContent = "📁 All counties"; const sp = document.createElement("span"); sp.className = "count"; sp.textContent = `${A.rows.length} sites`; b.append(sp);
     b.onclick = () => { closeDlg(); setTimeout(() => allCountiesDlg(""), 0); }; box.insertBefore(b, box.querySelector("button.add")); }
-});
+}
+$("countyBtn").onclick = () => guardUnsaved(() => { if (allMode && allSitesData()) allCountiesDlg(""); else myCountiesDlg(); });
 
 /* ---------- All counties / all sites: the company's full site list ----------
    Imported with IMPORT SAM BACKUP from the full site sheet saved as .csv (Service Center, Customer, Site, Type, City, State, Lat, Long,
@@ -1274,8 +1277,8 @@ function allCountiesDlg(find) {
     list.replaceChildren(); const t = inp.value.trim().toLowerCase();
     const byC = {}; A.rows.forEach(x => (byC[x.cust] ||= []).push(x));
     const cs = Object.keys(byC).sort(byName).filter(c => !t || c.toLowerCase().includes(t));
-    cs.forEach(c => { const b = document.createElement("button"); b.textContent = c; const sp = document.createElement("span"); sp.className = "count"; sp.textContent = `${byC[c][0].st} · ${byC[c].length}`; b.append(sp);
-      b.onclick = () => { closeDlg(); guardUnsaved(() => { selectCounty(allToCounty(c)); setTimeout(() => $("siteBtn").click(), 0); }); }; list.append(b); });
+    cs.forEach(c => { const b = document.createElement("button"); b.textContent = c; if (allMode && allToCounty(c) === county) b.classList.add("done"); const sp = document.createElement("span"); sp.className = "count"; sp.textContent = `${byC[c][0].st} · ${byC[c].length}`; b.append(sp);
+      b.onclick = () => { closeDlg(); guardUnsaved(() => { allMode = true; selectCounty(allToCounty(c)); setTimeout(() => $("siteBtn").click(), 0); }); }; list.append(b); });
     if (t) {   // sites that match, from any customer
       const hits = A.rows.filter(x => x.site.toLowerCase().includes(t)).slice(0, 40);
       if (hits.length) { const h = document.createElement("p"); h.className = "hint"; h.textContent = "Sites:"; list.append(h); }
@@ -1285,7 +1288,7 @@ function allCountiesDlg(find) {
     if (!list.children.length) { const n = document.createElement("p"); n.className = "hint"; n.textContent = "Nothing matches."; list.append(n); }
   };
   inp.oninput = draw; box.append(inp, hint, list); draw();
-  dialog("📁 All counties", box, [{ text: "Remove list", cls: "danger", fn: () => { setTimeout(() => confirmBox("Take the full company site list off this device? Your own sites stay.", "Remove", () => { try { localStorage.removeItem(ALLS_KEY); } catch (e) {} toast("Full site list removed"); }), 0); } }, { text: "Close" }]);
+  dialog("📁 All counties", box, [{ text: "◀ My counties", fn: () => { setTimeout(myCountiesDlg, 0); } }, { text: "Remove list", cls: "danger", fn: () => { setTimeout(() => confirmBox("Take the full company site list off this device? Your own sites stay.", "Remove", () => { try { localStorage.removeItem(ALLS_KEY); } catch (e) {} toast("Full site list removed"); }), 0); } }, { text: "Close" }]);
 }
 // The company sites for a county in Pocket SAM ("Ocala" ← "OCALA, CITY OF"), not counting ones already in your list
 const companySitesFor = c => { const A = allSitesData(); return A ? A.rows.filter(x => allToCounty(x.cust) === c && !(db[c] && db[c][x.site])) : []; };
@@ -1304,7 +1307,7 @@ function allSitesDlg(c) {
 // Open a company site like a new site of yours: its GPS is filled in, pick the equipment, SAVE makes it one of your sites
 function openCompanySite(x) {
   guardUnsaved(() => {
-    const c = allToCounty(x.cust);
+    const c = allToCounty(x.cust); allMode = true;
     if (county !== c) selectCounty(c);
     if (db[c] && db[c][x.site]) { loadSite(x.site); return; }
     site = x.site; startVisit(); fill(null);
@@ -1328,17 +1331,16 @@ function allSiteInfo(x, back) {
 
 $("siteBtn").onclick = () => {
   if (!county) { toast("Pick a county / city first"); return; }
-  guardUnsaved(() => listDialog(`Sites in ${county}`, byDistance(sites(county)), "+ Add new site…", loadSite,
+  // All counties: every company site for this county (yours and the rest) in one list
+  const comp = allMode ? Object.fromEntries((allSitesData() || { rows: [] }).rows.filter(x => allToCounty(x.cust) === county).map(x => [x.site, x])) : {};
+  const names = [...new Set([...sites(county), ...Object.keys(comp)])];
+  guardUnsaved(() => listDialog(`Sites in ${county}`, byDistance(names), "+ Add new site…", n => { if ((db[county] || {})[n] || !comp[n]) loadSite(n); else openCompanySite(comp[n]); },
     () => askName("New site name", n => {
       if ((db[county] || {})[n]) { loadSite(n); return; }
       site = n; startVisit(); fill(null); dirty = true; refreshUi(); pickEquip(true);
     }), s => ({ done: isDone(county, s), warn: offTarget(county, s), tag: tlOn(county) && ((db[county] || {})[s] || {}).alarmType, leak: tlOn(county) && ((db[county] || {})[s] || {}).alarmType === "Leak", count: siteDist(s), distFor: s, wo: (bookingFor(county, s) || {}).wo, wait: bkUrl && waitFor(county, s).length > 0 })));
-  // The company's other sites for this county, in a folder so the list stays short
-  { const more = companySitesFor(county), lb = document.querySelector("#dlgBody .list");
-    if (more.length && lb) { const b = document.createElement("button"); b.textContent = "📁 All sites"; const sp = document.createElement("span"); sp.className = "count"; sp.textContent = `${more.length} more`; b.append(sp);
-      b.onclick = () => { closeDlg(); setTimeout(() => allSitesDlg(county), 0); }; lb.insertBefore(b, lb.querySelector("button.add")); } }
   // Not sure where you are yet (common on iPhone): offer a button to get distances
-  if (!here && sites(county).some(x => parseLoc(((db[county] || {})[x] || {}).loc))) {
+  if (!here && names.some(x => siteLoc(x))) {
     const box = document.querySelector("#dlgBody .list");
     const b = document.createElement("button"); b.className = "add"; b.id = "distBtn"; b.textContent = "📍 Show distances (closest first)";
     b.onclick = () => { b.textContent = "📍 Finding you…"; fetchHere(err => {
@@ -1742,13 +1744,19 @@ function fetchHere(onFail) {
 // Check automatically only if location is already allowed (never pops a permission box by itself).
 // Short distance for the site list, e.g. "12 mi", "300 ft", "here"
 function siteDist(s) {
-  const l = parseLoc(((db[county] || {})[s] || {}).loc);
+  const l = siteLoc(s);
   if (!l || !here) return "";
   const m = distM(here, l), f = ft(m), mi = m / 1609.34;
   return f <= 150 ? "here" : m < 160 ? f + " ft" : (mi < 10 ? mi.toFixed(1) : Math.round(mi)) + " mi";
 }
 // Closest first; sites without a saved spot (or before your position is known) stay A–Z at the bottom.
-function siteMeters(s) { const l = parseLoc(((db[county] || {})[s] || {}).loc); return l && here ? distM(here, l) : null; }
+// A site's saved location; in All counties mode a company site uses the list's GPS
+function siteLoc(s) {
+  const own = parseLoc(((db[county] || {})[s] || {}).loc); if (own || !allMode) return own;
+  const x = ((allSitesData() || { rows: [] }).rows).find(r => r.site === s && allToCounty(r.cust) === county);
+  return x && x.lat && x.lng ? { lat: x.lat, lng: x.lng } : null;
+}
+function siteMeters(s) { const l = siteLoc(s); return l && here ? distM(here, l) : null; }
 function byDistance(list) {
   return list.slice().sort((a, b) => {
     const da = siteMeters(a), dbb = siteMeters(b);
