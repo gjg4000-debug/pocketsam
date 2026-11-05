@@ -628,7 +628,6 @@ const siteRec = () => (county && site && db[county] && db[county][site]) || null
 
 function refreshUi() {
   $("countyBtn").querySelector("span").textContent = county || "1. Select County";
-  $("countyBtn").querySelector("small").textContent = allMode ? "📁 All counties" : "County / City";
   $("siteBtn").querySelector("span").textContent = site || "2. Select Site";
   const rec = siteRec(); const h = rec && Array.isArray(rec[HIST]) ? rec[HIST] : [];
   $("latest").textContent = h.length ? `${h.length} reading(s) · latest ${fmtDate(h[h.length - 1].date)}` : "";
