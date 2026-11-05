@@ -1303,7 +1303,7 @@ function allSitesDlg(c) {
   });
   dialog(`📁 All sites · ${c}`, box, [{ text: "◀ Sites", fn: () => { setTimeout(() => $("siteBtn").click(), 0); } }, { text: "Close" }]);
 }
-// Open a company site like a new site of yours: its GPS is filled in, pick the equipment, SAVE makes it one of your sites
+// Open a company site like a new site of yours: its GPS is filled in; SAVE makes it one of your sites
 function openCompanySite(x) {
   guardUnsaved(() => {
     const c = allToCounty(x.cust); allMode = true;
@@ -1311,7 +1311,7 @@ function openCompanySite(x) {
     if (db[c] && db[c][x.site]) { loadSite(x.site); return; }
     site = x.site; startVisit(); fill(null);
     if (x.lat && x.lng) { loading = true; inputs.loc.value = `${x.lat},${x.lng}`; loading = false; }
-    dirty = true; refreshUi(); pickEquip(true);
+    dirty = false; refreshUi();   // the tech picks the equipment with the Equipment box when ready
   });
 }
 function allSiteInfo(x, back) {
