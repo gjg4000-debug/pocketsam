@@ -1210,9 +1210,116 @@ function editType(t, done, personalDefault) {
 }
 
 $("countyBtn").onclick = () => guardUnsaved(() =>
+{
   listDialog("Select county / city", counties(), "+ Add new county / city…", selectCounty,
     () => askName("New county / city", async n => { if (isPersonal(n)) { toast("That name is for Personal"); return; } if (!db[n]) { db[n] = {}; await persist(); } selectCounty(n); }),
-    c => { const all = sites(c); return all.length ? { count: `${all.filter(s => isDone(c, s)).length} of ${all.length} done` } : {}; }));
+    c => { const all = sites(c); return all.length ? { count: `${all.filter(s => isDone(c, s)).length} of ${all.length} done` } : {}; });
+  // The company's full site list (imported, this device only) sits behind one entry so the list stays short
+  const A = allSitesData(), box = document.querySelector("#dlgBody .list");
+  if (A && box) { const b = document.createElement("button"); b.textContent = "📁 All counties"; const sp = document.createElement("span"); sp.className = "count"; sp.textContent = `${A.rows.length} sites`; b.append(sp);
+    b.onclick = () => { closeDlg(); setTimeout(() => allCountiesDlg(""), 0); }; box.insertBefore(b, box.querySelector("button.add")); }
+});
+
+/* ---------- All counties / all sites: the company's full site list ----------
+   Imported with IMPORT SAM BACKUP from the full site sheet saved as .csv (Service Center, Customer, Site, Type, City, State, Lat, Long,
+   Technicians, monitors, Status, Date Added). Kept on this device only: never synced, never in backups, never in the app's code. */
+const ALLS_KEY = "pocketsam-allsites";
+const allSitesData = () => { const d = lsGet(ALLS_KEY, null); return d && Array.isArray(d.rows) && d.rows.length ? d : null; };
+function csvParse(text) {
+  const rows = []; let row = [], f = "", q = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) { if (ch === '"') { if (text[i + 1] === '"') { f += '"'; i++; } else q = false; } else f += ch; }
+    else if (ch === '"') q = true;
+    else if (ch === "," || ch === "\t") { row.push(f); f = ""; }
+    else if (ch === "\n" || ch === "\r") { if (ch === "\r" && text[i + 1] === "\n") i++; row.push(f); rows.push(row); row = []; f = ""; }
+    else f += ch;
+  }
+  if (f || row.length) { row.push(f); rows.push(row); }
+  return rows;
+}
+const allHead = rows => rows.findIndex(r => { const h = r.map(x => String(x).trim().toLowerCase()); return h.includes("customer") && h.includes("site") && (h.includes("lat") || h.includes("service center")); });
+function looksLikeAllSites(text) { return allHead(csvParse(text.replace(/^﻿/, "").split(/\r?\n/).slice(0, 6).join("\n"))) >= 0; }
+function importAllSites(text) {
+  const rows = csvParse(text.replace(/^﻿/, "")), hi = allHead(rows);
+  const h = rows[hi].map(x => String(x).trim().toLowerCase()), col = n => h.findIndex(x => x.replace(/[^a-z]/g, "").startsWith(n));
+  const ci = { sc: col("servicecenter"), cust: col("customer"), site: col("site"), type: col("type"), city: col("city"), st: col("state"), lat: col("lat"), lng: col("long"),
+    tech: col("technician"), vl: col("vapor"), tm: col("tankmonitor"), fm: col("feedmonitor"), status: col("status"), added: col("dateadded") };
+  const v = (r, k) => ci[k] >= 0 ? String(r[ci[k]] ?? "").trim() : "";
+  const out = rows.slice(hi + 1).map(r => ({ sc: v(r, "sc"), cust: v(r, "cust"), site: v(r, "site"), type: v(r, "type"), city: v(r, "city"), st: v(r, "st"),
+    lat: Number(v(r, "lat")) || null, lng: Number(v(r, "lng")) || null, tech: v(r, "tech"), vl: v(r, "vl"), tm: v(r, "tm"), fm: v(r, "fm"), status: v(r, "status"), added: v(r, "added") }))
+    .filter(x => x.cust && x.site);
+  if (!out.length) { toast("No sites found in that sheet"); return; }
+  const p = document.createElement("p");
+  p.textContent = `${out.length} sites in ${new Set(out.map(x => x.cust)).size} customers. They go under 📁 All counties at the bottom of the county list, on this device only (not shared, not in backups). Importing again replaces the list.`;
+  dialog("Import the full site list?", p, [{ text: "Cancel" }, { text: "Import", cls: "primary", fn: () => {
+    try { localStorage.setItem(ALLS_KEY, JSON.stringify({ date: today(), rows: out })); toast(`${out.length} sites added to 📁 All counties`); }
+    catch (e) { toast("Not enough room on this device for that list"); }
+  } }]);
+}
+// Company list → county name in Pocket SAM: "OCALA, CITY OF" → "Ocala" (or an existing county that matches)
+function allToCounty(cust) {
+  const t = String(cust).replace(/,?\s*\bcity of\b/gi, "").replace(/,?\s*\btown of\b/gi, "").replace(/\s+/g, " ").trim();
+  const k = t.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return counties().find(c => c.toLowerCase().replace(/[^a-z0-9]/g, "") === k) || t.toLowerCase().replace(/\b[a-z]/g, m => m.toUpperCase());
+}
+function allCountiesDlg(find) {
+  const A = allSitesData(); if (!A) { toast("Import the full site sheet (.csv) with IMPORT SAM BACKUP first"); return; }
+  const box = document.createElement("div");
+  const inp = document.createElement("input"); inp.placeholder = "🔍 Find a customer or site"; inp.autocomplete = "off"; inp.value = find || "";
+  const list = document.createElement("div"); list.className = "list";
+  const hint = document.createElement("p"); hint.className = "hint";
+  hint.textContent = `Full company list from ${fmtDate(A.date)} · on this device only.`;
+  const draw = () => {
+    list.replaceChildren(); const t = inp.value.trim().toLowerCase();
+    const byC = {}; A.rows.forEach(x => (byC[x.cust] ||= []).push(x));
+    const cs = Object.keys(byC).sort(byName).filter(c => !t || c.toLowerCase().includes(t));
+    cs.forEach(c => { const b = document.createElement("button"); b.textContent = c; const sp = document.createElement("span"); sp.className = "count"; sp.textContent = `${byC[c][0].st} · ${byC[c].length}`; b.append(sp);
+      b.onclick = () => { closeDlg(); setTimeout(() => allSitesDlg(c, inp.value), 0); }; list.append(b); });
+    if (t) {   // sites that match, from any customer
+      const hits = A.rows.filter(x => x.site.toLowerCase().includes(t)).slice(0, 40);
+      if (hits.length) { const h = document.createElement("p"); h.className = "hint"; h.textContent = "Sites:"; list.append(h); }
+      hits.forEach(x => { const b = document.createElement("button"); b.textContent = x.site; const sp = document.createElement("span"); sp.className = "count"; sp.textContent = x.cust; b.append(sp);
+        b.onclick = () => { closeDlg(); setTimeout(() => allSiteInfo(x, () => allCountiesDlg(inp.value)), 0); }; list.append(b); });
+    }
+    if (!list.children.length) { const n = document.createElement("p"); n.className = "hint"; n.textContent = "Nothing matches."; list.append(n); }
+  };
+  inp.oninput = draw; box.append(inp, hint, list); draw();
+  dialog("📁 All counties", box, [{ text: "Remove list", cls: "danger", fn: () => { setTimeout(() => confirmBox("Take the full company site list off this device? Your own sites stay.", "Remove", () => { try { localStorage.removeItem(ALLS_KEY); } catch (e) {} toast("Full site list removed"); }), 0); } }, { text: "Close" }]);
+}
+function allSitesDlg(cust, find) {
+  const A = allSitesData(); if (!A) return;
+  const box = document.createElement("div"); box.className = "list";
+  A.rows.filter(x => x.cust === cust).sort((a, b) => byName(a.site, b.site)).forEach(x => {
+    const b = document.createElement("button"); b.textContent = x.site; const sp = document.createElement("span"); sp.className = "count"; sp.textContent = [x.type, x.city].filter(Boolean).join(" · "); b.append(sp);
+    b.onclick = () => { closeDlg(); setTimeout(() => allSiteInfo(x, () => allSitesDlg(cust, find)), 0); }; box.append(b);
+  });
+  dialog(`All sites · ${cust}`, box, [{ text: "◀ All counties", fn: () => { setTimeout(() => allCountiesDlg(find), 0); } }, { text: "Close" }]);
+}
+function allSiteInfo(x, back) {
+  const box = document.createElement("div");
+  const line = (k, v) => { if (!v) return; const p = document.createElement("p"); p.style.margin = "4px 0"; const b = document.createElement("b"); b.textContent = k + ": "; p.append(b, document.createTextNode(v)); box.append(p); };
+  line("Customer", x.cust); line("Type", x.type); line("City", [x.city, x.st].filter(Boolean).join(", ")); line("Technicians", x.tech);
+  line("H2S monitor(s)", x.vl); line("Tank monitor(s)", x.tm); line("Feed monitor(s)", x.fm); line("Status", x.status === "A" ? "Active" : x.status); line("Added", x.added);
+  if (!(x.lat && x.lng)) line("Location", "none in the list");
+  const c = allToCounty(x.cust), mine = db[c] && db[c][x.site];
+  const buttons = [];
+  if (x.lat && x.lng) buttons.push({ text: "DIRECTIONS", fn: () => { window.open(`https://www.google.com/maps/dir/?api=1&destination=${x.lat},${x.lng}&travelmode=driving&dir_action=navigate`, "_blank"); return false; } });
+  buttons.push(mine ? { text: "Open in my sites", cls: "primary", fn: () => { guardUnsaved(() => { selectCounty(c); loadSite(x.site); }); } }
+    : { text: "+ Add to my sites", cls: "primary", fn: () => { setTimeout(() => {
+        const inp = document.createElement("input"); inp.value = c; inp.autocapitalize = "words";
+        const w = document.createElement("div"); const p = document.createElement("p"); p.className = "hint"; p.textContent = `Add ${x.site} to your sites, under this county / city:`; w.append(p, inp);
+        dialog("Add to my sites", w, [{ text: "Cancel", fn: () => { setTimeout(() => allSiteInfo(x, back), 0); } }, { text: "Add", cls: "primary", fn: () => {
+          const cc = inp.value.trim(); if (!cc || isPersonal(cc)) return false;
+          guardUnsaved(async () => {
+            db[cc] ||= {}; if (!db[cc][x.site]) db[cc][x.site] = x.lat && x.lng ? { loc: `${x.lat},${x.lng}` } : {};
+            await persist(); queue({ op: "put", c: cc, s: x.site }); selectCounty(cc); loadSite(x.site); toast(`${x.site} added to ${cc}`);
+          });
+        } }]);
+      }, 0); } });
+  buttons.push({ text: "◀ Back", fn: () => { setTimeout(back, 0); } });
+  dialog(x.site, box, buttons);
+}
 
 $("siteBtn").onclick = () => {
   if (!county) { toast("Pick a county / city first"); return; }
@@ -2041,7 +2148,7 @@ $("importFile").onchange = async (ev) => {
   const text = await f.text();
   let incoming;
   try { incoming = JSON.parse(text); if (!incoming || typeof incoming !== "object" || Array.isArray(incoming)) throw 0; }
-  catch (e) { if (looksLikeTankExport(text)) { tankExportHere(); return; } importSiteList(text); return; }
+  catch (e) { if (looksLikeAllSites(text)) { importAllSites(text); return; } if (looksLikeTankExport(text)) { tankExportHere(); return; } importSiteList(text); return; }
   const n = siteCount(incoming);
   if (!n) { toast("No sites found in that file"); return; }
   const p = document.createElement("p");
