@@ -1305,18 +1305,8 @@ function allSiteInfo(x, back) {
   const c = allToCounty(x.cust), mine = db[c] && db[c][x.site];
   const buttons = [];
   if (x.lat && x.lng) buttons.push({ text: "DIRECTIONS", fn: () => { window.open(`https://www.google.com/maps/dir/?api=1&destination=${x.lat},${x.lng}&travelmode=driving&dir_action=navigate`, "_blank"); return false; } });
-  buttons.push(mine ? { text: "Open in my sites", cls: "primary", fn: () => { guardUnsaved(() => { selectCounty(c); loadSite(x.site); }); } }
-    : { text: "+ Add to my sites", cls: "primary", fn: () => { setTimeout(() => {
-        const inp = document.createElement("input"); inp.value = c; inp.autocapitalize = "words";
-        const w = document.createElement("div"); const p = document.createElement("p"); p.className = "hint"; p.textContent = `Add ${x.site} to your sites, under this county / city:`; w.append(p, inp);
-        dialog("Add to my sites", w, [{ text: "Cancel", fn: () => { setTimeout(() => allSiteInfo(x, back), 0); } }, { text: "Add", cls: "primary", fn: () => {
-          const cc = inp.value.trim(); if (!cc || isPersonal(cc)) return false;
-          guardUnsaved(async () => {
-            db[cc] ||= {}; if (!db[cc][x.site]) db[cc][x.site] = x.lat && x.lng ? { loc: `${x.lat},${x.lng}` } : {};
-            await persist(); queue({ op: "put", c: cc, s: x.site }); selectCounty(cc); loadSite(x.site); toast(`${x.site} added to ${cc}`);
-          });
-        } }]);
-      }, 0); } });
+  // View only: nothing is added to your sites. If it's already one of yours, it can be opened.
+  if (mine) buttons.push({ text: "Open in my sites", cls: "primary", fn: () => { guardUnsaved(() => { selectCounty(c); loadSite(x.site); }); } });
   buttons.push({ text: "◀ Back", fn: () => { setTimeout(back, 0); } });
   dialog(x.site, box, buttons);
 }
