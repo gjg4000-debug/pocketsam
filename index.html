@@ -2574,6 +2574,18 @@ function dynReading(rec, c, s, date, id, complete) {
   [["chemGpd", "Chemical GPD"], ["bioGalPerDay", "Nutrient gal/day"], ["cfm", "Airflow CFM"], ["h2sRemoval", "H2S removal %"]]
     .forEach(([k, l]) => { const v = num(rec[k]); if (v != null) all[l] = v; });
   if (Object.keys(all).length) body.allText = JSON.stringify(all);
+  // Generic readings: one row per box (equipment · field · value), the same shape for built-in and custom equipment.
+  // The flow adds one "PS Field Reading" row each; a mapping table can later send chosen ones to Dynamics inspections.
+  const equipOf = k => [[CHEM, "Chemical feed"], [[CHEM_TANK, CHEM_NAME], "Chemical feed"], [SAMPLE, "Sample point"], [BIO, "Biofilter"], [SCRUB, "Scrubber"], [CARB, "Carbon adsorber"]]
+    .find(([fs]) => fs.some(f => f.key === k))?.[1] || "Site";
+  const fields = [];
+  ALL.forEach(f => { const lab = f.col || f.label; if (lab in all) fields.push({ equipment: equipOf(f.key), field: lab, value: String(all[lab]) }); });
+  [["chemGpd", "Chemical GPD", "Chemical feed"], ["bioGalPerDay", "Nutrient gal/day", "Biofilter"], ["cfm", "Airflow CFM", "Scrubber"], ["h2sRemoval", "H2S removal %", "Scrubber"]]
+    .forEach(([k, l, e]) => { if (l in all && !fields.some(x => x.field === l)) fields.push({ equipment: e, field: l, value: String(all[l]) }); });
+  if (rec.ctypes && rec.cust) Object.values(rec.ctypes).forEach(t => (t.fields || []).forEach(f => {
+    const v = String(rec.cust[f.k] ?? "").trim(); if (v && !t.personal) fields.push({ equipment: t.name, field: f.label, value: v, ...(f.unit ? { unit: f.unit } : {}) });
+  }));
+  if (fields.length) body.fields = fields.map((x, i) => ({ id: `${id}-F${i + 1}`, readingId: id, county: c, site: s, date, ...x }));
   if (n("chemTank") != null) body.tankGal = n("chemTank");   // chem tank level, sent with every visit
   return body;
 }
@@ -2601,7 +2613,7 @@ function dynVisit(rec, c, s, date, id, complete, times) {
   const pc = {};
   for (const m of comments.matchAll(/Parts:\s*([^\n]+)/gi)) for (const x of m[1].split(",")) { const t = x.trim(); if (t) pc[t] = (pc[t] || 0) + 1; }
   const parts = Object.entries(pc).map(([t, qty], i) => { const [name, number] = t.split(/\s{2,}/); return { id: id + "-P" + (i + 1), name: name.trim(), ...(number ? { number: number.trim() } : {}), qty }; });
-  const readings = ALL.some(f => rec[f.key]) ? [dynReading(rec, c, s, date, id, complete)] : [];
+  const readings = ALL.some(f => rec[f.key]) || (rec.cust && Object.values(rec.cust).some(v => String(v).trim())) ? [dynReading(rec, c, s, date, id, complete)] : [];
   const clean = o => { for (const k of Object.keys(o)) if (o[k] === undefined || o[k] === null || o[k] === "") delete o[k]; return o; };
   return { visit: clean(visit), timeEntries, parts, readings };
 }
