@@ -2615,7 +2615,9 @@ function dynVisit(rec, c, s, date, id, complete, times) {
   const parts = Object.entries(pc).map(([t, qty], i) => { const [name, number] = t.split(/\s{2,}/); return { id: id + "-P" + (i + 1), name: name.trim(), ...(number ? { number: number.trim() } : {}), qty }; });
   const readings = ALL.some(f => rec[f.key]) || (rec.cust && Object.values(rec.cust).some(v => String(v).trim())) ? [dynReading(rec, c, s, date, id, complete)] : [];
   const clean = o => { for (const k of Object.keys(o)) if (o[k] === undefined || o[k] === null || o[k] === "") delete o[k]; return o; };
-  return { visit: clean(visit), timeEntries, parts, readings };
+  // The generic rows ride at the top of the package so the flow needs only one simple loop
+  const fields = readings.flatMap(r => { const f = r.fields || []; delete r.fields; return f; });
+  return { visit: clean(visit), timeEntries, parts, readings, fields };
 }
 // No signal: the visit waits on this phone and goes out on its own when signal comes back (like readings to the team)
 const DYNQ_KEY = "pocketsam-dynq";
