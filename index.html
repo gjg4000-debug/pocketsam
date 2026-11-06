@@ -494,6 +494,11 @@ ADJ_DAYS.forEach(f => {
 SAMPLE.forEach(f => addField($("sampleFields"), f));
 inputs.treatedBy = document.createElement("input"); inputs.treatedBy.type = "hidden"; $("treatBtn").after(inputs.treatedBy);
 BIO.forEach(f => addField($("bioFields"), f)); addField($("bioInfo"), BIO_INFO);
+{ // 🔩 next to Biofilter info: its own parts list, picked parts go into that box
+  const ta = inputs.bioInfo, w = document.createElement("div"); w.className = "hrswrap top"; ta.closest(".row").classList.add("stack"); ta.replaceWith(w);
+  const b = document.createElement("button"); b.type = "button"; b.id = "bioPartsBtn"; b.className = "tbtn"; b.textContent = "🔩"; b.title = "Biofilter parts";
+  b.onclick = () => openParts("bio"); w.append(ta, b);
+}
 for (const [k, id] of [["scrubSystem", "f_scrubSystem"], ["carbSystem", "f_carbSystem"]]) {
   inputs[k] = $(id); inputs[k].addEventListener("input", () => { if (!loading) { dirty = true; updateStatus(); } });
 }
@@ -1729,31 +1734,35 @@ $("treatBtn").onclick = () => {
    The parts list is never in the app's code. It's kept on the phone and shared with the team through sync
    (one hidden "Parts list" record), so everyone on the same sync link gets it. Picked parts are added to Comments. */
 const PARTS_KEY = "pocketsam-parts", PARTS_SITE = "Parts list";
-function getParts() {
-  const r = (db[SETTINGS] || {})[PARTS_SITE];
+// One list per card: chemical feed ("Parts list", the original) and biofilter ("Biofilter parts list")
+const PARTS = { chem: { rec: PARTS_SITE, box: "chemInfo", name: "Chemical feed", where: "Comments" }, bio: { rec: "Biofilter parts list", box: "bioInfo", name: "Biofilter", where: "Biofilter info" } };
+function getParts(kind = "chem") {
+  const r = (db[SETTINGS] || {})[PARTS[kind].rec];
   if (r && Array.isArray(r.parts)) return r.parts;
+  if (kind !== "chem") return [];
   try { const v = JSON.parse(localStorage.getItem(PARTS_KEY) || "[]"); return Array.isArray(v) ? v : []; } catch (e) { return []; }   // older phones kept it here
 }
-async function setParts(a) {
-  (db[SETTINGS] ||= {})[PARTS_SITE] = { parts: a, partsUpdated: new Date().toISOString() };
-  try { localStorage.removeItem(PARTS_KEY); } catch (e) {}
-  await persist(); queue({ op: "put", c: SETTINGS, s: PARTS_SITE });
+async function setParts(a, kind = "chem") {
+  (db[SETTINGS] ||= {})[PARTS[kind].rec] = { parts: a, partsUpdated: new Date().toISOString() };
+  if (kind === "chem") try { localStorage.removeItem(PARTS_KEY); } catch (e) {}
+  await persist(); queue({ op: "put", c: SETTINGS, s: PARTS[kind].rec });
 }
-function editParts(after) {
+function editParts(after, kind = "chem") {
   const box = document.createElement("div");
-  box.innerHTML = `<p class="hint">Type or paste your parts list, one part per line. It\'s shared with your team through sync, never put in the app itself.</p><textarea id="partsList" rows="12" placeholder="Pump tubing&#10;Check valve&#10;Injection quill"></textarea>`;
-  const ta = box.querySelector("#partsList"); ta.value = getParts().join("\n");
-  dialog("Parts list", box, [{ text: "Cancel" }, { text: "SAVE LIST", cls: "primary", fn: () => {
+  box.innerHTML = `<p class="hint"><b>${PARTS[kind].name}</b> parts. Add a part number after two spaces, like "Belt  12345". Type or paste your parts list, one part per line. It\'s shared with your team through sync, never put in the app itself.</p><textarea id="partsList" rows="12" placeholder="Pump tubing&#10;Check valve&#10;Injection quill"></textarea>`;
+  const ta = box.querySelector("#partsList"); ta.value = getParts(kind).join("\n");
+  if (kind === "bio") ta.placeholder = "Nutrient pump tubing\nMedia\nSpray nozzle";
+  dialog(`${PARTS[kind].name} parts list`, box, [{ text: "Cancel" }, { text: "SAVE LIST", cls: "primary", fn: () => {
     const list = [...new Set(ta.value.split(/\r?\n/).map(x => x.trim()).filter(Boolean))];
-    setParts(list); toast(`${list.length} part(s) saved` + (syncCfg ? " · shared with your team" : " on this phone")); setTimeout(() => after && after(), 0);
+    setParts(list, kind); toast(`${list.length} part(s) saved` + (syncCfg ? " · shared with your team" : " on this phone")); setTimeout(() => after && after(), 0);
   } }]);
   setTimeout(() => ta.focus(), 50);
 }
-function openParts() {
-  const list = getParts();
-  if (!list.length) { editParts(openParts); return; }
+function openParts(kind = "chem") {
+  const list = getParts(kind), again = () => openParts(kind);
+  if (!list.length) { editParts(again, kind); return; }
   const box = document.createElement("div"); box.className = "list";
-  const p = document.createElement("p"); p.className = "hint"; p.textContent = "Check the parts you used, then ADD TO COMMENTS."; box.append(p);
+  const p = document.createElement("p"); p.className = "hint"; p.textContent = `Check the parts you used, then ADD TO ${PARTS[kind].where.toUpperCase()}.`; box.append(p);
   const picked = new Set();
   list.forEach(name => {
     const b = document.createElement("button");
@@ -1761,15 +1770,15 @@ function openParts() {
     b.onclick = () => { picked.has(name) ? picked.delete(name) : picked.add(name); show(); };
     show(); box.append(b);
   });
-  dialog("Spare parts", box, [
-    { text: "Edit list", fn: () => { setTimeout(() => editParts(openParts), 0); } },
+  dialog(`${PARTS[kind].name} parts`, box, [
+    { text: "Edit list", fn: () => { setTimeout(() => editParts(again, kind), 0); } },
     { text: "Cancel" },
-    { text: "ADD TO COMMENTS", cls: "primary", fn: () => {
+    { text: kind === "chem" ? "ADD TO COMMENTS" : "ADD TO INFO", cls: "primary", fn: () => {
       if (!picked.size) { p.textContent = "Check at least one part."; return false; }
       const line = "Parts: " + list.filter(n => picked.has(n)).join(", ");
-      const ta = inputs.chemInfo, cur = ta.value.trim();
+      const ta = inputs[PARTS[kind].box], cur = ta.value.trim();
       ta.value = cur ? cur + "\n" + line : line;
-      ta.dispatchEvent(new Event("input")); toast("Added to Comments · SAVE to keep it");
+      ta.dispatchEvent(new Event("input")); toast(`Added to ${PARTS[kind].where} · SAVE to keep it`);
     } }]);
 }
 
@@ -2649,7 +2658,7 @@ function dynVisit(rec, c, s, date, id, complete, times) {
   // Every "Parts:" line counts (each ADD TO COMMENTS adds one). Same part twice = qty 2.
   // "Poppet Valve Kit  W2T201861" (2+ spaces before the number) → name + part number.
   const pc = {};
-  for (const m of comments.matchAll(/Parts:\s*([^\n]+)/gi)) for (const x of m[1].split(",")) { const t = x.trim(); if (t) pc[t] = (pc[t] || 0) + 1; }
+  for (const m of (comments + "\n" + String(rec.bioInfo || "")).matchAll(/Parts:\s*([^\n]+)/gi)) for (const x of m[1].split(",")) { const t = x.trim(); if (t) pc[t] = (pc[t] || 0) + 1; }
   const parts = Object.entries(pc).map(([t, qty], i) => { const [name, number] = t.split(/\s{2,}/); return { id: id + "-P" + (i + 1), name: name.trim(), ...(number ? { number: number.trim() } : {}), qty }; });
   const readings = ALL.some(f => rec[f.key]) || (rec.cust && Object.values(rec.cust).some(v => String(v).trim())) ? [dynReading(rec, c, s, date, id, complete)] : [];
   const clean = o => { for (const k of Object.keys(o)) if (o[k] === undefined || o[k] === null || o[k] === "") delete o[k]; return o; };
