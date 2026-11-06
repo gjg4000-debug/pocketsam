@@ -1013,7 +1013,8 @@ function applyEquip() {
   // No site open, or a site with no equipment picked (and nothing to guess from): no equipment cards until Equipment is picked
   const show = !site || !ids.length ? [] : EQUIP_TYPES.filter(t => ids.includes(t.id)).flatMap(t => t.cards);
   EQUIP_CARDS.forEach(id => $(id).hidden = !show.includes(id));
-  renderCust(site ? ids.filter(id => isCustId(id)) : []);
+  renderCust(site ? ids.filter(id => isCustId(id) && !isExtra(id)) : []);
+  renderExtras(site ? ids : []);
 }
 // Save the types right away (no SAVE needed) and send them to the sheet, like Treated by
 async function setEquip(v) {
@@ -1046,7 +1047,7 @@ function pickEquip(isNew, keep) {
   });
   // Equipment types someone on your team made (shared through sync), each with ✎ to change its readings
   const hidden = ctHidden();
-  Object.values(knownTypes()).filter(t => (!hidden.includes(t.id) || picked.has(t.id)) && !!t.personal === mine).sort((a, b) => byName(a.name, b.name)).forEach(t => {
+  Object.values(knownTypes()).filter(t => !t.extraFor && (!hidden.includes(t.id) || picked.has(t.id)) && !!t.personal === mine).sort((a, b) => byName(a.name, b.name)).forEach(t => {
     const row = document.createElement("div"); row.className = "ctrow";
     const b = document.createElement("button");
     const show = () => { const on = picked.has(t.id); b.textContent = (on ? "✓ " : "☐ ") + (t.personal ? "🔒 " : "") + t.name; b.className = on ? "done" : ""; };
@@ -1085,18 +1086,25 @@ const ctHidden = () => ctRead(CT_HIDE, []);
 const isCustId = id => /^x_/.test(id);
 const CT_KINDS = [["num", "Number"], ["text", "Text"], ["yn", "Yes / No"], ["pick", "Pick list"], ["date", "Date"]];
 const rid = () => Math.random().toString(36).slice(2, 8);
+const EXTRA_REC = "Added questions", extraId = bid => "x_add_" + bid, isExtra = id => /^x_add_/.test(id);
 // Every type this phone knows: its own plus any found on synced sites. Newest edit wins.
 function knownTypes() {
   const out = {};
   const take = d => { if (d && d.id && isCustId(d.id) && d.name && Array.isArray(d.fields) && (!out[d.id] || String(d.upd || "") > String(out[d.id].upd || ""))) out[d.id] = d; };
   for (const c of Object.keys(db)) for (const s of Object.keys(db[c] || {})) { const r = db[c][s]; if (r && r.ctypes) Object.values(r.ctypes).forEach(take); }
+  Object.values(((db[SETTINGS] || {})[EXTRA_REC] || {}).defs || {}).forEach(take);
   Object.values(myTypes).forEach(take);
   return out;
 }
-const allTypes = () => [...EQUIP_TYPES, ...Object.values(knownTypes()).sort((a, b) => byName(a.name, b.name)).map(t => ({ id: t.id, name: t.name, cards: [], custom: true }))];
+/* Added questions on the built-in cards (Chemical feed, Biofilter…): stored like a custom type with id "x_add_<built-in id>"
+   and the built-in's name, so they save, sync and go to the Dynamics test the same way. They show inside the built-in card,
+   never as their own equipment. The team gets them right away through the hidden "Added questions" record. */
+const extraFor = bid => { const t = knownTypes()[extraId(bid)]; return t && t.fields && t.fields.length ? t : null; };
+const allTypes = () => [...EQUIP_TYPES, ...Object.values(knownTypes()).filter(t => !t.extraFor).sort((a, b) => byName(a.name, b.name)).map(t => ({ id: t.id, name: t.name, cards: [], custom: true }))];
 function ctypesFor(v) {
-  const k = knownTypes(), out = {};
-  String(v || "").split(",").filter(id => isCustId(id) && k[id]).forEach(id => out[id] = k[id]);
+  const k = knownTypes(), out = {}, ids = v === "all" ? EQUIP_TYPES.map(t => t.id) : String(v || "").split(",");
+  ids.filter(id => isCustId(id) && !isExtra(id) && k[id]).forEach(id => out[id] = k[id]);
+  ids.filter(id => EQUIP_TYPES.some(t => t.id === id)).forEach(id => { const x = extraFor(id); if (x) out[x.id] = x; });
   return Object.keys(out).length ? out : null;
 }
 const fieldLabel = f => f.label + (f.unit ? ` (${f.unit})` : "");
@@ -1109,7 +1117,12 @@ function renderCust(ids) {
     const t = k[id];
     const card = document.createElement("section"); card.className = "card"; card.id = "card_" + id;
     const h = document.createElement("h2"); h.textContent = t.name; card.append(h);
-    t.fields.forEach(f => {
+    t.fields.forEach(f => card.append(custRow(f)));
+    box.append(card);
+  });
+}
+// One box for a custom or added question
+function custRow(f) {
       const row = document.createElement("div"); row.className = "row";
       const lab = document.createElement("label"); lab.htmlFor = "c_" + f.k; lab.textContent = fieldLabel(f);
       let el;
@@ -1124,17 +1137,33 @@ function renderCust(ids) {
       el.id = "c_" + f.k; el.value = custVals[f.k] ?? "";
       const changed = () => { custVals[f.k] = el.value.trim(); if (!loading) { dirty = true; updateStatus(); } };
       el.addEventListener("input", changed); el.addEventListener("change", changed);
-      row.append(lab, el); card.append(row);
-    });
-    box.append(card);
+      row.append(lab, el); return row;
+}
+// Added questions at the bottom of each built-in card that's showing, with a link to add or change them
+function renderExtras(ids) {
+  EQUIP_TYPES.forEach(bt => {
+    const card = $(bt.cards[0]); if (!card) return;
+    let box = card.querySelector(":scope > .extraQs");
+    if (!box) { box = document.createElement("div"); box.className = "extraQs"; card.append(box); }
+    box.replaceChildren();
+    if (!site || !ids.includes(bt.id)) return;
+    const x = extraFor(bt.id);
+    if (x) x.fields.forEach(f => box.append(custRow(f)));
+    const a = document.createElement("button"); a.type = "button"; a.className = "add"; a.style.marginTop = "6px";
+    a.textContent = x ? "✎ Change added questions" : "＋ Add a question";
+    a.onclick = () => editExtra(bt); box.append(a);
   });
+}
+function editExtra(bt) {
+  const cur = knownTypes()[extraId(bt.id)];
+  editType(cur || { id: extraId(bt.id), name: bt.name, extraFor: bt.id, fields: [] }, d => { if (d) applyEquip(); }, false, true);
 }
 // One line for the sheet / spreadsheet: "Disinfection: Free chlorine 1.2 mg/L; pH 7.1"
 function custText(rec) {
   const v = rec && rec.cust; if (!v || typeof v !== "object") return "";
   const k = { ...(rec.ctypes || {}), ...knownTypes() };
   const parts = [];
-  equipIds(rec.equip).filter(isCustId).forEach(id => {
+  [...equipIds(rec.equip).filter(isCustId), ...Object.keys(rec.ctypes || {}).filter(isExtra)].forEach(id => {
     const t = k[id]; if (!t) return;
     const got = t.fields.filter(f => v[f.k] != null && v[f.k] !== "").map(f => `${f.label} ${v[f.k]}${f.unit ? " " + f.unit : ""}`);
     if (got.length) parts.push(`${t.name}: ${got.join("; ")}`);
@@ -1142,7 +1171,7 @@ function custText(rec) {
   return parts.join(" | ");
 }
 // Make or change a type. done(def) is called after SAVE (def = null after Cancel or Delete).
-function editType(t, done, personalDefault) {
+function editType(t, done, personalDefault, extra) {
   const draft = t ? JSON.parse(JSON.stringify(t)) : { id: "x_" + rid(), name: "", fields: [], ...(personalDefault ? { personal: true } : {}) };
   if (!draft.fields.length) draft.fields.push({ k: rid(), label: "", unit: "", kind: "num" });
   const box = document.createElement("div");
@@ -1153,6 +1182,10 @@ function editType(t, done, personalDefault) {
     <div id="ctFields"></div><button type="button" id="ctAdd" class="add">+ Add a reading</button><p class="hint" id="ctErr"></p>`;
   const q = id => box.querySelector("#" + id);
   q("ctName").value = draft.name;
+  if (extra) {   // added questions on a built-in card: the name is the card's, always shared, no Remove
+    box.querySelector("p.hint").textContent = `Questions added to every ${draft.name} card, under its own boxes. Shared with your team. Each answer also goes to the Dynamics test.`;
+    q("ctName").hidden = true; box.querySelector("label[for=ctName]").hidden = true; q("ctShare").hidden = true;
+  }
   // Shared or personal is picked when the type is made; after that it's fixed (a personal type's readings must never reach the team)
   box.querySelector(`input[name=ctShare][value=${draft.personal ? "personal" : "shared"}]`).checked = true;
   if (t) { box.querySelectorAll("input[name=ctShare]").forEach(i => i.disabled = true); }
@@ -1189,24 +1222,29 @@ function editType(t, done, personalDefault) {
     draft.fields = draft.fields.map(f => ({ ...f, label: String(f.label || "").trim(), unit: f.kind === "num" ? String(f.unit || "").trim() : "" })).filter(f => f.label);
     draft.fields.forEach(f => { if (f.kind !== "pick") delete f.opts; });
     if (!name) { err.textContent = "Give the equipment type a name."; return false; }
-    if (allTypes().some(x => x.id !== draft.id && x.name.toLowerCase() === name.toLowerCase())) { err.textContent = `There's already a type called ${name}.`; return false; }
-    if (!draft.fields.length) { err.textContent = "Add at least one reading."; draw(); return false; }
+    if (!extra && allTypes().some(x => x.id !== draft.id && x.name.toLowerCase() === name.toLowerCase())) { err.textContent = `There's already a type called ${name}.`; return false; }
+    if (!draft.fields.length && !extra) { err.textContent = "Add at least one reading."; draw(); return false; }
     if (draft.fields.some(f => f.kind === "pick" && !(f.opts || []).length)) { err.textContent = "A pick list needs its choices, with commas between them."; return false; }
     draft.name = name; draft.upd = new Date().toISOString();
     myTypes[draft.id] = draft; ctWrite(CT_KEY, myTypes);
     ctWrite(CT_HIDE, ctHidden().filter(x => x !== draft.id));
+    if (extra) {   // to the team right away
+      const S = (db[SETTINGS] ||= {}), rec = S[EXTRA_REC] = { defs: { ...((S[EXTRA_REC] || {}).defs || {}), [draft.id]: draft }, updated: draft.upd };
+      persist(); queue({ op: "put", c: SETTINGS, s: EXTRA_REC });
+    }
     if (site && currentEquip().ids.includes(draft.id)) applyEquip();
     toast(`${name} saved`);
     setTimeout(() => done && done(draft), 0);
   };
   const buttons = [{ text: "Cancel", fn: () => { setTimeout(() => done && done(null), 0); } }, { text: "SAVE", cls: "primary", fn: save }];
-  if (t) buttons.unshift({ text: "Remove", cls: "danger", fn: () => {
+  if (t && !extra) buttons.unshift({ text: "Remove", cls: "danger", fn: () => {
     setTimeout(() => confirmBox(`Take ${t.name} off this phone's list? Sites that already use it keep it and their readings.`, "Remove", () => {
       ctWrite(CT_HIDE, [...new Set([...ctHidden(), t.id])]); delete myTypes[t.id]; ctWrite(CT_KEY, myTypes);
       toast(`${t.name} removed from the list`); setTimeout(() => done && done(null), 0);
     }), 0); } });
-  dialog(t ? `Change ${t.name}` : "New equipment type", box, buttons);
+  dialog(extra ? `Added questions · ${draft.name}` : t ? `Change ${t.name}` : "New equipment type", box, buttons);
   if (!t) setTimeout(() => q("ctName").focus(), 50);
+  if (extra && draft.fields.length === 1 && !draft.fields[0].label) setTimeout(() => list.querySelector("input").focus(), 50);
 }
 
 // allMode: the county and site lists show the full company list (📁 All counties) instead of just your sites
@@ -1391,7 +1429,7 @@ function writeCurrent() {
   if (Array.isArray(old[HIST])) rec[HIST] = old[HIST];
   const eq = inputs.equip.value || old.equip; if (eq) rec.equip = eq;
   // Custom readings: only the types this site has, no empty boxes
-  const ctypes = ctypesFor(eq), cust = {};
+  const ctypes = ctypesFor(eq || currentEquip().ids.join(",")), cust = {};
   if (ctypes) { Object.values(ctypes).forEach(t => t.fields.forEach(f => { const v = String(custVals[f.k] ?? "").trim(); if (v) cust[f.k] = v; })); rec.ctypes = ctypes; }
   if (Object.keys(cust).length) rec.cust = cust;
   (db[county] ||= {})[site] = rec;
