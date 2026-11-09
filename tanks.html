@@ -564,7 +564,9 @@ function ddSummary() {
     if (Math.abs(im.feed - set) / set < off) return;
     // Leave the sample point part off the name: "5 and 5 SP" → "5"
     const nm = x.s.replace(/\s+(and|&|\+|\/)\s+.*\bSP\b.*$/i, "").replace(/\s*[-(]?\s*\bSP\b\)?\s*$/i, "").trim() || x.s;
-    (byCounty[x.c] ||= []).push(`${nm} DD ${Math.round(im.feed)}/${Math.round(set)}`); n++;
+    // Tank level from the same import, e.g. "· tank 97% (1140 gal)"
+    const sz = sizeOf(x.key) || x.size, lvl = im.gal != null ? (sz > 0 ? ` · tank ${Math.round(im.gal / sz * 100)}% (${Math.round(im.gal)} gal)` : ` · tank ${Math.round(im.gal)} gal`) : "";
+    (byCounty[x.c] ||= []).push(`${nm} DD ${Math.round(im.feed)}/${Math.round(set)}${lvl}`); n++;
   });
   const lines = Object.keys(byCounty).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
     .map(c => `${c}:\n` + byCounty[c].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).join("\n"));
