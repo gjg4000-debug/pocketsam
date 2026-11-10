@@ -43,7 +43,7 @@ patch("index.html", [
     ('const r = await fetch(bkUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });', 'const r = await noNet();'),
     ('async function postDyn(body) { const r = await fetch(dynUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); return r; }', 'async function postDyn(body) { return noNet(); }'),
     ('const r = await fetch(dayUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });', 'const r = await noNet();'),
-    ('<a href="#" id="dynLink">Dynamics test: off</a>', '<span>IT copy · data stays on this device</span><a href="#" id="dynLink" hidden></a>'),
+    ('<a href="#" id="dynLink">Dynamics test: off</a>', '<a href="#" id="dynLink" hidden></a>'),
 ], [r"\bfetch\(", r"script\.google"], cuts=[
     # The screen for connecting the Google sheet is taken out completely
     ('function setupSync(problem) {', '$("refreshBtn").onclick', 'function setupSync() { /* IT copy: no team sync */ }\n'),
