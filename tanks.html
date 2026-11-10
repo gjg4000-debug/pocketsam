@@ -70,7 +70,7 @@ a{color:var(--brand)}
   <div id="none"></div>
   <h2 id="h2air" hidden>H2S monitors (air)</h2>
   <div id="air"></div>
-  <p class="small"><a href="./">← Back to Pocket SAM</a> · page version T10</p>
+  <p class="small"><a href="index.html">← Back to Pocket SAM</a> · page version T10</p>
 </div>
 
 <div id="toast" role="status"></div>
@@ -613,6 +613,6 @@ $("refresh").onclick = refresh;
 // The note comes back every time the page opens, unless "Don't show this again" was checked when it was closed
 try { if (localStorage.getItem("pocketsam-tankwarn-off") === "1") $("warn").hidden = true; } catch (e) {}
 $("warnX").onclick = () => { $("warn").hidden = true; if ($("warnNo").checked) { try { localStorage.setItem("pocketsam-tankwarn-off", "1"); } catch (e) {} } };
-$("backBtn").onclick = () => { location.href = "./"; };
+$("backBtn").onclick = () => { location.href = "index.html"; };
 (async () => { db = await loadLocal(); fillCounties(); fillChems(); render(); refresh(); })();
 </script></body></html>
