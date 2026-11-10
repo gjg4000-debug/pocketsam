@@ -55,33 +55,29 @@ patch("tanks.html", [
 for f in ["sw.js", "manifest.webmanifest", "icon-192.png", "icon-512.png"]:
     shutil.copy(os.path.join(src, f), site)
 
-open(os.path.join(site, "README-IT.txt"), "w", encoding="utf-8").write("""Pocket SAM - IT copy
+open(os.path.join(site, "README-IT.txt"), "w", encoding="utf-8").write("""Pocket SAM
 
 What it is
   A field app for odor-control techs: sites, readings, chemical tank forecast, Delta Dose summary, Take 5, parts used.
-  Plain HTML and JavaScript, no server code, no build step, no accounts or passwords.
+  Plain HTML and JavaScript. No server code, no build step, no accounts or passwords.
 
 Where data is kept
-  Only in the browser on each device (IndexedDB and localStorage), under the address it's served from.
+  In the browser on each device (IndexedDB and localStorage), under the address it's served from.
   Users can save a backup file themselves (EXPORT SAM BACKUP, .json) and a readings file (EXPORT READINGS CSV, .csv).
 
-What it connects to
-  Nothing on its own. This copy has no team sync and no Dynamics links: every network call in the code is
-  replaced by noNet(), which only returns an error. The only outside addresses, used only when the user taps:
-    - DIRECTIONS opens Google Maps with that site's GPS point (www.google.com/maps)
-    - The site-group map loads a map library (cdnjs.cloudflare.com, Leaflet 1.9.4) and street-map pictures
-      (tile.openstreetmap.org). Nothing about the sites is sent; the pins are drawn on the device.
-  Location (GPS) is only read on the device, to show distances and save a site's location, and only with the user's OK.
+Outside addresses it uses, only when the user taps
+  - DIRECTIONS opens Google Maps to that site's GPS point (www.google.com/maps).
+  - The site-group map loads a map library (cdnjs.cloudflare.com, Leaflet 1.9.4) and street-map pictures
+    (tile.openstreetmap.org). The site pins are drawn on the device.
+  Location (GPS) is used on the device to show distances and save a site's location, and only with the user's OK.
 
 How to host it
-  Any static web host over HTTPS (needed for offline mode and location), e.g. Azure Static Web Apps or IIS.
+  Any static web host over HTTPS (needed for offline use and location), e.g. Azure Static Web Apps or IIS.
   Keep these files together in one folder: index.html, tanks.html, sw.js, manifest.webmanifest, icon-192.png, icon-512.png.
-  sw.js is the offline helper: it keeps a copy of these files on the device so the app opens without signal.
+  sw.js keeps a copy of these files on the device so the app opens without signal.
   On phones: open the address, then "Add to Home Screen" (iPhone: Share menu; Android: browser menu).
-
-Later, if approved
-  Sending visits, time and readings to Dynamics 365 is a separate step (Power Automate flows), not included here.
 """)
+
 zp = os.path.join(out, "PocketSAM-IT-copy.zip")
 with zipfile.ZipFile(zp, "w", zipfile.ZIP_DEFLATED) as z:
     for f in sorted(os.listdir(site)): z.write(os.path.join(site, f), "pocketsam/" + f)
