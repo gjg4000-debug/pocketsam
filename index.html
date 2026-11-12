@@ -725,6 +725,8 @@ async function persist() { await store.save(db); }
 function openDrawdown(n) {
   const box = document.createElement("div"); box.className = "tmr";
   box.innerHTML = `<p class="hint">Calibration cylinder drawdown. Use the stopwatch, or type what you timed.</p>
+    <div style="display:flex;gap:18px;margin:4px 0 8px"><label style="display:flex;gap:6px;align-items:center"><input type="radio" name="ddDir" value="down" checked style="width:auto;margin:0"> Draw down</label>
+    <label style="display:flex;gap:6px;align-items:center"><input type="radio" name="ddDir" value="up" style="width:auto;margin:0"> Draw up</label></div>
     <div class="row"><label for="ddStart">Start level (mL)</label><input id="ddStart" inputmode="decimal" placeholder="e.g. 1000"></div>
     <div class="ddwatch"><button type="button" id="ddGo" class="primary">▶ START</button><span id="ddClock">0:00</span></div>
     <div class="row"><label for="ddEnd">End level (mL)</label><input id="ddEnd" inputmode="decimal" placeholder="e.g. 900"></div>
@@ -733,11 +735,15 @@ function openDrawdown(n) {
   const q = id => box.querySelector("#" + id);
   let t0 = null, tick = null;
   const fmt = s => Math.floor(s / 60) + ":" + String(Math.floor(s % 60)).padStart(2, "0");
+  // Draw down: the level falls (start higher). Draw up: the cylinder refills (end higher). Same mL per minute either way.
+  const up = () => box.querySelector("input[name=ddDir]:checked").value === "up";
   const rate = () => {
     const a = num(q("ddStart").value), b = num(q("ddEnd").value), s = num(q("ddSec").value);
-    if (a == null || b == null || !s || a <= b) return null;
-    return (a - b) * 60 / s;
+    if (a == null || b == null || !s || (up() ? b <= a : a <= b)) return null;
+    return Math.abs(a - b) * 60 / s;
   };
+  box.querySelectorAll("input[name=ddDir]").forEach(i => i.onchange = () => {
+    q("ddStart").placeholder = up() ? "e.g. 900" : "e.g. 1000"; q("ddEnd").placeholder = up() ? "e.g. 1000" : "e.g. 900"; show(); });
   const show = () => { const r = rate(); const a = num(q("ddStart").value), b = num(q("ddEnd").value), s = num(q("ddSec").value);
     if (r == null) { q("ddRes").textContent = "--"; return; }
     const h = num(inputs[`p${n}Hrs`].value) ?? 24, gpd = r * 60 / 3785.41 * h;
@@ -755,7 +761,7 @@ function openDrawdown(n) {
   };
   const done = () => {
     clearInterval(tick);
-    const r = rate(); if (r == null) { q("ddRes").textContent = "Fill in start, end (lower than start) and seconds."; return false; }
+    const r = rate(); if (r == null) { q("ddRes").textContent = `Fill in start, end (${up() ? "higher" : "lower"} than start) and seconds.`; return false; }
     loading = true; inputs[`p${n}Rate`].value = String(+r.toFixed(1)); loading = false;
     dirty = true; updateStatus(); compute(); toast(`Pump ${n}: ${r.toFixed(1)} mL/min · SAVE to keep it`);
   };
