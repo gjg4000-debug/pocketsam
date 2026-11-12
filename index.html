@@ -469,7 +469,7 @@ for (const n of [1, 2]) {
   const note = document.createElement("div"); note.className = "hint tnote"; note.id = `timerNote${n}`; note.hidden = true; row.after(note);
   const t = document.createElement("input"); t.type = "hidden"; inputs[`p${n}Timer`] = t; wrap.append(t);
   const rate = inputs[`p${n}Rate`], rwrap = document.createElement("div"); rwrap.className = "hrswrap"; rate.replaceWith(rwrap);
-  const dbtn = document.createElement("button"); dbtn.type = "button"; dbtn.className = "tbtn"; dbtn.textContent = "📏"; dbtn.title = `Pump ${n} drawdown`;
+  const dbtn = document.createElement("button"); dbtn.type = "button"; dbtn.className = "tbtn"; dbtn.textContent = "📏"; dbtn.title = `Pump ${n} drawdown / draw up`;
   dbtn.onclick = () => openDrawdown(n); rwrap.append(rate, dbtn);
 } addField($("chemInfo"), CHEM_INFO);
 { // 🔩 next to Comments: pick spare parts, they go into the Comments box
@@ -724,9 +724,7 @@ async function persist() { await store.save(db); }
    Stopwatch: start level, START, STOP, end level → mL/min. Or type mL drawn + seconds. DONE fills the rate. */
 function openDrawdown(n) {
   const box = document.createElement("div"); box.className = "tmr";
-  box.innerHTML = `<p class="hint">Calibration cylinder drawdown. Use the stopwatch, or type what you timed.</p>
-    <div style="display:flex;gap:18px;margin:4px 0 8px"><label style="display:flex;gap:6px;align-items:center"><input type="radio" name="ddDir" value="down" checked style="width:auto;margin:0"> Draw down</label>
-    <label style="display:flex;gap:6px;align-items:center"><input type="radio" name="ddDir" value="up" style="width:auto;margin:0"> Draw up</label></div>
+  box.innerHTML = `<p class="hint">Calibration cylinder. End lower than start = drawdown; end higher = draw up. Use the stopwatch, or type what you timed.</p>
     <div class="row"><label for="ddStart">Start level (mL)</label><input id="ddStart" inputmode="decimal" placeholder="e.g. 1000"></div>
     <div class="ddwatch"><button type="button" id="ddGo" class="primary">▶ START</button><span id="ddClock">0:00</span></div>
     <div class="row"><label for="ddEnd">End level (mL)</label><input id="ddEnd" inputmode="decimal" placeholder="e.g. 900"></div>
@@ -735,19 +733,18 @@ function openDrawdown(n) {
   const q = id => box.querySelector("#" + id);
   let t0 = null, tick = null;
   const fmt = s => Math.floor(s / 60) + ":" + String(Math.floor(s % 60)).padStart(2, "0");
-  // Draw down: the level falls (start higher). Draw up: the cylinder refills (end higher). Same mL per minute either way.
-  const up = () => box.querySelector("input[name=ddDir]:checked").value === "up";
+  // The direction is worked out from the numbers: end lower than start = drawdown, end higher = draw up. Same mL per minute either way.
+  const dir = () => { const a = num(q("ddStart").value), b = num(q("ddEnd").value); return a == null || b == null ? null : b < a ? "Drawdown" : b > a ? "Draw up" : "same"; };
   const rate = () => {
     const a = num(q("ddStart").value), b = num(q("ddEnd").value), s = num(q("ddSec").value);
-    if (a == null || b == null || !s || (up() ? b <= a : a <= b)) return null;
+    if (a == null || b == null || !s || a === b) return null;
     return Math.abs(a - b) * 60 / s;
   };
-  box.querySelectorAll("input[name=ddDir]").forEach(i => i.onchange = () => {
-    q("ddStart").placeholder = up() ? "e.g. 900" : "e.g. 1000"; q("ddEnd").placeholder = up() ? "e.g. 1000" : "e.g. 900"; show(); });
   const show = () => { const r = rate(); const a = num(q("ddStart").value), b = num(q("ddEnd").value), s = num(q("ddSec").value);
+    if (dir() === "same") { q("ddRes").textContent = "⚠ Start and end levels are the same. Fix the numbers."; return; }
     if (r == null) { q("ddRes").textContent = "--"; return; }
     const h = num(inputs[`p${n}Hrs`].value) ?? 24, gpd = r * 60 / 3785.41 * h;
-    q("ddRes").textContent = `${+r.toFixed(1)} mL/min = ${gpd.toFixed(1)} GPD` + (h < 24 ? ` (${+h.toFixed(2)} hrs)` : ""); };
+    q("ddRes").textContent = `${dir()}: ${+r.toFixed(1)} mL/min = ${gpd.toFixed(1)} GPD` + (h < 24 ? ` (${+h.toFixed(2)} hrs)` : ""); };
   ["ddStart", "ddEnd", "ddSec"].forEach(id => q(id).oninput = show);
   q("ddGo").onclick = () => {
     if (t0 == null) {
@@ -761,11 +758,11 @@ function openDrawdown(n) {
   };
   const done = () => {
     clearInterval(tick);
-    const r = rate(); if (r == null) { q("ddRes").textContent = `Fill in start, end (${up() ? "higher" : "lower"} than start) and seconds.`; return false; }
+    const r = rate(); if (r == null) { q("ddRes").textContent = dir() === "same" ? "⚠ Start and end levels are the same. Fix the numbers before DONE." : "⚠ Fill in the start level, end level and seconds."; return false; }
     loading = true; inputs[`p${n}Rate`].value = String(+r.toFixed(1)); loading = false;
     dirty = true; updateStatus(); compute(); toast(`Pump ${n}: ${r.toFixed(1)} mL/min · SAVE to keep it`);
   };
-  dialog(`Pump ${n} drawdown`, box, [{ text: "Cancel", fn: () => { clearInterval(tick); } }, { text: "DONE", cls: "primary", fn: done }]);
+  dialog(`Pump ${n} Drawdown / Draw up`, box, [{ text: "Cancel", fn: () => { clearInterval(tick); } }, { text: "DONE", cls: "primary", fn: done }]);
 }
 
 /* ---------- Pump timers (⏱ next to each pump's hrs/day) ----------
