@@ -6,6 +6,9 @@ It stops with an error if Pocket SAM changed so that a removal no longer matches
 import os, re, shutil, sys, zipfile
 
 src = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# --demo: the same IT copy for the online demo at /pocketsam/demo/. It shares the web address's storage with the real
+# Pocket SAM, so it gets its own storage names ("psdemo…") and its own offline cache, and never sees real data.
+DEMO = "--demo" in sys.argv; sys.argv = [a for a in sys.argv if a != "--demo"]
 out = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else "it-copy")
 site = os.path.join(out, "pocketsam")
 shutil.rmtree(out, ignore_errors=True); os.makedirs(site)
@@ -28,6 +31,9 @@ def patch(name, swaps, must_not_contain, cuts=()):
         if n < 1: sys.exit(f"{name}: can't find {a[:60]!r}. Pocket SAM changed; update this script.")
         s = s.replace(a, b)
     s = s.replace("<head>", "<head>\n" + NO_NET, 1)
+    if DEMO:
+        s = s.replace('"pocketsam', '"psdemo')
+        if '"pocketsam' in s: sys.exit(f"{name}: storage name left")
     for bad in must_not_contain:
         if re.search(bad, s): sys.exit(f"{name}: still contains {bad!r}")
     open(os.path.join(site, name), "w", encoding="utf-8").write(s)
@@ -54,6 +60,14 @@ patch("tanks.html", [
 ], [r"\bfetch\("])
 for f in ["sw.js", "manifest.webmanifest", "icon-192.png", "icon-512.png"]:
     shutil.copy(os.path.join(src, f), site)
+if DEMO:
+    sw = open(os.path.join(site, "sw.js"), encoding="utf-8").read()
+    for a, b in [('"pocketsam-v', '"psdemo-v'), ("keys.filter(k => k !== VERSION)", 'keys.filter(k => k !== VERSION && k.startsWith("psdemo"))')]:
+        if a not in sw: sys.exit("sw.js changed; update the demo part of this script")
+        sw = sw.replace(a, b)
+    open(os.path.join(site, "sw.js"), "w", encoding="utf-8").write(sw)
+    mf = open(os.path.join(site, "manifest.webmanifest"), encoding="utf-8").read().replace('"Pocket SAM"', '"Pocket SAM Demo"')
+    open(os.path.join(site, "manifest.webmanifest"), "w", encoding="utf-8").write(mf)
 
 open(os.path.join(site, "README-IT.txt"), "w", encoding="utf-8").write("""Pocket SAM
 

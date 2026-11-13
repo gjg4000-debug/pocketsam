@@ -1,0 +1,621 @@
+<!doctype html>
+<html lang="en"><head>
+<script>/* IT copy: this app sends no data anywhere. Every network call is replaced by noNet(). */const noNet = () => Promise.reject(new Error("This copy does not send data anywhere"));</script>
+<style>#refreshBtn,#syncStatus,#dynLink{display:none!important}</style>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#3F51B5">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Tank Forecast</title>
+<style>
+:root{--bg:#eef1ee;--card:#fff;--ink:#1d2a2c;--muted:#5b6b6e;--line:#d9e0dc;--brand:#3F51B5;--ok:#3b82f6;--low:#d97706;--crit:#dc2626;--note:#fff6ec;--noteline:#f1cfa9;--mine:#7c3aed}
+@media (prefers-color-scheme: dark){:root{--bg:#111827;--card:#1f2937;--ink:#e5e7eb;--muted:#9ca3af;--line:#374151;--note:#3a2d1c;--noteline:#7a5a2c;--mine:#a78bfa}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.top{background:var(--brand);color:#fff;padding:14px 16px}
+.top h1{margin:0;font-size:22px}.top .sub{opacity:.85;font-size:13px}
+.wrap{max-width:820px;margin:0 auto;padding:12px 16px 24px}
+.bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0 10px}
+select,button,input{font:inherit}
+select{padding:7px 8px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink)}
+button{font-size:13.5px;padding:7px 11px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer;white-space:nowrap}
+button.p{background:var(--brand);color:#fff;border-color:var(--brand)}
+.status{font-size:13px;color:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}
+.chip{border-radius:999px;padding:6px 12px;font-size:13.5px}
+.chip.on{background:var(--brand);color:#fff;border-color:var(--brand)}
+.warn .x{float:right;margin:-4px -4px 4px 8px;border:none;background:transparent;font-size:16px;line-height:1;padding:4px 6px;color:var(--muted)}
+.warn .noshow{display:block;text-align:right;margin-top:8px;font-size:12.5px;color:var(--muted)}
+.warn{background:var(--note);border:1px solid var(--noteline);border-radius:10px;padding:10px 12px;font-size:13.5px;margin:4px 0 12px}
+.sum{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:12px}
+.box{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.box .n{font-size:20px;font-weight:700}.box .l{font-size:12.5px;color:var(--muted)}
+h2{font-size:13.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:16px 0 8px}
+.row{display:flex;gap:14px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:10px}
+.tank{position:relative;flex:none;width:58px;height:84px;border:3px solid #6b7280;border-radius:12px 12px 8px 8px;overflow:hidden;background:#0b1220}
+.air{flex:none;width:58px;height:58px;border-radius:50%;border:3px solid #6b7280;display:flex;flex-direction:column;align-items:center;justify-content:center;font-weight:800;line-height:1.05}.air small{font-size:10px;font-weight:600;color:var(--muted)}
+.tank:before{content:"";position:absolute;top:-3px;left:19px;width:14px;height:6px;background:#6b7280;border-radius:0 0 3px 3px;z-index:2}
+.fill{position:absolute;left:0;right:0;bottom:0}
+.d{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;color:#fff;z-index:3;text-shadow:0 1px 3px #000}
+.info{flex:1;min-width:0}.name{font-weight:700}.meta{font-size:13px;color:var(--muted)}
+.src{font-size:12.5px;margin-top:2px}.src.mine{color:var(--mine);font-weight:600}.src.imp{color:#0f766e;font-weight:600}
+@media (prefers-color-scheme: dark){.src.imp{color:#5eead4}}
+#imp select{width:100%;padding:6px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+#imp .il{max-height:55vh;overflow:auto;margin:8px 0}#imp .ir{padding:6px 0;border-bottom:1px solid var(--line);font-size:13.5px}
+.when{font-weight:700;font-size:14px}.when.crit{color:var(--crit)}.when.low{color:var(--low)}
+.row.flash{outline:3px solid var(--mine);outline-offset:2px}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#222;color:#fff;padding:10px 16px;border-radius:20px;font-size:14px;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90%;text-align:center}
+#toast.show{opacity:1}
+.empty{background:var(--card);border:1px dashed var(--line);border-radius:12px;padding:14px;color:var(--muted)}
+dialog{border:none;border-radius:14px;padding:16px;max-width:360px;width:calc(100% - 32px);background:var(--card);color:var(--ink)}
+dialog input{width:100%;padding:8px;border:1px solid var(--line);border-radius:8px;margin:6px 0 10px;background:var(--bg);color:var(--ink)}
+.db{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+.small{font-size:12.5px;color:var(--muted)}
+a{color:var(--brand)}
+@media (prefers-color-scheme: dark){a{color:#a5b4fc}}
+</style></head><body>
+<div class="top"><h1>Tank Forecast</h1><div class="sub">From Pocket SAM readings · read only</div></div>
+<div class="wrap">
+  <div class="bar">
+    <select id="county" aria-label="County / City"></select>
+    <button id="refresh" class="p">REFRESH</button>
+    <button id="impBtn" title="Import levels from the tank monitoring export (.csv)">Import levels</button>
+    <button id="ddBtn" title="Delta Dose summary for your morning email">📋 DD summary</button>
+    <input type="file" id="impFile" accept=".csv,text/csv,.txt" hidden>
+    <span class="status" id="status"></span>
+    <button id="backBtn" title="Back to Pocket SAM">← Pocket SAM</button>
+  </div>
+  <div class="chips" id="chems" aria-label="Show only these chemicals"></div>
+  <div class="warn" id="warn"><button class="x" id="warnX" aria-label="Close this note" title="Close">✕</button><b>Levels are estimates between readings.</b> Each tank starts from its newest reading: a site visit, an <b>Import levels</b> from the monitoring export (a .csv file), or an <b>Update level</b> you type in. From there it counts down using the feed rate. It won't know about a Delta Dose, a pump losing prime, a leak, or a delivery until the next reading, so import often.
+    <label class="noshow"><input type="checkbox" id="warnNo"> Don't show this again</label></div>
+  <div class="sum" id="sum"></div>
+  <h2 id="h1">Soonest empty first</h2>
+  <div id="list"></div>
+  <h2 id="h2">No tank data</h2>
+  <div id="none"></div>
+  <h2 id="h2air" hidden>H2S monitors (air)</h2>
+  <div id="air"></div>
+  <p class="small"><a href="index.html">← Back to Pocket SAM</a> · page version T10</p>
+</div>
+
+<div id="toast" role="status"></div>
+<dialog id="ddDlg"><b>Delta Dose summary</b>
+<p class="small" id="ddMsg"></p>
+<label class="small" for="ddPct">Select your Delta Dose setting:</label> <input id="ddPct" inputmode="decimal" style="width:4.5em;display:inline-block;margin:4px 4px 8px"> <span class="small">%</span>
+<textarea id="ddText" rows="10" style="width:100%;font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)"></textarea>
+<div class="db"><button id="ddCx">Close</button><button class="p" id="ddCopy">COPY</button></div></dialog>
+<dialog id="imp"><b>Import levels</b><div class="small" id="impMsg"></div><div class="il" id="impList"></div>
+<div class="db"><button id="impCx">Cancel</button><button class="p" id="impOk">Save levels</button></div></dialog>
+<dialog id="dlg"><b id="dt"></b><div class="small" id="dd"></div>
+<label class="small" for="g">Current level (gallons)</label><input id="g" inputmode="decimal" autocomplete="off" placeholder="leave blank to keep">
+<label class="small" for="fr">Feed rate (gal/day)</label><input id="fr" inputmode="decimal" autocomplete="off">
+<label class="small" for="sz">Tank size (gallons, optional)</label><input id="sz" inputmode="decimal" autocomplete="off" placeholder="e.g. 550">
+<div id="ddSet"><label class="small" for="ddp">Delta Dose alarm % (optional, from the monitor's site settings)</label><input id="ddp" inputmode="decimal" autocomplete="off" placeholder="blank = 15">
+<label class="small" for="tgt">Target GPD (optional, the monitor's target feed rate)</label><input id="tgt" inputmode="decimal" autocomplete="off"></div>
+<div class="db"><button id="clr">Remove my level</button><button id="cx">Cancel</button><button class="p" id="ok">Save</button></div></dialog>
+
+<dialog id="airDlg"><b id="airT"></b><div class="small">Check every feed site that treats this spot. Picked once for the team. None checked = guess by name.</div>
+<div id="airSel" style="margin:8px 0 10px;max-height:50vh;overflow:auto"></div>
+<label class="small" style="display:flex;gap:8px;align-items:center;margin-bottom:10px"><input type="checkbox" id="airNone" style="width:auto;margin:0"> No feed site</label>
+<div class="db"><button id="airCx">Cancel</button><button class="p" id="airOk">Save</button></div></dialog>
+
+<dialog id="gpdDlg"><b id="gpdT"></b><div class="small" id="gpdNote"></div>
+<label class="small" for="gpdIn">Feed rate (gal/day)</label><input id="gpdIn" inputmode="decimal" autocomplete="off">
+<div class="db"><button id="gpdClr">Use Pocket SAM's</button><button id="gpdCx">Cancel</button><button class="p" id="gpdOk">Save</button></div></dialog>
+
+<script>
+/* Tank Forecast: reads the same data as Pocket SAM on this phone (and its team sync if connected).
+   Never changes Pocket SAM data. "Update level" readings are kept on this phone only. */
+const HORIZON = 10, DAY = 864e5, HIST = "_history";
+const SKIP = new Set(["Demo County", "~Team settings", "🔒 Personal"]);
+// Import-only tanks are stored under this key prefix; "Apopka, FL City of" → "Apopka", "LS 19 4G" → "LS 19"
+const IMP = "~imp\u0001";
+const custName = c => String(c || "").replace(/,?\s*\b(FL|Florida)\b\.?/gi, " ").replace(/\bcity of\b/gi, " ").replace(/\s+/g, " ").replace(/^[\s,]+|[\s,]+$/g, "").trim();
+// The export's customer as Pocket SAM's county name when one matches ("Wildwood, FL City of" → "Wild Wood")
+const countyOf = cust => { const cn = custName(cust), k = String(cn).toLowerCase().replace(/[^a-z0-9]/g, ""); return (k && Object.keys(db).find(c => !SKIP.has(c) && c.toLowerCase().replace(/[^a-z0-9]/g, "") === k)) || cn; };
+const tankName = n => String(n || "").replace(/\s+4G\b/gi, "").replace(/\s+/g, " ").trim();
+const MINE_KEY = "psdemo-tankmine", COUNTY_KEY = "psdemo-tankcounty", CHEM_KEY = "psdemo-tankchems";
+const $ = id => document.getElementById(id);
+const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
+const num = v => { const s = String(v ?? "").trim(); if (!s) return null; const n = Number(s); return isFinite(n) ? n : null; };
+const dkey = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const d0 = s => { const [y, m, d] = String(s).split("-").map(Number); return new Date(y, m - 1, d); };
+const fmt = d => d.toLocaleDateString([], { month: "short", day: "numeric" });
+const fmtW = d => d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+const today = () => { const t = new Date(); return new Date(t.getFullYear(), t.getMonth(), t.getDate()); };
+let db = {}, mine = lsGet(MINE_KEY, {}), cur = null;
+/* Tank sizes are shared with the team through sync (one hidden "Tank sizes" record, like the parts list).
+   Changes made with no signal wait here and are sent on the next REFRESH. */
+const SET = "~Team settings", SIZES_SITE = "Tank sizes", SIZE_PENDING = "psdemo-tanksize-pending";
+// Shared team records: tank sizes, levels imported from the monitoring export, and how export names match sites.
+// dd: each site's own Delta Dose alarm % and the monitor's target GPD, typed once in Update level
+// rates: a feed rate (gal/day) typed on the tank page, used instead of Pocket SAM's pump math
+// air: H2S monitors from the export (air readings, not tanks); airlink: which feed site treats each one
+const TEAM = { sizes: SIZES_SITE, levels: "Tank levels", matches: "Import matches", dd: "DD settings", rates: "Feed rates", air: "H2S monitors", airlink: "H2S monitor feeds" };
+const pendKey = f => f === "sizes" ? SIZE_PENDING : "psdemo-team-pending-" + f;
+const pending = {}; for (const f in TEAM) pending[f] = lsGet(pendKey(f), {});
+const savePending = f => lsSet(pendKey(f), pending[f]);
+{ const old = lsGet("psdemo-tanksize", null); if (old) { for (const k in old) if (!(k in pending.sizes)) pending.sizes[k] = old[k]; savePending("sizes"); try { localStorage.removeItem("psdemo-tanksize"); } catch (e) {} } }   // sizes typed before sharing
+const shared = f => { const r = (db[SET] || {})[TEAM[f]]; return r && r[f] && typeof r[f] === "object" ? r[f] : {}; };
+const teamGet = (f, k) => (k in pending[f]) ? (pending[f][k] || null) : (shared(f)[k] || null);
+const sizeOf = k => teamGet("sizes", k);
+let sizePending = pending.sizes;
+const NUTRIENT_SIZE = 15;                                    // most nutrient tanks are 15 gal; set the bigger ones in Update level
+// A nutrient level over 15 gal can't be a 15 gal tank, so treat it as one of the 100 gal ones
+const tankSize = (x, now) => sizeOf(x.key) || (x.chem === "Nutrient" ? ((x.tech && x.tech.gal > NUTRIENT_SIZE) || now > NUTRIENT_SIZE ? 100 : NUTRIENT_SIZE) : null);
+let chemPick = new Set(lsGet(CHEM_KEY, []));   // empty = show every chemical
+
+// Pocket SAM's saved data on this phone (same storage the app uses)
+function loadLocal() {
+  return new Promise(res => {
+    const fallback = () => res(lsGet("psdemo-db", {}));
+    try {
+      const r = indexedDB.open("psdemo", 1);
+      r.onupgradeneeded = () => r.result.createObjectStore("kv");
+      r.onerror = fallback;
+      r.onsuccess = () => {
+        try {
+          const g = r.result.transaction("kv", "readonly").objectStore("kv").get("psdemo-db");
+          g.onsuccess = () => { let v = g.result; try { v = typeof v === "string" ? JSON.parse(v) : v; } catch (e) { v = null; } v && typeof v === "object" ? res(v) : fallback(); };
+          g.onerror = fallback;
+        } catch (e) { fallback(); }
+      };
+    } catch (e) { fallback(); }
+  });
+}
+// The team sync (read only: sends nothing, just gets the latest)
+async function loadSync(ops) {
+  const cfg = null;
+  if (!cfg || !cfg.url) return null;
+  let by = ""; try { by = (localStorage.getItem("psdemo-techname") || "") + " (Tank Forecast)"; } catch (e) {}
+  const r = await noNet();
+  const j = await r.json(); if (!j.ok) throw new Error(j.error || "Sync error");
+  return j.data || {};
+}
+
+// Filter buttons only for real chemicals: "Bioxide off at breaker" counts as Bioxide; notes like "ORCA" or "offline" get no button
+const CHEMS = [["BP 71", /\bbp\s*-?\s*71\b|bioxide\s*plus\s*71/i], ["AE", /\bae\b/i], ["Bioxide", /bioxide/i], ["Nitrate", /nitrate/i], ["Peroxide", /peroxide|h2o2/i], ["Caustic", /caustic|naoh/i], ["Bleach", /bleach|naocl|hypo/i],
+  ["Nutrient", /nutrient/i], ["Ferric", /ferric/i], ["Mag hydroxide", /magnesium|mag\b|mg\(oh\)/i]];
+const chemOf = name => { const m = CHEMS.find(([, re]) => re.test(name || "")); return m ? m[0] : ""; };
+// Every tank we can forecast: chemical feed and biofilter nutrient (scrubber caustic/bleach run off pH and ORP, so no forecast)
+function chemSites() {
+  const out = [];
+  const daysBetween = (a, b) => (d0(b) - d0(a)) / DAY;
+  for (const c of Object.keys(db).sort()) {
+    if (SKIP.has(c)) continue;
+    for (const s of Object.keys(db[c] || {})) {
+      const rec = db[c][s]; if (!rec || typeof rec !== "object") continue;
+      const h = Array.isArray(rec[HIST]) && rec[HIST].length ? rec[HIST] : [rec];
+      const last = h[h.length - 1];
+      const eq = String(rec.equip || last.equip || "").split(",");
+      const has = k => h.some(e => num(e[k]) != null);
+      const lastWith = k => [...h].reverse().find(e => num(e[k]) != null && e.date);
+      const base = (k) => { const e = lastWith(k); return e ? { gal: num(e[k]), date: e.date } : null; };
+      // Chemical feed: GPD the same way Pocket SAM does (its saved result, else the pump math; blank hours = 24)
+      // Equipment picked: go by it (a sample point with an old chemical name isn't a feed site). Not picked: go by what's filled in.
+      const picked = eq.some(Boolean), shows = k => eq.includes(k) || eq.includes("all");
+      if (picked ? shows("chem") : (last.chemName || last.p1Rate || last.p2Rate || last.curve)) {
+        let gpd = num(last.chemGpd);
+        if (gpd == null) { const r1 = num(last.p1Rate) ?? 0, r2 = num(last.p2Rate) ?? 0; gpd = (r1 || r2) ? (r1 * 60 * (num(last.p1Hrs) ?? 24) + r2 * 60 * (num(last.p2Hrs) ?? 24)) / 3785.41 : null; }
+        out.push({ c, s, key: c + "\u0001" + s, label: s, chem: last.chemName || "No chemical name", gpd, tech: base("chemTank"), why: gpd ? "no tank level recorded yet" : "no pump rates recorded yet" });
+      }
+      // Biofilter nutrient: pump GPH × speed % × stroke % × run time (ON sec / OFF min timer), same as Pocket SAM
+      if (eq.includes("bio") || ((!picked || eq.includes("all")) && (has("bioGph") || has("tankGal")))) {
+        let gpd = num(last.bioGalPerDay);
+        if (gpd == null) {
+          const gph = num(last.bioGph), on = num(last.onSec), off = num(last.offMin);
+          const run = on != null && off != null && on + off * 60 > 0 ? 24 * on / (on + off * 60) : (num(last.bioHrs) ?? 24);
+          gpd = gph != null ? gph * ((num(last.speed) ?? 100) / 100) * ((num(last.stroke) ?? 100) / 100) * run : null;
+        }
+        out.push({ c, s, key: c + "\u0001" + s + "\u0001bio", label: s + " · nutrient", chem: "Nutrient", gpd, tech: base("tankGal"), why: gpd ? "no nutrient tank level recorded yet" : "no nutrient pump settings recorded yet" });
+      }
+    }
+  }
+  // Tanks that only come from the monitoring export (no Pocket SAM site): name, county and chemical from the export itself
+  const lv = { ...shared("levels") }; for (const [k, v] of Object.entries(pending.levels)) { if (v) lv[k] = v; else delete lv[k]; }
+  for (const [key, v] of Object.entries(lv)) {
+    if (!key.startsWith(IMP) || !v || !v.name) continue;
+    const c = countyOf(v.cust) || "Monitoring export";
+    if (SKIP.has(c)) continue;
+    out.push({ c, s: v.name, key, label: v.name, chem: v.prod || "Chemical", gpd: null, tech: null, imp: true, why: "no feed rate in the last import" });
+  }
+  // A feed rate typed here replaces Pocket SAM's pump math (a fresh monitor reading's actual feed still wins)
+  for (const x of out) { x.gpdSam = x.gpd; const ov = teamGet("rates", x.key); if (ov > 0) { x.gpd = ov; x.rateNote = "you set"; } }
+  return out;
+}
+function est(x) {
+  // Newest reading wins: Pocket SAM visit, one typed on this phone, or one imported from the monitoring export
+  const m = mine[x.key], im = teamGet("levels", x.key), c = [];
+  if (x.tech) c.push({ ...x.tech, ts: d0(x.tech.date).getTime(), who: "tech" });
+  if (m) c.push({ gal: m.gal, date: m.date, ts: d0(m.date).getTime() + 1, who: "mine" });
+  if (im && isFinite(im.ts)) c.push({ gal: im.gal, ts: im.ts, at: im.at, feed: im.feed, full: im.full, hb: im.hb, by: im.by, who: im.typed ? "typed" : "import" });
+  if (!c.length) return null;
+  const base = c.sort((a, b) => b.ts - a.ts)[0];
+  // Monitor reads full with no feed: over-filled (reads 100% until it drops) or pumps off for testing. Hold at full, no countdown.
+  if (base.who === "import" && base.full && !(base.feed > 0)) return { now: base.gal, left: Infinity, noRate: true, full: true, base };
+  const rate = base.who === "import" && base.feed > 0 ? base.feed : x.gpd;         // the monitor's actual feed beats the pump math
+  if (!rate) return { now: base.gal, left: Infinity, noRate: true, base };   // level known, no feed rate: show the level, no countdown
+  const days = Math.max(0, (Date.now() - base.ts) / DAY);
+  const now = Math.max(0, base.gal - rate * days), left = now / rate;
+  return { now, left, rate, rateSrc: rate === x.gpd ? "" : "monitor", fill: base.who === "import" && base.feed < 0, by: new Date(Date.now() + left * DAY), base };
+}
+
+function render() {
+  const pick = $("county").value;
+  const allT = chemSites(), present = new Set(allT.map(x => chemOf(x.chem)).filter(Boolean)), eff = new Set([...chemPick].filter(c => present.has(c)));
+  // VL button = the H2S monitors. Only VL picked: monitors only. Chemicals picked without VL: tanks only.
+  const vlOn = chemPick.has(VL) && airList().length > 0, onlyVL = vlOn && !eff.size;
+  const rows = onlyVL ? [] : allT.filter(x => (!pick || x.c === pick) && (!eff.size || eff.has(chemOf(x.chem)))).map(x => ({ x, e: est(x) }));
+  const have = rows.filter(r => r.e).sort((a, b) => a.e.left - b.e.left), none = rows.filter(r => !r.e);
+  const soon = have.filter(r => r.e.left < HORIZON), counted = have.filter(r => !r.e.noRate);
+  $("sum").innerHTML = "";
+  const box = (n, l) => { const b = document.createElement("div"); b.className = "box"; const a = document.createElement("div"); a.className = "n"; a.textContent = n; const c = document.createElement("div"); c.className = "l"; c.textContent = l; b.append(a, c); $("sum").append(b); };
+  box(`${soon.length} of ${counted.length}`, `tanks empty within ${HORIZON} days`);
+  box(String(none.length), "tank(s) with no data yet");
+  const L = $("list"); L.replaceChildren();
+  if (!have.length && !onlyVL) { const p = document.createElement("div"); p.className = "empty"; p.textContent = rows.length ? "No tank levels saved yet." : "No tanks yet. Use Import levels with the monitoring export (.csv), or REFRESH Pocket SAM on this device first."; L.append(p); }
+  have.forEach(({ x, e }) => {
+    // With a tank size: the picture is % full. Without one: full = 30 days or more left.
+    const size = tankSize(x, e.now), pct = size ? Math.max(0, Math.min(100, Math.round(e.now / size * 100))) : null;
+    const p = size ? Math.max(4, pct) : e.noRate ? 0 : Math.max(4, Math.min(100, Math.round(e.left / 30 * 100)));
+    const cls = e.left < 3 ? "crit" : e.left < HORIZON ? "low" : "", col = e.noRate ? "var(--muted)" : e.left < 3 ? "var(--crit)" : e.left < HORIZON ? "var(--low)" : "var(--ok)";
+    const r = document.createElement("div"); r.className = "row"; r.dataset.key = x.key;
+    r.innerHTML = `<div class="tank"><div class="fill"></div><div class="d"></div></div><div class="info"><div class="name"></div><div class="meta"></div><div class="when"></div><div class="src"></div></div>`;
+    r.querySelector(".fill").style.cssText = `height:${p}%;background:${col}`;
+    r.querySelector(".d").textContent = size ? pct + "%" : e.noRate ? "?" : (e.left >= 999 ? "999+" : e.left.toFixed(0)) + "d";
+    r.querySelector(".name").textContent = x.label + (pick ? "" : ` · ${x.c}`);
+    r.querySelector(".meta").textContent = `${x.chem} · ~${Math.round(e.now).toLocaleString()}${size ? " of " + size.toLocaleString() : ""} gal now` + (e.noRate ? "" : ` · ${e.rate < 10 ? e.rate.toFixed(2) : e.rate.toFixed(1)} gal/day` + (e.rateSrc ? " (actual feed)" : e.fill ? " (monitor shows a delivery, using pump rate)" : "")) + (x.rateNote ? ` (${x.rateNote})` : "");
+    const w = r.querySelector(".when");
+    if (e.full) w.textContent = "Tank may be over-filled or off for testing. Feed rate shows when under 100%.";
+    else if (e.noRate) w.textContent = `Can't predict empty date: ${x.why.replace("no tank level recorded yet", "no feed rate")}`;
+    else { w.textContent = e.left < 0.5 ? "Probably empty now" : `Empty by ${fmtW(e.by)}`; if (cls) w.classList.add(cls); }
+    const sr = r.querySelector(".src");
+    if (e.base.who === "import" && e.base.hb) { const hw = document.createElement("div"); hw.className = "when crit"; hw.textContent = "⚠ Heartbeat: tank monitor isn't reporting, level may be old"; r.querySelector(".info").insertBefore(hw, sr); }
+    if (e.base.who === "mine") { sr.classList.add("mine"); sr.textContent = `Your reading ${fmt(d0(e.base.date))}: ${e.base.gal} gal (this phone)`; }
+    else if (e.base.who === "typed") { sr.classList.add("mine"); sr.textContent = `Typed ${new Date(e.base.ts).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}${e.base.by ? " by " + e.base.by : ""}: ${e.base.gal} gal` + (e.noRate ? "" : " · estimated since"); }
+    else if (e.base.who === "import") { sr.classList.add("imp"); sr.textContent = `Monitor reading ${new Date(e.base.ts).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}: ${e.base.gal} gal (imported)` + (e.noRate ? "" : " · estimated since"); }
+    else sr.textContent = `Reading ${fmt(d0(e.base.date))}: ${e.base.gal} gal` + (e.noRate ? "" : " · estimated since");
+    r.append(rowBtns(x)); L.append(r);
+  });
+  const N = $("none"); N.replaceChildren(); $("h2").hidden = !none.length;
+  none.forEach(({ x }) => {
+    const r = document.createElement("div"); r.className = "row"; r.dataset.key = x.key;
+    r.innerHTML = `<div class="tank"><div class="fill" style="height:0"></div><div class="d">?</div></div><div class="info"><div class="name"></div><div class="meta"></div><div class="src mine"></div></div>`;
+    r.querySelector(".name").textContent = x.label + (pick ? "" : ` · ${x.c}`);
+    r.querySelector(".meta").textContent = `${x.chem} · ${x.why}`;
+    const m = mine[x.key]; r.querySelector(".src").textContent = m ? `Your reading ${fmt(d0(m.date))}: ${m.gal} gal (this phone)` : "";
+    r.append(rowBtns(x)); N.append(r);
+  });
+  renderAir(pick, allT, !eff.size || vlOn);
+}
+// H2S monitors: latest air reading, and the feed site that treats it (picked once, or a guess by name)
+// The link is a list of feed site keys (one or more), "none", or nothing yet (guess one by name)
+const airLinks = id => { const l = teamGet("airlink", id); return l === "none" ? "none" : Array.isArray(l) ? l : l ? [l] : []; };
+function airFeed(id, v, allT) {
+  const link = airLinks(id), feeds = allT.filter(x => x.chem !== "Nutrient");
+  if (link === "none") return { none: true };
+  if (link.length) return { xs: link.map(k => feeds.find(f => f.key === k)).filter(Boolean) };
+  const g = guessSite(v.cust, v.name, feeds.filter(f => !f.imp)); const x = g && feeds.find(f => f.key === g);
+  return x ? { xs: [x], guess: true } : { xs: [] };
+}
+const VL = "VL";
+const airList = () => Object.entries({ ...shared("air"), ...pending.air }).filter(([, v]) => v && v.name)
+  .map(([id, v]) => ({ id, v, c: countyOf(v.cust) || "Monitoring export" })).filter(m => !SKIP.has(m.c));
+function renderAir(pick, allT, show) {
+  const A = $("air"); A.replaceChildren();
+  const list = show ? airList().filter(m => !pick || m.c === pick).sort((a, b) => (b.v.hb ? 1 : 0) - (a.v.hb ? 1 : 0) || (b.v.ppm ?? -1) - (a.v.ppm ?? -1)) : [];
+  $("h2air").hidden = !list.length;
+  const f2 = v => v < 10 ? +v.toFixed(2) : +v.toFixed(1);
+  list.forEach(({ id, v, c }) => {
+    const r = document.createElement("div"); r.className = "row";
+    r.innerHTML = `<div class="air"><span class="pv"></span><small>ppm</small></div><div class="info"><div class="name"></div><div class="meta"></div><div class="src imp"></div></div>`;
+    r.querySelector(".pv").textContent = v.ppm != null ? f2(v.ppm) : "?";
+    r.querySelector(".name").textContent = v.name + (pick ? "" : ` · ${c}`) + " · H2S monitor";
+    const fd = airFeed(id, v, allT); let feedTxt = "Feed site: none picked";
+    const one = x => { const im = teamGet("levels", x.key), act = im && im.feed > 0 ? im.feed : null, set = x.gpd;
+      return `${x.label} · ${x.chem}` + (act != null ? ` · ${f2(act)}${set > 0 ? " of " + f2(set) : ""} GPD actual` : set > 0 ? ` · ${f2(set)} GPD` : ""); };
+    if (fd.none) feedTxt = "No feed site";
+    else if (fd.xs.length) feedTxt = "Fed from " + fd.xs.map(one).join("\n+ ") + (fd.guess ? " (guess)" : "");
+    const mt = r.querySelector(".meta"); mt.style.whiteSpace = "pre-line"; mt.textContent = feedTxt;
+    if (v.hb) { const w = document.createElement("div"); w.className = "when crit"; w.textContent = "⚠ Heartbeat: monitor isn't reporting, check it"; r.querySelector(".info").insertBefore(w, r.querySelector(".src")); r.querySelector(".air").style.borderColor = "var(--crit)"; }
+    r.querySelector(".src").textContent = `${v.ppm != null ? f2(v.ppm) + " ppm H2S" : "No H2S reading"} · ${new Date(v.ts).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} (imported)`;
+    const b = document.createElement("button"); b.textContent = "Feed site"; b.style.flex = "none"; b.onclick = () => openAir(id, v, allT);
+    r.append(b); A.append(r);
+  });
+}
+let airCur = null;
+function openAir(id, v, allT) {
+  airCur = id; $("airT").textContent = v.name + " · H2S monitor";
+  const c = countyOf(v.cust), link = airLinks(id), fd = airFeed(id, v, allT), on = new Set(fd.xs ? fd.xs.map(x => x.key) : []);   // the guess starts checked
+  // This county's feed sites first, then the rest
+  const pick = $("county").value;   // a county picked: only its feed sites; All: every feed site, this one's county first
+  const feeds = allT.filter(x => x.chem !== "Nutrient" && (!pick || x.c === pick)).sort((a, b) => (a.c === c ? 0 : 1) - (b.c === c ? 0 : 1) || a.label.localeCompare(b.label, undefined, { numeric: true }));
+  const box = $("airSel"); box.replaceChildren();
+  feeds.forEach(x => { const l = document.createElement("label"); l.style.cssText = "display:flex;gap:8px;align-items:center;padding:4px 0";
+    const cb = document.createElement("input"); cb.type = "checkbox"; cb.value = x.key; cb.checked = on.has(x.key); cb.style.cssText = "width:auto;margin:0";
+    cb.onchange = () => { if (cb.checked) $("airNone").checked = false; };
+    l.append(cb, document.createTextNode(`${x.label} (${x.c}) · ${x.chem}`)); box.append(l); });
+  $("airNone").checked = link === "none";
+  $("airNone").onchange = () => { if ($("airNone").checked) box.querySelectorAll("input").forEach(i => i.checked = false); };
+  $("airDlg").showModal();
+}
+$("airCx").onclick = () => $("airDlg").close();
+$("airOk").onclick = () => {
+  const ks = [...$("airSel").querySelectorAll("input:checked")].map(i => i.value);
+  pending.airlink[airCur] = $("airNone").checked ? "none" : ks.length ? ks : null; savePending("airlink");
+  $("airDlg").close(); toast(ks.length > 1 ? `${ks.length} feed sites saved` : "Feed site saved"); render(); refresh();
+};
+function fillCounties() {
+  const sel = $("county"), keep = sel.value || lsGet(COUNTY_KEY, "");
+  const cs = [...new Set([...chemSites().map(x => x.c), ...airList().map(m => m.c)])].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  sel.replaceChildren();
+  [["", "All counties / cities"], ...cs.map(c => [c, c])].forEach(([v, t]) => { const o = document.createElement("option"); o.value = v; o.textContent = t; sel.append(o); });
+  sel.value = cs.includes(keep) ? keep : "";
+}
+$("county").onchange = () => { lsSet(COUNTY_KEY, $("county").value); render(); };
+// Chemical filter: tap one or more (Bioxide, Nutrient…); none picked = all
+function fillChems() {
+  const all = CHEMS.map(([c]) => c).filter(c => chemSites().some(x => chemOf(x.chem) === c)).concat(airList().length ? [VL] : []);
+  const box = $("chems"); box.replaceChildren(); box.hidden = all.length < 2;
+  const chip = (label, on, fn) => { const b = document.createElement("button"); b.className = "chip" + (on ? " on" : ""); b.textContent = label; b.setAttribute("aria-pressed", on); b.onclick = fn; box.append(b); };
+  chip("All", ![...chemPick].some(c => all.includes(c)), () => { chemPick.clear(); lsSet(CHEM_KEY, []); fillChems(); render(); });
+  all.forEach(c => chip(c, chemPick.has(c), () => { chemPick.has(c) ? chemPick.delete(c) : chemPick.add(c); lsSet(CHEM_KEY, [...chemPick]); fillChems(); render(); }));
+}
+
+// Right side of each tank: Update level, and under it the feed rate (tap to set or change it)
+function rowBtns(x) {
+  const w = document.createElement("div"); w.style.cssText = "display:flex;flex-direction:column;gap:6px;flex:none";
+  const b = document.createElement("button"); b.textContent = "Update level"; b.onclick = () => openDlg(x);
+  const g = document.createElement("button"); const f = v => v < 10 ? +v.toFixed(2) : +v.toFixed(1);
+  g.textContent = x.gpd > 0 ? `GPD ${f(x.gpd)}` : "Set GPD"; g.title = "Feed rate, gallons per day"; g.onclick = () => openGpd(x);
+  w.append(b, g); return w;
+}
+let gpdCur = null;
+function openGpd(x) {
+  gpdCur = x; $("gpdT").textContent = x.label;
+  const ov = teamGet("rates", x.key), f = v => v < 10 ? +v.toFixed(2) : +v.toFixed(1);
+  $("gpdIn").value = ov > 0 ? f(ov) : x.gpdSam > 0 ? f(x.gpdSam) : "";
+  $("gpdNote").textContent = (x.gpdSam > 0 ? `Pocket SAM's pump settings give ${f(x.gpdSam)} gal/day. ` : "Pocket SAM has no feed rate for this tank. ")
+    + "Type the real rate if it's different. A fresh monitor reading's actual feed still wins. Shared with the team.";
+  $("gpdClr").hidden = !(ov > 0);
+  $("gpdDlg").showModal(); setTimeout(() => $("gpdIn").select(), 50);
+}
+$("gpdCx").onclick = () => $("gpdDlg").close();
+$("gpdClr").onclick = () => { pending.rates[gpdCur.key] = null; savePending("rates"); $("gpdDlg").close(); toast(`${gpdCur.label}: back to Pocket SAM's rate`); refresh(); };
+$("gpdOk").onclick = () => {
+  const t = $("gpdIn").value.trim(), v = t ? galOf(t) : null;
+  if (t && !(v > 0)) { $("gpdNote").textContent = "Type the gallons per day as a number, like 36.5."; return; }
+  const same = v != null && gpdCur.gpdSam > 0 && Math.abs(v - gpdCur.gpdSam) < 0.005 && !(teamGet("rates", gpdCur.key) > 0);
+  if (!same) { pending.rates[gpdCur.key] = v; savePending("rates"); }
+  $("gpdDlg").close(); if (!same) { toast(v ? `${gpdCur.label}: ${v} gal/day saved` : `${gpdCur.label}: back to Pocket SAM's rate`); flash(gpdCur.key); refresh(); }
+};
+$("gpdIn").addEventListener("keydown", e => { if (e.key === "Enter") $("gpdOk").click(); });
+function openDlg(x) {
+  cur = x; $("dt").textContent = x.label;
+  const lv = teamGet("levels", x.key), typed = lv && lv.typed;
+  $("dd").textContent = "A level you type is shared with your team and counts down from now. A newer monitor import replaces it.";
+  $("g").value = ""; $("g").placeholder = typed ? `now ${lv.gal} (typed) · blank keeps it` : mine[x.key] ? `now ${mine[x.key].gal} (yours) · blank keeps it` : "blank keeps it"; $("clr").hidden = !(typed || mine[x.key]);
+  const ov = teamGet("rates", x.key), f2 = v => v < 10 ? +v.toFixed(2) : +v.toFixed(1);
+  $("fr").value = ov > 0 ? f2(ov) : ""; $("fr").placeholder = x.gpdSam > 0 ? `blank = Pocket SAM's ${f2(x.gpdSam)}` : "e.g. 42";
+  $("sz").value = sizeOf(x.key) || ""; $("sz").placeholder = x.chem === "Nutrient" ? `${NUTRIENT_SIZE} (usual nutrient tank)` : "e.g. 550";
+  const ds = teamGet("dd", x.key) || {}; $("ddSet").hidden = x.chem === "Nutrient";
+  $("ddp").value = ds.pct || ""; $("ddp").placeholder = `blank = ${Math.round(ddOff() * 100)}`;
+  $("tgt").value = ds.target || ""; $("tgt").placeholder = x.gpd ? `blank = Pocket SAM's ${+x.gpd.toFixed(1)}` : "e.g. 53";
+  if (!x.gpd) $("dd").textContent += ` No feed rate yet: type one so it can count down.`;
+  if (typeof $("dlg").showModal !== "function") {             // very old phones: plain prompt instead
+    const v = prompt(`${x.label}: current level (gallons)`, $("g").value); if (v != null && !saveLevel(x, v)) alert("Type the gallons as a number, like 150."); return;
+  }
+  $("dlg").showModal(); setTimeout(() => $("g").focus(), 50);
+}
+$("cx").onclick = () => $("dlg").close();
+$("clr").onclick = () => { delete mine[cur.key]; lsSet(MINE_KEY, mine); const lv = teamGet("levels", cur.key); if (lv && lv.typed) { pending.levels[cur.key] = null; savePending("levels"); setTimeout(refresh, 0); } $("dlg").close(); render(); };
+// "150", "150 gal" or "1,200" all work
+// Feed can be negative: the monitor shows a delivery (fill) as negative feed
+const feedOf = v => { const m = String(v).replace(/,/g, "").match(/-?\d+(\.\d+)?/); return m ? Number(m[0]) : null; };
+const galOf = v => { const m = String(v).replace(/,/g, "").match(/\d+(\.\d+)?/); return m ? Number(m[0]) : null; };
+function saveLevel(x, v) {
+  const g = galOf(v); if (g == null) return false;
+  delete mine[x.key]; lsSet(MINE_KEY, mine);
+  pending.levels[x.key] = { gal: g, ts: Date.now(), typed: 1, by: (() => { try { return localStorage.getItem("psdemo-techname") || ""; } catch (e) { return ""; } })() }; savePending("levels"); render(); setTimeout(refresh, 0);
+  toast(`Saved ${g} gal for ${x.label}`); flash(x.key); return true;
+}
+$("ok").onclick = () => {
+  const lv = $("g").value.trim(), sz = $("sz").value.trim();
+  if ((lv && galOf(lv) == null) || (sz && !(galOf(sz) > 0))) { $("dd").textContent = "Type the gallons as a number, like 150."; return; }
+  const dp = $("ddp").value.trim(), tg = $("tgt").value.trim();
+  if ((dp && !(galOf(dp) > 0 && galOf(dp) < 100)) || (tg && !(galOf(tg) > 0))) { $("dd").textContent = "Type the DD % and target GPD as numbers, like 25 and 53."; return; }
+  const oldD = teamGet("dd", cur.key) || {}, nwD = { ...(dp ? { pct: galOf(dp) } : {}), ...(tg ? { target: galOf(tg) } : {}) };
+  const ddChanged = oldD.pct !== nwD.pct || oldD.target !== nwD.target;
+  if (ddChanged) { pending.dd[cur.key] = Object.keys(nwD).length ? nwD : null; savePending("dd"); setTimeout(refresh, 0); toast(`DD settings saved for ${cur.label}`); }
+  const fr = $("fr").value.trim();
+  if (fr && !(galOf(fr) > 0)) { $("dd").textContent = "Type the feed rate as gallons per day, like 42."; return; }
+  const oldR = teamGet("rates", cur.key) || null, nwR = fr ? galOf(fr) : null;
+  if (nwR !== oldR && !(nwR && !oldR && cur.gpdSam > 0 && Math.abs(nwR - cur.gpdSam) < 0.005)) { pending.rates[cur.key] = nwR; savePending("rates"); setTimeout(refresh, 0); toast(nwR ? `${cur.label}: ${nwR} gal/day saved` : `${cur.label}: back to Pocket SAM's rate`); }
+  const old = sizeOf(cur.key), nw = sz ? galOf(sz) : null;
+  if (nw !== old) { pending.sizes[cur.key] = nw; savePending("sizes"); setTimeout(refresh, 0); }   // shared on the next sync
+  if (lv) saveLevel(cur, lv);
+  else { render(); if (nw !== old) { toast((sz ? `Tank size ${galOf(sz)} gal saved for ${cur.label}` : `Tank size cleared for ${cur.label}`) + (lsGet("psdemo-sync", null) ? " · shared with your team" : "")); flash(cur.key); } }
+  $("dlg").close();
+};
+$("sz").addEventListener("keydown", e => { if (e.key === "Enter") $("ok").click(); });
+$("g").addEventListener("keydown", e => { if (e.key === "Enter") $("ok").click(); });
+function toast(t) { const el = $("toast"); el.textContent = t; el.classList.add("show"); clearTimeout(toast.h); toast.h = setTimeout(() => el.classList.remove("show"), 2500); }
+function flash(key) { const r = document.querySelector(`[data-key="${CSS.escape(key)}"]`); if (!r) return; r.scrollIntoView({ block: "center", behavior: "smooth" }); r.classList.add("flash"); setTimeout(() => r.classList.remove("flash"), 1600); }
+
+/* ---------- Import levels from the tank monitoring export (.csv) ----------
+   Columns used: Customer, SiteName, LastUpdate, Inventory, Capacity. The file is read on this device only;
+   the levels, tank sizes and name matches are shared with the team through sync. */
+function parseCsv(text) {
+  const rows = []; let row = [], f = "", q = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) { if (ch === '"') { if (text[i + 1] === '"') { f += '"'; i++; } else q = false; } else f += ch; }
+    else if (ch === '"') q = true;
+    else if (ch === ",") { row.push(f); f = ""; }
+    else if (ch === "\n" || ch === "\r") { if (ch === "\r" && text[i + 1] === "\n") i++; row.push(f); rows.push(row); row = []; f = ""; }
+    else f += ch;
+  }
+  if (f || row.length) { row.push(f); rows.push(row); }
+  return rows.filter(r => r.some(c => String(c).trim()));
+}
+const norm = v => String(v || "").toLowerCase().replace(/\broad\b/g, "rd").replace(/\bstreet\b/g, "st").replace(/\bavenue\b/g, "ave").replace(/\bdrive\b/g, "dr").replace(/\blift station\b/g, "ls").replace(/,\s*[a-z]{2}\.?$/i, "").replace(/\bcounty\b/g, "").replace(/\s+co\.?$/g, "").replace(/[^a-z0-9]/g, "");
+function firstNum(v) { const m = String(v).replace(/\b\d+\s*g\b/gi, " ").match(/\d+/); return m ? m[0].replace(/^0+(?=\d)/, "") : null; }
+function parseWhen(v) {
+  const m = String(v).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(am|pm)?)?/i);
+  if (!m) { const t = Date.parse(v); return isFinite(t) ? t : null; }
+  let [, mo, d, y, h, mi, sec, ap] = m; y = +y < 100 ? 2000 + +y : +y; h = +(h || 0);
+  if (ap) { ap = ap.toLowerCase(); if (ap === "pm" && h < 12) h += 12; if (ap === "am" && h === 12) h = 0; }
+  return new Date(y, +mo - 1, +d, h, +(mi || 0), +(sec || 0)).getTime();
+}
+const countyFits = (cust, key) => { const cn = norm(cust), kc = norm(String(key).split("\u0001")[0]); return !cn || kc === cn || (!!kc && (kc.includes(cn) || cn.includes(kc))); };
+function guessSite(cust, name, tanks) {
+  // Only guess inside the same county/city: "LS 51" in Wildwood must never land on LS 51 in Apopka
+  const pool = tanks.filter(x => countyFits(cust, x.key));
+  if (!pool.length) return null;
+  const num = firstNum(name);
+  if (num) { const hit = pool.filter(x => firstNum(x.s) === num); if (hit.length === 1) return hit[0].key; }
+  const nn = norm(String(name).replace(/\b\d+\s*g\b/gi, ""));
+  const hit = pool.filter(x => norm(x.s) === nn || (nn.length > 3 && (norm(x.s).includes(nn) || nn.includes(norm(x.s)))));
+  return hit.length === 1 ? hit[0].key : null;
+}
+let impRows = [];
+const NEW = "~new";   // no Pocket SAM site: show it as its own tank from the export
+$("impBtn").onclick = () => { $("impFile").value = ""; $("impFile").click(); };
+$("impFile").onchange = async () => {
+  const file = $("impFile").files[0]; if (!file) return;
+  const text = await file.text(), rows = parseCsv(text.replace(/^﻿/, ""));
+  const head = (rows[0] || []).map(h => String(h).trim().toLowerCase());
+  const col = n => head.indexOf(n), colStart = n => head.findIndex(h => h.replace(/[^a-z]/g, "").startsWith(n));
+  const ci = { cust: col("customer"), site: col("sitename"), when: col("lastupdate"), inv: col("inventory"), cap: col("capacity"), feed: colStart("actualfeed"), prod: col("product"),
+    type: colStart("sitetype"), status: (i => i >= 0 ? i : 1)(colStart("sitestatus")), h2s: head.findIndex(h => h.replace(/[^a-z0-9]/g, "").startsWith("h2slevel")) };
+  if (ci.site < 0 || ci.inv < 0) { toast("That isn't the monitoring export (.csv with SiteName and Inventory). Pocket SAM backups and site lists go in Pocket SAM's IMPORT."); return; }
+  const tanks = chemSites().filter(x => x.chem !== "Nutrient" && !x.imp);
+  // Air H2S monitors (site type says vapor): saved as H2S readings at the bottom, never as tanks
+  // Site status "Heartbeat" = the monitor has a problem (not reporting): goes on top, flagged red
+  const hbOf = r => /heart\s*beat/i.test(String(r[ci.status] || ""));
+  const isAir = r => ci.type >= 0 && /vapou?r/i.test(String(r[ci.type] || ""));
+  let nAir = 0;
+  rows.slice(1).filter(r => r[ci.site] && isAir(r)).forEach(r => {
+    const cust = ci.cust >= 0 ? r[ci.cust] : "", name = r[ci.site], id = norm(cust) + "|" + norm(name);
+    const ppm = ci.h2s >= 0 ? galOf(r[ci.h2s]) : null, ts = ci.when >= 0 ? parseWhen(r[ci.when]) : Date.now(), cur = teamGet("air", id);
+    if (cur && cur.ts > ts) return;
+    pending.air[id] = { name: tankName(name), cust, ppm, ts, at: ci.when >= 0 ? r[ci.when] : "", ...(hbOf(r) ? { hb: 1 } : {}) }; nAir++;
+  });
+  if (nAir) savePending("air");
+  impRows = rows.slice(1).filter(r => !isAir(r)).map(r => {
+    const cust = ci.cust >= 0 ? r[ci.cust] : "", name = r[ci.site], id = norm(cust) + "|" + norm(name);
+    // Remembered picks: ones you chose by hand always count; older automatic ones only if the county fits
+    const rem = teamGet("matches", id), remKey = rem && typeof rem === "object" ? rem.key : rem, manual = !!(rem && rem.manual);
+    const remembered = manual ? remKey : (remKey && remKey !== "skip" && countyFits(cust, remKey) ? remKey : null);
+    const feed = ci.feed >= 0 ? feedOf(r[ci.feed]) : null;
+    return { hb: hbOf(r), id, cust, name, inv: galOf(r[ci.inv]), cap: ci.cap >= 0 ? galOf(r[ci.cap]) : null, feed: feed ? feed : null, prod: ci.prod >= 0 ? String(r[ci.prod] || "").trim() : "", ts: ci.when >= 0 ? parseWhen(r[ci.when]) : Date.now(), whenTxt: ci.when >= 0 ? r[ci.when] : "",
+      key: remembered === "skip" ? "skip" : (remembered || guessSite(cust, name, tanks) || NEW), remembered };
+  }).filter(r => r.name && r.inv != null);
+  if (!impRows.length) { if (nAir) { toast(`${nAir} H2S monitor reading(s) saved`); render(); refresh(); } else toast("No tank rows found in that file"); return; }
+  if (nAir) setTimeout(() => toast(`Also saved ${nAir} H2S monitor reading(s), at the bottom`), 2800);
+  const L = $("impList"); L.replaceChildren();
+  const opts = [[NEW, "— own tank from the export —"], ["skip", "— skip (don't show) —"], ...tanks.map(x => [x.key, `${x.s} (${x.c})`]).sort((a, b) => a[1].localeCompare(b[1], undefined, { numeric: true }))];
+  impRows.forEach(r => {
+    const d = document.createElement("div"); d.className = "ir";
+    const t = document.createElement("div"); t.textContent = `${r.name} · ${r.cust} — ${r.inv} gal` + (r.cap ? ` of ${r.cap}` : "");
+    const sel = document.createElement("select"); opts.forEach(([v, tx]) => { const o = document.createElement("option"); o.value = v; o.textContent = tx; sel.append(o); });
+    sel.value = r.key || NEW; sel.onchange = () => { r.key = sel.value; r.changed = true; };
+    d.append(t, sel); L.append(d);
+  });
+  const real = k => k && k !== NEW && k !== "skip";
+  const n = impRows.filter(r => real(r.key)).length, nNew = impRows.filter(r => r.key === NEW).length;
+  const seen = {}; impRows.forEach(r => { if (real(r.key)) seen[r.key] = (seen[r.key] || 0) + 1; });
+  const dups = impRows.filter(r => real(r.key) && seen[r.key] > 1);
+  dups.forEach(r => { const i = impRows.indexOf(r), el = L.children[i]; if (el) { const w = document.createElement("div"); w.className = "small"; w.style.color = "var(--crit)"; w.textContent = "⚠ Two rows matched to this same site. Pick the right one, skip the other."; el.append(w); } });
+  // No pop-up unless two export rows land on the same Pocket SAM site
+  if (!dups.length) { saveImport(); return; }
+  $("impMsg").textContent = `⚠ ${dups.length} rows in the file landed on the same site (red notes). Pick the right site for each, or skip one, then Save. Your picks are remembered for next time.`;
+  $("imp").showModal();
+};
+$("impCx").onclick = () => $("imp").close();
+$("impOk").onclick = () => saveImport();
+function saveImport() {
+  let n = 0;
+  impRows.forEach(r => {
+    if (r.changed) pending.matches[r.id] = { key: r.key || NEW, manual: 1 };           // only picks you make are remembered
+    const ik = IMP + r.id, own = r.key === NEW || !r.key;
+    if (!own && teamGet("levels", ik)) pending.levels[ik] = null;                       // now matched or skipped: drop its own-tank copy
+    if (r.key === "skip") return;
+    const key = own ? ik : r.key, cur = teamGet("levels", key);
+    // Replace it if it's newer, or if the stored level came from a different export row (an old wrong match)
+    if (!cur || (cur.typed ? r.ts > cur.ts : (cur.id !== r.id || !(cur.ts > r.ts)))) { pending.levels[key] = { gal: r.inv, ts: r.ts, at: r.whenTxt, id: r.id, ...(r.feed ? { feed: r.feed } : {}), ...(r.hb ? { hb: 1 } : {}), ...(!r.feed && (r.cap || sizeOf(key)) > 0 && r.inv >= (r.cap || sizeOf(key)) * 0.99 ? { full: 1 } : {}), ...(own ? { name: tankName(r.name), cust: r.cust, prod: r.prod } : {}) }; n++; }
+    if (r.cap > 0) pending.sizes[key] = r.cap;
+  });
+  ["matches", "levels", "sizes"].forEach(savePending);
+  $("imp").close(); render(); refresh();
+  toast(`Imported ${impRows.filter(r => r.key !== "skip").length} tank(s)`);
+}
+
+
+/* ---------- Delta Dose summary for the morning email ----------
+   actual = the monitor's actual feed from the last import (within 24 hrs); set = Pocket SAM's GPD from the pump settings.
+   DD when actual is 15% or more off (catches sites still in the monitor's 20% daily alarm; changeable in the dialog) what it's set for. Written downward: county, then one site per line, a blank line between counties */
+const DD_HOURS = 24;
+const ddOff = () => { const v = Number(localStorage.getItem("psdemo-ddpct")); return (v > 0 && v < 100 ? v : 15) / 100; };
+function ddSummary() {
+  const byCounty = {}, fresh = Date.now() - DD_HOURS * 3600e3, noSet = []; let n = 0, withFeed = 0;
+  chemSites().filter(x => x.chem !== "Nutrient").forEach(x => {
+    const im = teamGet("levels", x.key);
+    if (!im || !(im.feed > 0) || !(im.ts >= fresh)) return;
+    withFeed++;
+    const ds = teamGet("dd", x.key) || {}, set = ds.target > 0 ? ds.target : (x.gpdSam > 0 ? x.gpdSam : x.gpd), off = ds.pct > 0 ? ds.pct / 100 : ddOff();
+    if (!(set > 0)) { noSet.push(`${x.label} (${Math.round(im.feed * 10) / 10} GPD)`); return; }   // nothing to compare against: list it so it isn't missed
+    if (Math.abs(im.feed - set) / set < off) return;
+    // Leave the sample point part off the name: "5 and 5 SP" → "5"
+    const nm = x.s.replace(/\s+(and|&|\+|\/)\s+.*\bSP\b.*$/i, "").replace(/\s*[-(]?\s*\bSP\b\)?\s*$/i, "").trim() || x.s;
+    // Tank level from the same import, gallons only, e.g. "· 1140 gal"
+    const lvl = im.gal != null ? ` · ${Math.round(im.gal)} gal` : "";
+    (byCounty[x.c] ||= []).push(`${nm} DD ${Math.round(im.feed)}/${Math.round(set)}${lvl}`); n++;
+  });
+  const lines = Object.keys(byCounty).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+    .map(c => `${c}:\n` + byCounty[c].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).join("\n"));
+  return { text: lines.join("\n\n"), n, withFeed, noSet };
+}
+function ddShow() {
+  const r = ddSummary(), pc = Math.round(ddOff() * 100);
+  $("ddText").value = r.text;
+  $("ddMsg").textContent = !r.withFeed ? "No actual feed rates from the last 24 hours. Import today's monitoring export (.csv) first."
+    : r.n ? `${r.n} Delta Dose(s): pumped / set for (gal/day). Each site uses its own DD % and target if you saved them in Update level, otherwise ${pc}% and Pocket SAM\'s GPD. Edit if needed, then COPY.`
+    : `No Delta Doses in today's import. Every pump is within its DD alarm % (${pc}% if not set).`;
+  if (r.noSet.length) $("ddMsg").textContent += ` ⚠ No target GPD, so not checked: ${r.noSet.join(", ")}. Set one with Set GPD or Update level → Target GPD.`;
+}
+$("ddBtn").onclick = () => { $("ddPct").value = Math.round(ddOff() * 100); ddShow(); $("ddDlg").showModal(); };
+$("ddPct").oninput = () => { const v = Number($("ddPct").value); if (v > 0 && v < 100) { try { localStorage.setItem("psdemo-ddpct", String(v)); } catch (e) {} ddShow(); } };
+$("ddCx").onclick = () => $("ddDlg").close();
+$("ddCopy").onclick = async () => {
+  const t = $("ddText").value;
+  try { await navigator.clipboard.writeText(t); toast("Copied. Paste it into your email"); }
+  catch (e) { $("ddText").select(); document.execCommand("copy"); toast("Copied"); }
+};
+
+async function refresh() {
+  $("refresh").disabled = true; $("status").textContent = "Checking…";
+  try {
+    let data = await loadSync();
+    const waiting = Object.keys(TEAM).filter(f => Object.keys(pending[f]).length);
+    if (data && waiting.length) {                            // send this phone's changes on top of the latest shared lists
+      db = data;
+      const ops = waiting.map(f => {
+        const merged = { ...shared(f) };
+        for (const [k, v] of Object.entries(pending[f])) { if (v) merged[k] = v; else delete merged[k]; }
+        return { op: "put", c: SET, s: TEAM[f], rec: { [f]: merged, updated: new Date().toISOString() } };
+      });
+      data = await loadSync(ops);
+      waiting.forEach(f => { pending[f] = {}; savePending(f); });
+    }
+    if (data) { db = data; $("status").textContent = "Up to date " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
+    else $("status").textContent = "";
+  } catch (e) { $("status").textContent = navigator.onLine ? "Sync problem, showing this phone's data" : "No signal, showing this phone's data"; }
+  $("refresh").disabled = false; fillCounties(); fillChems(); render();
+}
+$("refresh").onclick = refresh;
+// The note comes back every time the page opens, unless "Don't show this again" was checked when it was closed
+try { if (localStorage.getItem("psdemo-tankwarn-off") === "1") $("warn").hidden = true; } catch (e) {}
+$("warnX").onclick = () => { $("warn").hidden = true; if ($("warnNo").checked) { try { localStorage.setItem("psdemo-tankwarn-off", "1"); } catch (e) {} } };
+$("backBtn").onclick = () => { location.href = "index.html"; };
+(async () => { db = await loadLocal(); fillCounties(); fillChems(); render(); refresh(); })();
+</script></body></html>
