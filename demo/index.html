@@ -265,7 +265,7 @@
       <button class="danger" id="deleteBtn">DELETE</button>
     </div>
     <div class="btns">
-      <button id="historyBtn">HISTORY</button>
+      <button id="historyBtn">HISTORY</button><button id="visitFileBtn">💾 SAVE VISIT FILE</button>
     </div>
     <p class="hint">SAVE also keeps a copy under the date above, so HISTORY can show past months.
       Saving again on the same date just updates that day.</p>
@@ -3167,6 +3167,15 @@ document.addEventListener("visibilitychange", () => {
   showDemoLink(); offerDemo();   // no "Forgot to check out?" pop-up
   if ("serviceWorker" in navigator && location.protocol.startsWith("http")) navigator.serviceWorker.register("sw.js").catch(() => {});
 })();
+</script>
+<script>
+document.getElementById("visitFileBtn").onclick = () => {
+  if (!county || !site || !siteRec()) { toast("Open a site and SAVE it first"); return; }
+  const date = $("readingDate").value || today(), v = visits[visitKey(county, site, date)] || {};
+  const pkg = dynVisit(siteRec(), county, site, date, newId(), $("completeChk").checked, { a: v.a, l: v.l });
+  download(`visit-${county}-${site}-${date}.json`.replace(/[^A-Za-z0-9.-]+/g, "_"), JSON.stringify(pkg, null, 2), "application/json");
+  toast("Visit file saved");
+};
 </script>
 </body>
 </html>

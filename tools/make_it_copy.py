@@ -17,6 +17,17 @@ NO_NET = ('<script>/* IT copy: this app sends no data anywhere. Every network ca
           'const noNet = () => Promise.reject(new Error("This copy does not send data anywhere"));</script>\n'
           '<style>#refreshBtn,#syncStatus,#dynLink{display:none!important}</style>\n')
 
+VISIT_FILE = """<script>
+document.getElementById("visitFileBtn").onclick = () => {
+  if (!county || !site || !siteRec()) { toast("Open a site and SAVE it first"); return; }
+  const date = $("readingDate").value || today(), v = visits[visitKey(county, site, date)] || {};
+  const pkg = dynVisit(siteRec(), county, site, date, newId(), $("completeChk").checked, { a: v.a, l: v.l });
+  download(`visit-${county}-${site}-${date}.json`.replace(/[^A-Za-z0-9.-]+/g, "_"), JSON.stringify(pkg, null, 2), "application/json");
+  toast("Visit file saved");
+};
+</script>
+"""
+
 def cut(s, start, end, keep):
     """Replace the code from `start` up to (not including) `end` with `keep`."""
     i = s.find(start); j = s.find(end, i)
@@ -50,6 +61,9 @@ patch("index.html", [
     ('async function postDyn(body) { const r = await fetch(dynUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); return r; }', 'async function postDyn(body) { return noNet(); }'),
     ('const r = await fetch(dayUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });', 'const r = await noNet();'),
     ('<a href="#" id="dynLink">Dynamics test: off</a>', '<a href="#" id="dynLink" hidden></a>'),
+    # IT copy only: save the open site's visit as a .json file (work order, times, readings, parts) to drop in a shared folder
+    ('<button id="historyBtn">HISTORY</button>', '<button id="historyBtn">HISTORY</button><button id="visitFileBtn">💾 SAVE VISIT FILE</button>'),
+    ('</body>', VISIT_FILE + '</body>'),
 ], [r"\bfetch\(", r"script\.google"], cuts=[
     # The screen for connecting the Google sheet is taken out completely
     ('function setupSync(problem) {', '$("refreshBtn").onclick', 'function setupSync() { /* IT copy: no team sync */ }\n'),
@@ -78,6 +92,7 @@ What it is
 Where data is kept
   In the browser on each device (IndexedDB and localStorage), under the address it's served from.
   Users can save a backup file themselves (EXPORT SAM BACKUP, .json) and a readings file (EXPORT READINGS CSV, .csv).
+  SAVE VISIT FILE saves the open site's visit (times, readings, parts, notes) as one small .json file.
 
 Outside addresses it uses, only when the user taps
   - DIRECTIONS opens Google Maps to that site's GPS point (www.google.com/maps).
