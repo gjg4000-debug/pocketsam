@@ -539,7 +539,10 @@ function saveImport() {
     if (r.key === "skip") return;
     const key = own ? ik : r.key, cur = teamGet("levels", key);
     // Replace it if it's newer, or if the stored level came from a different export row (an old wrong match)
-    if (!cur || (cur.typed ? r.ts > cur.ts : (cur.id !== r.id || !(cur.ts > r.ts)))) { pending.levels[key] = { gal: r.inv, ts: r.ts, at: r.whenTxt, id: r.id, ...(r.feed ? { feed: r.feed } : {}), ...(r.hb ? { hb: 1 } : {}), ...(!r.feed && (r.cap || sizeOf(key)) > 0 && r.inv >= (r.cap || sizeOf(key)) * 0.99 ? { full: 1 } : {}), ...(own ? { name: tankName(r.name), cust: r.cust, prod: r.prod } : {}) }; n++; }
+    // Filled since the last import: the level went up (more than sensor wobble), so that day's feed reading isn't trusted for DD
+    const cap = r.cap || sizeOf(key) || 0, rise = cur && cur.gal != null ? r.inv - cur.gal : 0;
+    const filled = (cur && r.ts > cur.ts && rise > Math.max(5, cap * 0.02)) || (cur && cur.filled && cur.ts === r.ts);
+    if (!cur || (cur.typed ? r.ts > cur.ts : (cur.id !== r.id || !(cur.ts > r.ts)))) { pending.levels[key] = { gal: r.inv, ts: r.ts, at: r.whenTxt, id: r.id, ...(r.feed ? { feed: r.feed } : {}), ...(filled ? { filled: 1 } : {}), ...(r.hb ? { hb: 1 } : {}), ...(!r.feed && (r.cap || sizeOf(key)) > 0 && r.inv >= (r.cap || sizeOf(key)) * 0.99 ? { full: 1 } : {}), ...(own ? { name: tankName(r.name), cust: r.cust, prod: r.prod } : {}) }; n++; }
     if (r.cap > 0) pending.sizes[key] = r.cap;
   });
   ["matches", "levels", "sizes"].forEach(savePending);
@@ -557,7 +560,7 @@ function ddSummary() {
   const byCounty = {}, fresh = Date.now() - DD_HOURS * 3600e3, noSet = []; let n = 0, withFeed = 0;
   chemSites().filter(x => x.chem !== "Nutrient").forEach(x => {
     const im = teamGet("levels", x.key);
-    if (!im || !(im.feed > 0) || !(im.ts >= fresh)) return;
+    if (!im || !(im.feed > 0) || !(im.ts >= fresh) || im.filled) return;   // filled since the last import: skip it today
     withFeed++;
     const ds = teamGet("dd", x.key) || {}, set = ds.target > 0 ? ds.target : (x.gpdSam > 0 ? x.gpdSam : x.gpd), off = ds.pct > 0 ? ds.pct / 100 : ddOff();
     if (!(set > 0)) { noSet.push(`${x.label} (${Math.round(im.feed * 10) / 10} GPD)`); return; }   // nothing to compare against: list it so it isn't missed
