@@ -566,7 +566,9 @@ function ddSummary() {
     const nm = x.s.replace(/\s+(and|&|\+|\/)\s+.*\bSP\b.*$/i, "").replace(/\s*[-(]?\s*\bSP\b\)?\s*$/i, "").trim() || x.s;
     // Tank level from the same import, gallons only, e.g. "· 1140 gal"
     const lvl = im.gal != null ? ` · ${Math.round(im.gal)} gal` : "";
-    (byCounty[x.c] ||= []).push(`${nm} DD ${Math.round(im.feed)}/${Math.round(set)}${lvl}`); n++;
+    // How far off target, e.g. "-58%" when underfeeding, "+20%" when over
+    const pc = Math.round((im.feed - set) / set * 100), pcs = (pc > 0 ? "+" : "") + pc + "%";
+    (byCounty[x.c] ||= []).push(`${nm} DD ${Math.round(im.feed)}/${Math.round(set)} (${pcs})${lvl}`); n++;
   });
   const lines = Object.keys(byCounty).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
     .map(c => `${c}:\n` + byCounty[c].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).join("\n"));
